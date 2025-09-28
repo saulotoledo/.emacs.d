@@ -1,0 +1,2599 @@
+#+TITLE: Emacs configuration file
+#+AUTHOR: Saulo S. de Toledo
+#+PROPERTY: header-args :tangle yes
+#+STARTUP: content
+#+OPTIONS: toc:t
+
+* Table of Contents :TOC:
+- [[#about][About]]
+- [[#key-bindings][Key bindings]]
+- [[#general-configuration][General configuration]]
+    - [[#meta-settings][Meta settings]]
+    - [[#emacs-socket-and-server-settings][Emacs socket and server settings]]
+        - [[#option-1-tcpip-socket-for-direct-network-exposure][Option 1: TCP/IP Socket (For Direct Network Exposure)]]
+        - [[#option-2-file-socket-directory-for-simpler-ssh-forwarding][Option 2: File Socket Directory (For Simpler SSH Forwarding)]]
+    - [[#setup-script][Setup script]]
+    - [[#general-interface-tweaks][General interface tweaks]]
+    - [[#font-and-theme][Font and theme]]
+    - [[#interactive-do-settings][Interactive DO settings]]
+    - [[#custom-key-bindings][Custom key bindings]]
+    - [[#focus-mode][Focus mode]]
+    - [[#other-configurations][Other configurations]]
+- [[#emacs-hacks][Emacs hacks]]
+    - [[#faster-startup][Faster startup]]
+    - [[#resize-issue-on-certain-terminals][Resize issue on certain terminals]]
+- [[#packages-initial-setup][Packages initial setup]]
+- [[#theme-and-ui][Theme and UI]]
+    - [[#themes][Themes]]
+    - [[#tabs][Tabs]]
+    - [[#icons][Icons]]
+    - [[#tree-navigation-sidebar][Tree navigation sidebar]]
+    - [[#centering-text-in-the-buffer-c-c-o][Centering text in the buffer (C-c o)]]
+    - [[#modes-configuration][Modes configuration]]
+    - [[#minibuffer-completion-and-search][Minibuffer Completion and Search]]
+    - [[#maximize-frame-at-startup][Maximize frame at startup]]
+- [[#version-control][Version control]]
+- [[#other-useful-packages][Other useful packages]]
+    - [[#try-a-new-package-without-installing-it][Try a new package without installing it]]
+    - [[#snippets][Snippets]]
+    - [[#undo-tree][Undo tree]]
+    - [[#multiple-cursors][Multiple cursors]]
+    - [[#scrollbar-on-the-terminal][Scrollbar on the terminal]]
+    - [[#move-text][Move Text]]
+    - [[#expanding-ripgrep][Expanding ripgrep]]
+    - [[#terminal][Terminal]]
+    - [[#multiple-cursors-1][Multiple cursors]]
+    - [[#improved-help][Improved help]]
+- [[#org-mode-packages][Org-mode packages]]
+    - [[#managing-the-table-of-contents][Managing the table of contents]]
+    - [[#nice-bullets][Nice bullets]]
+    - [[#babel][Babel]]
+    - [[#tempo][Tempo]]
+    - [[#org-modern][Org Modern]]
+- [[#programming-ide-and-related][Programming, IDE and related]]
+    - [[#code-completion][Code completion]]
+    - [[#ide-functionality-with-lsp][IDE functionality with LSP]]
+        - [[#lsp-mode-core-lsp-client][lsp-mode: Core LSP client]]
+        - [[#lsp-ui-ui-enhancements-for-lsp][lsp-ui: UI enhancements for LSP]]
+        - [[#lsp-treemacs-project-and-symbol-tree-views][lsp-treemacs: Project and symbol tree views]]
+        - [[#dap-mode-debug-adapter-protocol-debugging][dap-mode: Debug Adapter Protocol (debugging)]]
+    - [[#syntax-checking-with-flycheck][Syntax checking with Flycheck]]
+    - [[#code-formatting][Code Formatting]]
+        - [[#automatic-code-formatting-with-apheleia][Automatic code formatting with Apheleia]]
+        - [[#prettier-setup][Prettier setup:]]
+    - [[#org-source-block-editing][Org Source Block Editing]]
+    - [[#code-metrics][Code metrics]]
+    - [[#programming-languages-and-modes][Programming, languages and modes]]
+        - [[#general-setup-with-tree-sitter][General setup with tree-sitter]]
+        - [[#python][Python]]
+        - [[#java][Java]]
+        - [[#kotlin][Kotlin]]
+        - [[#typescript][TypeScript]]
+        - [[#javascript][JavaScript]]
+        - [[#general-nodejs-development-setup][General Node.js development setup]]
+        - [[#general-web-development-html-css][General Web development (HTML, CSS)]]
+        - [[#shell][Shell]]
+        - [[#yaml][YAML]]
+        - [[#markdown][Markdown]]
+    - [[#editorconfig][EditorConfig]]
+        - [[#docker-and-related][Docker and related]]
+- [[#project-management][Project management]]
+- [[#window-management][Window management]]
+- [[#pdf-tools][PDF Tools]]
+- [[#user-functions][User functions]]
+    - [[#autosave-hooks][Autosave hooks]]
+    - [[#yarn-integration][Yarn integration]]
+
+* About
+This is my personal Emacs configuration, written and maintained in Org mode.
+
+It contains my preferred packages, UI tweaks, and programming helpers. I tangle
+and load the relevant Emacs Lisp from this file so the Org source is the single
+source of truth for my setup. Learn more about Org mode at
+[[https://orgmode.org][the Org mode website]].
+
+
+* Key bindings
+
+I am following [[https://github.com/larstvei/dot-emacs/blob/main/init.org][the dot-emacs repository]]
+again on maintaining a =custom-bindings-map= that holds all my custom bindings. This is based on
+[[http://stackoverflow.com/questions/683425/globally-override-key-binding-in-emacs][this StackOverflow post]].
+This map can be activated by toggling a simple =minor-mode= that just activates the map, preventing other
+=major-modes= from overridding these bindings.
+
+#+begin_src emacs-lisp
+(defvar custom-bindings-map (make-sparse-keymap)
+  "Keymap used for user custom bindings.")
+
+(define-minor-mode custom-bindings-mode
+  "A minor mode for custom keybindings that override major modes."
+  :global t
+  :keymap custom-bindings-map)
+
+(custom-bindings-mode 1)
+#+end_src
+
+
+* General configuration
+
+** Meta settings
+
+We start by activating [[https://www.gnu.org/software/emacs/manual/html_node/elisp/Lexical-Binding.html][Lexical binding]] to our init files. Note that we
+do it with 2 files: =init.el= and =early-init.el=.
+
+The =early-init.el= file was introduced on Emacs 27. This file, if
+present, is evaluated before package and GUI initialization, which
+makes it the ideal place to setup some initializations we will
+introduce later.
+
+The =init.el= is the default Emacs initialization file.
+
+#+begin_src emacs-lisp
+;;; -*- lexical-binding: t; -*-
+#+end_src
+
+#+begin_src emacs-lisp :tangle early-init.el
+;;; -*- lexical-binding: t; -*-
+#+end_src
+
+We generate the =init.el= file from the source blocks in the
+=init.org=. We can use =org-babel-tangle= to do this. However, to make
+this process automatic after saving this file, we reuse the function
+below and attach it to the =after-save-hook=. This solution is copied
+from [[https://github.com/larstvei/dot-emacs/blob/main/init.org][the dot-emacs repository]].
+
+#+begin_src emacs-lisp
+(defun tangle-init ()
+  "If the current buffer is init.org the code-blocks are
+  tangled, and the tangled file is compiled."
+  (when (equal (buffer-file-name)
+               (expand-file-name (concat user-emacs-directory "init.org")))
+    ;; Avoid running hooks when tangling.
+    (let ((prog-mode-hook nil))
+      (org-babel-tangle)
+      ;; The following line is not necessary in Emacs 28+, because it
+      ;; generates native compilation files (.eln) instead of .elc:
+      ;; (byte-compile-file (concat user-emacs-directory "init.el"))
+      ;; We use native compilation instead:
+      (setq native-comp-deferred-compilation t)
+      (native-compile-async (concat user-emacs-directory "init.el")))))
+
+(add-hook 'after-save-hook 'tangle-init)
+#+end_src
+
+The Emacs Customize system utilizes the value of the variable
+=custom-file= to write its customization forms. If the value of this
+variable is not defined, it will write the settings to the value of
+=user-init-file=, which is our =init.el= at the moment. To prevent
+this from happening, we define the value of =custom-file= below:
+
+#+begin_src emacs-lisp :tangle early-init.el
+(setq custom-file (expand-file-name "custom.el" user-emacs-directory))
+#+end_src
+
+We also ensure that the cognitive-complexity package is cloned locally if it
+doesn't already exist. This allows us to load it manually without relying on
+package managers.
+
+#+begin_src emacs-lisp :tangle early-init.el
+;; Clone cognitive-complexity (port of codemetrics for treesit) if not already present
+(let ((cognitive-complexity-dir (expand-file-name "cognitive-complexity" user-emacs-directory)))
+  (unless (file-directory-p cognitive-complexity-dir)
+    (message "Cloning cognitive-complexity...")
+    (call-process "git" nil nil nil "clone"
+                  "https://github.com/emacs-vs/cognitive-complexity"
+                  cognitive-complexity-dir)))
+#+end_src
+
+Below we will load the value of =custom-file=, but we also create a
+=local.el= file for local settings. This is useful for configurations
+that do not need to be pushed to the git repository and that are local
+to the environment in use.
+
+#+begin_src emacs-lisp
+(require 'server)
+(add-hook 'after-init-hook
+          (lambda ()
+            (let ((local-file (concat user-emacs-directory "local.el")))
+              (when (file-exists-p local-file)
+                (load-file local-file))
+              (when (file-exists-p custom-file)
+                (load-file custom-file))
+              (unless (server-running-p)
+                (server-start)))))
+#+end_src
+
+
+** Emacs socket and server settings
+
+When running Emacs as a daemon using `emacs --daemon`, the `(server-start)` command is
+triggered implicitly, allowing the fast client, `emacsclient`, to connect. For remote
+or containerized environments (like Docker), the default local file socket often
+creates challenges with network exposure and file permissions. We must configure a
+reliable server connection method.
+
+*** Option 1: TCP/IP Socket (For Direct Network Exposure)
+
+This approach is best if you want the Emacs server to listen on a network interface,
+which is useful when running Emacs inside a Docker container that is exposed via
+port forwarding or an SSH tunnel.
+
+#+begin_example emacs-lisp
+;; Configure the Emacs server to listen on a TCP socket
+(setq server-use-tcp t)
+
+;; Define the specific port the Emacs daemon should listen on inside the container
+(setq server-port 4000)
+
+;; Define the host interface to listen on. Setting this to "127.0.0.1" (localhost)
+;; inside the container provides enhanced security, as Emacs will only accept
+;; connections originating from within the container itself. This relies on the
+;; external SSH tunnel to securely forward traffic to this local address.
+(setq server-host "127.0.0.1")
+#+end_example
+
+
+*** Option 2: File Socket Directory (For Simpler SSH Forwarding)
+
+Using a dedicated socket file location is often simpler for secure connections over
+SSH, especially when using tools like `ssh -L`. This method is preferred because it
+bypasses the common challenge of file permission issues associated with the default
+socket location (usually in the user's home directory), which might be inaccessible
+to the `sshd` process or other services. We address this directly by moving the
+socket to the universally accessible `/tmp` directory, which centralizes its location
+and ensures accessibility. Ultimately, given its ease of use for remote access, we
+opted for this file socket approach in our configuration:
+
+#+begin_src emacs-lisp :tangle init.el
+(setq server-socket-dir "/tmp/emacs-server")
+#+end_src
+
+
+** Setup script
+
+To facilitate setting up the external tools needed by our Emacs environment, we
+provide a setup script that should be executed before starting Emacs.
+
+We start the script by introducing some variables and command-line flags that we
+will use later.
+
+The current version of the script requires `bash` to run: `bash setup.sh`.
+
+#+begin_src sh :tangle setup.sh
+#!/bin/bash
+
+SKIP_JAVA=false
+SKIP_KOTLIN=false
+
+parse_args() {
+  for arg in "$@"; do
+    case $arg in
+      --skip-java)
+        SKIP_JAVA=true
+        shift
+        ;;
+      --skip-kotlin)
+        SKIP_KOTLIN=true
+        shift
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+}
+
+initialize_sdkman() {
+  if [ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
+    echo -e "\033[1;33m[ Initializing SDKMAN ]\033[0m"
+    . "$HOME/.sdkman/bin/sdkman-init.sh"
+    echo "SDKMAN initialized."
+  else
+    echo "SDKMAN not found in your environment."
+  fi
+}
+
+parse_args "$@"
+
+if [ "$SKIP_JAVA" = "false" ] || [ "$SKIP_KOTLIN" = "false" ]; then
+  initialize_sdkman
+fi
+#+end_src
+
+When there is no =init.el=, we must initialize it from the bootstrap file:
+
+#+begin_src sh :tangle setup.sh
+if [ ! -f "./init.el" ]; then
+  echo -e "\033[1;32m\n[ Bootstraping init.el ]\033[0m"
+  cp "init-bootstrap.el" "init.el"
+fi
+#+end_src
+
+Multiple tools we use to support our development flow are based on Node.js.
+We need to install those tools in our system below.
+
+#+begin_src sh :tangle setup.sh
+# Minimal version of node required by our setup. Update as needed:
+REQUIRED_NODE_VERSION="20.19.2"
+
+check_node_version() {
+  echo -e "\033[1;32m[ Checking Node.js Version ]\033[0m"
+
+  if ! command -v node >/dev/null 2>&1; then
+    echo -e "\033[1;31mError: Node.js is not installed. Please install it before running this script.\033[0m"
+    exit 1
+  fi
+
+  CURRENT_NODE_VERSION=$(node -v | sed 's/v//')
+
+  # Version comparison logic: checks if current version is less than required version
+  if [ ! "$(printf '%s\n' "$REQUIRED_NODE_VERSION" "$CURRENT_NODE_VERSION" | sort -V | head -n1)" = "$REQUIRED_NODE_VERSION" ]; then
+    echo -e "\033[1;31mError: You have Node.js version $CURRENT_NODE_VERSION, but we require at least version $REQUIRED_NODE_VERSION to proceed.\033[0m"
+    echo "Please update Node.js before proceeding."
+    exit 1
+  fi
+
+  echo -e "\033[1;32mNode.js $CURRENT_NODE_VERSION meets the requirement ($REQUIRED_NODE_VERSION).\033[0m"
+}
+
+install_nodejs_tools() {
+  echo -e "\033[1;32m\n[ Installing Node.js tools used by Emacs packages ]\033[0m"
+
+  local TOOLS_DIR="$HOME/.emacs.d/nodejs_tools"
+
+  if [ ! -d "$TOOLS_DIR" ]; then
+    echo "Error: Directory $TOOLS_DIR not found. Skipping npm install."
+    return 1
+  fi
+
+  cd "$TOOLS_DIR" || exit 1
+  rm -Rf node_modules
+  npm install
+
+  # Small hack for bash-language-server to work with lsp-mode
+  echo "Applying bash-language-server symlink hack..."
+  rm -Rf "$HOME/.emacs.d/.cache/lsp/npm/bash-language-server/"
+  mkdir -p "$HOME/.emacs.d/.cache/lsp/npm/bash-language-server/bin/"
+  ln -s "$TOOLS_DIR/node_modules/.bin/bash-language-server" "$HOME/.emacs.d/.cache/lsp/npm/bash-language-server/bin/bash-language-server"
+}
+
+check_node_version
+install_nodejs_tools
+#+end_src
+
+
+** General interface tweaks
+
+Minimal startup + UI tweaks: quiet boot, 120-col default (80 for Org),
+y/n prompts, visible bell, instant which-key, and no GUI
+chrome. ~which-key-mode~ displays available key bindings after an
+incomplete command.
+
+#+begin_src emacs-lisp
+;; Line limits
+(setq-default fill-column 120)
+(add-hook 'org-mode-hook (lambda ()
+                           (setq-local fill-column 80)
+                           (auto-fill-mode 1)))
+
+;; Cursor settings
+(setq-default cursor-type 'bar)
+
+;; Line numbers
+(add-to-list 'prog-mode-hook 'display-line-numbers-mode)
+(add-to-list 'org-mode-hook 'display-line-numbers-mode)
+
+;; Highlighting current line
+(global-hl-line-mode 1)
+;; (custom-set-faces
+;;   '(line-number-current-line ((t (:inherit line-number :background "#3B4252" :foreground "#88C0D0" :weight bold)))))
+;; (custom-set-faces
+;;   '(hl-line ((t (:background "#3B4252" :extend t)))))
+
+;; Only auto-fill inside comments
+(setq comment-auto-fill-only t)
+
+(add-hook 'prog-mode-hook
+          (lambda ()
+            (setq-local comment-auto-fill-only t)
+            (auto-fill-mode 1)))
+
+;; Indent and tab characters
+(setq whitespace-style '(face tabs tab-mark))
+(define-key custom-bindings-map (kbd "S-SPC") (lambda () (interactive) (insert "\t")))
+(global-whitespace-mode 1)
+(setq whitespace-display-mappings
+      '((tab-mark 9 [8594 32] [92 9])))
+
+;; Other tweaks
+(fset 'yes-or-no-p 'y-or-n-p)
+(menu-bar-mode -1)
+(scroll-bar-mode -1)
+(set-fringe-mode 10)
+(tool-bar-mode -1)
+(which-key-mode)
+(global-visual-line-mode 1)
+#+end_src
+
+
+** Font and theme
+
+#+begin_src emacs-lisp
+(when (member "Roboto Mono" (font-family-list))
+  (set-face-attribute 'default nil :font "Roboto Mono" :height 108)
+  (set-face-attribute 'fixed-pitch nil :family "Roboto Mono"))
+
+(when (member "Source Sans Pro" (font-family-list))
+  (set-face-attribute 'variable-pitch nil :family "Source Sans Pro" :height 1.18))
+;; (set-face-attribute 'default nil :font "JetBrains Mono-11")
+#+end_src
+
+
+** Interactive DO settings
+
+IDO (Interactively DO things) replaces many minibuffer prompts with a
+compact interactive matcher that narrows candidates as you type. These
+options tune its behavior:
+
+- ~ido-enable-flex-matching~: allow substring and flexible matching
+(not only prefix matches). Type parts of a name in any order and IDO
+will still find it.
+- ~ido-everywhere~: use IDO's interface for most buffer/file
+minibuffer prompts (where sensible), giving a consistent
+completion experience across commands.
+- ~(ido-mode 1)~: enable IDO globally.
+
+IDO is built into Emacs, lightweight, and improves the speed of file
+and buffer selection without external dependencies.
+
+However, not all commands use IDO by default. The package
+[[ido-completing-read+]] provides a more powerful interface for
+completing read commands using IDO.
+
+#+begin_src emacs-lisp
+(setq ido-enable-flex-matching t) ; better string matching on search
+(setq ido-everywhere t)           ; toggle use of Ido for all buffer/file reading
+(ido-mode 1)
+
+(use-package ido-completing-read+
+  ;; "defer" is needed to prevent errors during initialization in some systems
+  :defer t
+  :config
+  (ido-ubiquitous-mode 1))
+#+end_src
+
+
+** Custom key bindings
+
+#+begin_src emacs-lisp
+(global-set-key (kbd "<f5>") 'revert-buffer) ;; Reload the current buffer from its backing file (F5).
+#+end_src
+
+
+** Focus mode
+
+Focus mode dims all text except for the current paragraph or line,
+helping you concentrate on the task at hand.
+
+#+begin_src emacs-lisp
+(use-package focus
+  ;; "defer" is needed to prevent errors during initialization in some systems
+  :defer t
+  :config
+  (focus-mode 1))
+#+end_src
+
+
+** Other configurations
+
+The following variables are global:
+
+#+begin_src emacs-lisp
+;; Replacements for the classic buffer list
+;; (defalias 'list-buffers 'ibuffer) ;; opens it in the same window
+(defalias 'list-buffers 'ibuffer-other-window) ;; opens it in another window
+
+;; Ensure newline at end of file
+(setq require-final-newline t)
+
+;; Set UTF-8 as default encoding
+(set-language-environment "UTF-8")
+(prefer-coding-system 'utf-8)
+
+(setq auto-revert-interval 1          ; Refresh buffers faster
+      create-lockfiles nil            ; Disable creation of lockfiles
+      echo-keystrokes 0.1             ; Show keystrokes faster
+      enable-recursive-minibuffers t  ; Allow recursive minibuffers
+      frame-inhibit-implied-resize 1  ; Don't resize frame implicitly
+      history-delete-duplicates t     ; Delete duplicates in M-x history log
+      inhibit-startup-screen t        ; Disables splash screen
+      initial-scratch-message nil     ; Clean scratch buffer
+      recentf-max-saved-items 10000   ; Show more recent files
+      ring-bell-function 'ignore      ; Quiet
+      scroll-margin 1                 ; Space between cursor and top/bottom
+      sentence-end-double-space nil   ; No double space
+      visible-bell t                  ; Visual flash instead of audible bell
+      which-key-idle-delay 0          ; Show which-key immediately when an incomplete key sequence is entered
+      )
+
+;; Saving Emacs backups and auto-save files in a different place
+(setq backup-directory-alist
+      `((".*" . ,(expand-file-name "backups/" user-emacs-directory))))
+(make-directory (expand-file-name "auto-save-list/" user-emacs-directory) t)
+(setq auto-save-file-name-transforms
+      `((".*" ,(expand-file-name "auto-save-list/" user-emacs-directory) t)))
+
+;; Prevent mac-bindings from interfering with Emacs bindings:
+(when (boundp 'mac-pass-command-to-system)
+  (setq mac-pass-command-to-system nil))
+#+end_src
+
+Other variables are buffer-local by default, but we can set their
+default values using =setq-default=:
+
+#+begin_src emacs-lisp
+(setq-default tab-width 2                         ; Smaller tabs
+              indent-tabs-mode nil                ; Use spaces instead of tabs
+              split-width-threshold 160           ; Split verticly by default
+              split-height-threshold nil          ; Split verticly by default
+              frame-resize-pixelwise t            ; Fine-grained frame resize
+              ;; auto-fill-function 'do-auto-fill ; Auto-fill-mode everywhere
+              )
+#+end_src
+
+Automatically revert DocView buffers when the file changes on
+disk. Those are Emacs buffers shown when you open a non-text document
+(PDF, PostScript, DjVu, etc.) with Emacs' built-in DocView mode. Emacs
+renders document pages into images and displays those images inside a
+special major mode (DocView mode) so you can read and navigate the
+document inside Emacs.
+
+#+begin_src emacs-lisp
+(add-hook 'doc-view-mode-hook 'auto-revert-mode)
+#+end_src
+
+
+* Emacs hacks
+
+** Faster startup
+
+A common startup speed-up is to disable the garbage collection during
+Emacs initialization, and enable it back after it. The code below
+temporarily raises ~gc-cons-threshold~ to an extremely large value and
+clears file.
+
+A common startup speed-up is to defer garbage collection and file-name
+handler processing while Emacs initializes. The code below temporarily
+raises ~gc-cons-threshold~ to an extremely large value and clears
+file-name-handler-alist before init so GC cycles and file-handler
+overhead are avoided during startup. It then restores the original
+file-name-handler-alist and a reasonable gc-cons-threshold in an
+emacs-startup-hook after initialization completes. Finally,
+~inhibit-default-init~ prevents loading your environment's default
+global settings together with your init file (adapted from
+[[https://github.com/larstvei/dot-emacs/blob/main/init.org][the dot-emacs-repository]]).
+
+#+begin_src emacs-lisp :tangle early-init.el
+(let ((file-name-handler-alist-old file-name-handler-alist))
+  (add-hook 'emacs-startup-hook
+            (lambda ()
+              (setq gc-cons-threshold (* 1024 1024 20))
+              (setq file-name-handler-alist file-name-handler-alist-old)))
+  (setq gc-cons-threshold most-positive-fixnum)
+  (setq file-name-handler-alist nil))
+
+(setq inhibit-default-init t)
+#+end_src
+
+
+** Resize issue on certain terminals
+
+When moving a terminal window between monitors or resizing it quickly,
+Emacs running in a tty can briefly see inconsistent size or DPI info.
+That can make Emacs compute the wrong number of rows/columns and push
+lines or UI elements off-screen even though the terminal already grew.
+
+The root causes are timing and handshake differences between the
+terminal emulator and Emacs (TERM or DPI changes and delayed resize
+notifications). The terminal may update geometry after Emacs has
+already calculated layout.
+
+The workaround forces an immediate redisplay, a gentle recenter, and a
+few retry attempts after short delays; as a last resort it re-applies
+the frame size. These retries catch late-arriving terminal updates and
+bring Emacs' view into alignment with the terminal once the emulator
+finishes reporting geometry.
+
+The code only runs for non-graphical (tty) sessions and uses safe
+ignore-errors wrappers, so risk is low.
+
+#+begin_src emacs-lisp
+;; Resize fixes and logging (preserved)
+(defun my/tty-resize-fix (&rest _args)
+  "Robustly fix terminal/frame resize artifacts.
+When running in a terminal, some resize events (DPI/monitor switch)
+leave the UI in a bad state. Try several redisplay/recenter attempts
+and a safe frame-size reapply as a fallback.
+
+This is intentionally conservative (ignore-errors) and only runs when
+display is non-graphical, so it is safe for GUI Emacs too."
+  (ignore-errors
+    (redisplay)
+    (when (not (display-graphic-p))
+      (run-with-idle-timer 0.03 nil (lambda () (redisplay)))
+      (run-with-idle-timer 0.07 nil (lambda () (redisplay) (ignore-errors (recenter 0))))
+      (run-with-idle-timer 0.15 nil
+                           (lambda ()
+                             (redisplay)
+                             (ignore-errors (recenter 0))
+                             (when (and (not (display-graphic-p)) (fboundp 'set-frame-size))
+                               (let ((fw (frame-width)) (fh (frame-height)))
+                                 (condition-case _err
+                                     (set-frame-size (selected-frame) fw fh)
+                                   (error nil)))))))))
+
+(add-hook 'window-size-change-functions #'my/tty-resize-fix)
+(add-hook 'frame-size-change-functions #'my/tty-resize-fix)
+(add-hook 'window-configuration-change-hook #'my/tty-resize-fix)
+#+end_src
+
+
+* Packages initial setup
+
+Starting with Emacs 29, [[https://github.com/jwiegley/use-package][use-package]] is bundled with Emacs as an
+[[https://lists.gnu.org/archive/html/emacs-devel/2022-12/msg00261.html][official part of the distribution]]. That means you can ~require~ it
+directly on Emacs 29+. However, this configuration retains the
+traditional bootstrap/install steps to preserve compatibility with
+older Emacs versions.
+
+In addition to that, the GPG key used to sign the GNU ELPA archives
+might be expired and requires update, leading to signature errors
+when installing packages in some systems. One easy way to keep this
+key updated is through the package =gnu-elpa-keyring-update=, which
+is installed below.
+
+#+begin_src emacs-lisp
+(require 'package)
+(setq package-enable-at-startup nil)
+
+;; Configure package directories to use user's elpa directory
+(setq package-user-dir (expand-file-name "elpa" user-emacs-directory))
+(add-to-list 'package-directory-list package-user-dir)
+
+(setq package-archives
+      '(("MELPA Stable" . "https://stable.melpa.org/packages/")
+        ("GNU ELPA"     . "https://elpa.gnu.org/packages/")
+        ("MELPA"        . "https://melpa.org/packages/")
+        ("Non-GNU"      . "https://elpa.nongnu.org/nongnu/")
+        ("GNU-devel"    . "https://elpa.gnu.org/devel/"))
+
+      package-archive-priorities
+      '(("MELPA"        . 20)
+        ("GNU ELPA"     . 15)
+        ("MELPA Stable" . 10)
+        ("Non-GNU"      . 5)
+        ("GNU-devel"    . 0)))
+
+(package-initialize)
+(unless 'package-archive-results
+  (package-refresh-contents))
+
+(unless (package-installed-p 'use-package)
+  (package-refresh-contents)
+  (package-install 'use-package))
+
+(unless (package-installed-p 'gnu-elpa-keyring-update)
+  (package-install 'gnu-elpa-keyring-update))
+
+(require 'gnu-elpa-keyring-update)
+(require 'use-package)
+(setq use-package-always-ensure t)
+(setq use-package-compute-statistics t)
+#+end_src
+
+
+* Theme and UI
+
+** Themes
+
+#+begin_src emacs-lisp
+(use-package doom-themes
+  :custom
+  ;; Global settings (defaults)
+  (doom-themes-enable-bold t)   ; if nil, bold is universally disabled
+  (doom-themes-enable-italic t) ; if nil, italics is universally disabled
+  ;; for treemacs users
+  ;; (doom-themes-treemacs-theme "doom-nova") ; use "doom-colors" for less minimal icon theme
+  :config
+  (load-theme 'doom-nord t) ; or doom-nord-light
+
+  ;; (custom-set-faces
+  ;;   '(org-block ((t (:background "#ff0000")))))
+
+  ;; Enable flashing mode-line on errors
+  ;; (doom-themes-visual-bell-config)
+  ;; For treemacs users
+  ;; (doom-themes-treemacs-config)
+  ;; Corrects (and improves) org-mode's native fontification.
+  ;; Ensure we only call `doom-themes-org-config' when it's defined. This
+  ;; prevents native-compiler warnings and avoids trying to call the
+  ;; function before the package has been loaded.
+  (cond
+   ((fboundp 'doom-themes-org-config)
+    (doom-themes-org-config))
+   (t
+    (with-eval-after-load 'doom-themes
+      (when (fboundp 'doom-themes-org-config)
+        (doom-themes-org-config))))))
+
+;; We are using All Icons, but doom-modeline requires Nerd Icons for some parts.
+(use-package nerd-icons
+  :init
+  ;; (setq nerd-icons-font-family "Symbols Nerd Font Mono")
+  :config
+  (unless (file-exists-p (expand-file-name "~/.local/share/fonts/NFM.ttf"))
+    (nerd-icons-install-fonts t)))
+
+(use-package doom-modeline
+  :after all-the-icons nerd-icons
+  :init (doom-modeline-mode 1)
+  :custom
+  (doom-modeline-height 15)
+  (doom-modeline-icon t))
+#+end_src
+
+
+** Tabs
+
+#+begin_src emacs-lisp
+;; Silence native-compiler warnings for centaur-tabs
+(declare-function centaur-tabs-2str "centaur-tabs")
+
+(use-package centaur-tabs
+  :ensure
+  :demand
+  :config
+  (centaur-tabs-mode t)
+  (setq centaur-tabs-set-icons t
+        centaur-tabs-icon-type 'all-the-icons   ;; use all-the-icons, not nerd-icons
+        centaur-tabs-plain-icons t
+        centaur-tabs-height 32
+        centaur-tabs-style "bar"
+        centaur-tabs-gray-out-icons 'buffer
+        centaur-tabs-set-bar 'over
+        centaur-tabs-set-modified-marker t
+        centaur-tabs-adjust-buffer-order t)
+
+  ;; Group tabs by project
+  (defun centaur-tabs-buffer-groups ()
+    "Organize tabs into groups by project."
+    (list
+     (cond
+      ((derived-mode-p 'eshell-mode 'term-mode 'shell-mode 'vterm-mode)
+       "Terminal")
+      ((string-prefix-p "*" (buffer-name))
+       "System")
+      ((memq major-mode '(magit-process-mode
+                          magit-status-mode
+                          magit-diff-mode
+                          magit-log-mode
+                          magit-file-mode
+                          magit-blob-mode
+                          magit-blame-mode))
+       "Magit")
+      ((derived-mode-p 'dired-mode)
+       "Dired")
+      ((project-current)
+       (format "Project: %s" (file-name-nondirectory
+                              (directory-file-name
+                               (project-root (project-current))))))
+      (t "Default"))))
+
+  (defun centaur-tabs-hide-tab (x)
+    "Do no to show buffer X in tabs."
+    (let ((name (format "%s" x)))
+      (or
+       ;; Current window is not dedicated window.
+       (window-dedicated-p (selected-window))
+
+       ;; Buffer name not match below blacklist.
+       (string-prefix-p "*epc" name)
+       (string-prefix-p "*helm" name)
+       (string-prefix-p "*Helm" name)
+       (string-prefix-p "*Compile-Log*" name)
+       (string-prefix-p "*lsp" name)
+       (string-prefix-p "*company" name)
+       (string-prefix-p "*Flycheck" name)
+       (string-prefix-p "*tramp" name)
+       (string-prefix-p " *Mini" name)
+       (string-prefix-p "*help" name)
+       (string-prefix-p "*straight" name)
+       (string-prefix-p " *temp" name)
+       (string-prefix-p "*Help" name)
+       (string-prefix-p "*mybuf" name)
+       (string-prefix-p "*scratch*" name)
+
+       ;; Is not magit buffer.
+       (and (string-prefix-p "magit" name)
+            (not (file-name-extension name)))
+       )))
+  :hook
+  (dired-mode . centaur-tabs-local-mode)
+  :bind
+  ("C-<prior>" . centaur-tabs-backward)
+  ("C-<next>" . centaur-tabs-forward)
+  ("C-M-S-<next>" . centaur-tabs-forward-group)
+  ("C-M-S-<prior>" . centaur-tabs-backward-group))
+#+end_src
+
+
+** Icons
+
+#+begin_src emacs-lisp
+(use-package all-the-icons
+  :config
+  (unless (file-exists-p (expand-file-name "~/.local/share/fonts/all-the-icons.ttf"))
+    (all-the-icons-install-fonts t)))
+#+end_src
+
+
+** Tree navigation sidebar
+
+Treemacs provides a file and project explorer sidebar for Emacs, similar to
+the file explorer in VSCode or other IDEs. It integrates with version control
+systems to show file status and provides a tree view of the project structure.
+
+We start by loading the icons for Treemacs.
+
+#+begin_src emacs-lisp
+(use-package treemacs-all-the-icons
+  :after (treemacs all-the-icons)
+  :config
+  (treemacs-load-theme "all-the-icons"))
+
+;; (use-package treemacs-nerd-icons
+;;  :after (nerd-icons)
+;;  ;; :custom-face (cfrs-border-color ((t (:inherit posframe-border))))
+;;  :config
+;;  (treemacs-nerd-icons-config)
+;;  (treemacs-load-theme "nerd-icons"))
+#+end_src
+
+Then we configure Treemacs itself.
+If you need to shrink or enlarge the treemacs window later with the keyboard,
+you can use:
+
+- =C-x {=: Shrink the window horizontally.
+- =C-x }=: Enlarge the window horizontally.
+
+Treemacs has also several useful shortcuts. A few examples:
+
+| Key | Action                              | Description                                                           |
+|-----+-------------------------------------+-----------------------------------------------------------------------|
+| th  | treemacs-toggle-show-dotfiles       | Toggle the hiding and displaying of dotfiles.                         |
+| ti  | treemacs-hide-gitignored-files-mode | Toggle the hiding and displaying of gitignored files.                 |
+| tf  | treemacs-follow-mode                | Toggle treemacs-follow-mode.                                          |
+| ta  | treemacs-filewatch-mode             | Toggle treemacs-filewatch-mode.                                       |
+| tv  | treemacs-fringe-indicator-mode      | Toggle treemacs-fringe-indicator-mode.                                |
+| td  | treemacs-git-commit-diff-mode       | Toggle treemacs-git-commit-diff-mode.                                 |
+| =   | treemacs-fit-window-width           | Adjust the width of the treemacs window to that of the longsest line. |
+
+See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-file#default-keymaps][this link]].
+
+#+begin_src emacs-lisp
+(use-package treemacs
+  :after (doom-themes)
+  :demand t
+  :hook (treemacs-mode . (lambda () (setq-local context-menu-mode nil)))
+  :hook (treemacs-mode . (lambda () (display-line-numbers-mode -1)))
+  :bind (:map treemacs-mode-map
+              ("<delete>" . treemacs-delete-file))
+
+  :preface
+  ;; (defun doom-themes-enable-treemacs-variable-pitch-labels (&rest _)
+  ;;   (dolist (face '(treemacs-root-face
+  ;;                   treemacs-git-unmodified-face
+  ;;                   treemacs-git-modified-face
+  ;;                   treemacs-git-renamed-face
+  ;;                   treemacs-git-ignored-face
+  ;;                   treemacs-git-untracked-face
+  ;;                   treemacs-git-added-face
+  ;;                   treemacs-git-conflict-face
+  ;;                   treemacs-directory-face
+  ;;                   treemacs-directory-collapsed-face
+  ;;                   treemacs-file-face
+  ;;                   treemacs-tags-face))
+  ;;      (let ((faces (face-attribute face :inherit nil)))
+  ;;        (set-face-attribute
+  ;;         face nil :inherit
+  ;;         `(variable-pitch
+  ;;          ,@(delq 'unspecified (if (listp faces) faces (list faces))))))))
+
+  (defun my/treemacs-toggle ()
+    "Toggle the visibility of the Treemacs window."
+    (interactive)
+    (if (treemacs-get-local-window)
+        (delete-window (treemacs-get-local-window))
+      (treemacs)))
+
+  (defun my/treemacs-set-root-to-current-folder ()
+    "Set the root of Treemacs to the folder of the current file or default directory."
+    (interactive)
+    (let ((folder (or (file-name-directory (or (buffer-file-name) default-directory))
+                      default-directory)))
+      (treemacs-select-window)
+      (treemacs-do-add-project-to-workspace folder (file-name-nondirectory (directory-file-name folder)))
+      (treemacs-root-up)
+      (treemacs-root-down)))
+
+  (defun my/update-treemacs-faces-except (excluded-faces)
+    "Update all Treemacs-related faces, excluding specified faces."
+    (dolist (face (face-list))
+      (when (and (string-match-p "treemacs" (symbol-name face))
+                 (not (member face excluded-faces)))
+        ;;(set-face-attribute face nil :family "Fira Code" :height 105))
+        (set-face-attribute face nil :family "JetBrainsMono Nerd Font" :height 105))))
+
+  (defun my/set-treemacs-width-pixels (pixels)
+    "Set Treemacs width in pixels."
+    (setq treemacs-width (truncate (/ pixels (frame-char-width)))))
+
+  :config
+  (my/set-treemacs-width-pixels 300)
+  (global-set-key (kbd "C-<f6>") #'my/treemacs-toggle)
+  (global-set-key (kbd "<f6>") #'treemacs-select-window)
+  (treemacs-load-theme "all-the-icons")
+  (setq treemacs-indent-guide-mode t
+        treemacs-project-follow-mode t
+        treemacs-filewatch-mode t
+        treemacs-is-never-other-window t
+        treemacs-indent-guide-style 'line
+        treemacs-user-mode-line-format 'line
+        treemacs-space-between-root-nodes nil
+        treemacs-width-is-initially-locked t
+        ;; treemacs-icon-size 10
+        ;; treemacs-icon-padding 20
+        ;; treemacs-indentation '(10 px)
+        ;; treemacs-indentation-string (propertize " " 'display '(space :width 15))
+        )
+
+  (set-window-fringes (treemacs-get-local-window) 0 0 nil)
+  ;; (set-face-attribute 'treemacs-fringe-indicator-face nil :foreground nil)
+
+  ;; Doom theme support
+  ;; (doom-themes-enable-treemacs-variable-pitch-labels)
+  ;; (doom-themes-treemacs-config)
+
+  ;; Icon size
+  ;; (treemacs-resize-icons 44)
+
+  ;; See https://github.com/Alexander-Miller/treemacs?tab=readme-ov-file#all-the-icons-indent-issues
+  ;; Disabled because it causes misalignment between folders and files and affects indentation
+  ;; (treemacs-load-all-the-icons-with-workaround-font "Hermit")
+
+  ;; (advice-add #'load-theme
+  ;;             :after #'doom-themes-enable-treemacs-variable-pitch-labels)
+
+  ;; Custom double-click action
+  ;; (with-eval-after-load 'treemacs-mouse-interface
+  ;;   (treemacs-define-doubleclick-action 'my-action
+  ;;                                       (lambda () (message "Double clicked!"))))
+
+  (with-eval-after-load 'doom-themes
+    ;; Disable variable pitch fonts in Treemacs. Not un use for now
+    ;; (setq doom-themes-treemacs-enable-variable-pitch nil)
+
+    (my/update-treemacs-faces-except '(treemacs-all-the-icons-file-face
+                                       treemacs-all-the-icons-root-face
+                                       treemacs-hl-line-face
+                                       treemacs-window-background-face))
+
+    ;; Other settings to investigate later
+    ;; (setq mixed-pitch-set-height t)
+    ;; (set-face-attribute 'variable-pitch nil :height 1.5)
+    ;; (set-face-attribute 'variable-pitch nil :family "Open Sans" :height 1.0)
+    )
+
+  (my/update-treemacs-faces-except '(treemacs-all-the-icons-file-face
+                                     treemacs-all-the-icons-root-face
+                                     treemacs-git-ignored-face
+                                     treemacs-hl-line-face
+                                     treemacs-window-background-face))
+
+  (my/treemacs-set-root-to-current-folder)
+
+  ;; Refresh Treemacs when opening a new file: a tentative to fix issues when
+  ;; using =C-x p k= to close all buffers in the open project.
+  (defun my/treemacs-refresh-on-file-open ()
+    "Refresh Treemacs when a file is opened."
+    (when (and (treemacs-get-local-window)
+               buffer-file-name)
+      (ignore-errors (treemacs-refresh))))
+
+  (add-hook 'find-file-hook #'my/treemacs-refresh-on-file-open)
+
+  ;; Start Treemacs
+  (treemacs))
+
+;; Fix for for https://github.com/Alexander-Miller/treemacs/issues/1016
+(with-eval-after-load 'treemacs-all-the-icons
+  (treemacs-modify-theme "all-the-icons"
+    :config
+    (progn
+      (load (expand-file-name "treemacs-custom-items-fix.el" user-emacs-directory)))))
+#+end_src
+
+
+** Centering text in the buffer (C-c o)
+
+[[https://github.com/rnkn/olivetti][Olivetti]] allows us to center the text of a buffer.
+
+#+begin_src emacs-lisp
+(use-package olivetti
+  :defer t
+  :bind (:map custom-bindings-map ("C-c o" . olivetti-mode))
+  :config
+  (setq-default olivetti-body-width (+ fill-column 3)))
+#+end_src
+
+
+** Modes configuration
+
+#+begin_src emacs-lisp
+(dolist (mode
+         '(abbrev-mode              ; E.g. sopl -> System.out.println
+           delete-selection-mode    ; Replace selected text
+           dirtrack-mode            ; directory tracking in *shell*
+           global-auto-revert-mode  ; Revert files when changed on disk
+           global-so-long-mode      ; Mitigate performance for long lines
+           recentf-mode             ; Recently opened files
+           show-paren-mode))        ; Highlight matching parentheses
+  (funcall mode 1))
+#+end_src
+
+
+** Minibuffer Completion and Search
+
+Ivy, Counsel, and Swiper provide minibuffer completion - they enhance the
+interactive prompts at the bottom of Emacs when you run commands like `M-x`,
+`find-file`, or search. Ivy is the completion framework, Counsel provides
+Ivy-enhanced versions of common commands, and Swiper integrates search with Ivy.
+Together they replace IDO and Helm for a faster, cleaner completion experience.
+
+#+begin_src emacs-lisp
+(use-package ivy
+  :diminish (ivy-mode)
+  :bind (("C-x b" . ivy-switch-buffer))
+  :config
+  (ivy-mode 1)
+  (setq ivy-use-virtual-buffers t)
+  (setq ivy-display-style 'fancy))
+
+;; (use-package ivy-rich
+;;   :ensure t
+;;   :init
+;;   (ivy-rich-mode 1))
+
+(use-package counsel
+  :bind (("M-x" . counsel-M-x)
+         ("C-x b" . counsel-ibuffer)
+         ("C-x C-f" . counsel-find-file)
+         ("C-c s" . counsel-rg)
+         :map minibuffer-local-map
+         ("C-r" . 'counsel-minibuffer-history))
+  :config
+  (counsel-mode 1))
+#+end_src
+
+Swiper gives us incremental search and is integrated with ivy and counsel.
+To search for the item at point, type =M-n= with swipper open.
+
+#+begin_src emacs-lisp
+(use-package swiper
+  :bind (("C-s" . swiper-isearch)
+         ("C-r" . swiper-isearch-backward)
+         ("C-c C-r" . ivy-resume)
+         ("C-x C-f" . counsel-find-file))
+  :config
+  (progn
+    (ivy-mode 1)
+    (setopt ivy-use-virtual-buffers t)
+    (setopt ivy-display-style 'fancy)
+    (define-key read-expression-map (kbd "C-r") 'counsel-expression-history)
+    ))
+#+end_src
+
+Navigate by searching for a letter on the screen and jumping to it
+
+#+begin_src emacs-lisp
+(use-package avy
+  :bind ("C-:" . avy-goto-char))
+#+end_src
+
+
+** Maximize frame at startup
+
+Below we maximize the Emacs frame when starting up.
+
+#+begin_src emacs-lisp
+(add-hook 'emacs-startup-hook 'toggle-frame-maximized)
+#+end_src
+
+Navigate by searching for a letter on the screen and jumping to it
+
+#+begin_src emacs-lisp
+(use-package avy
+  :bind ("C-:" . avy-goto-char))
+#+end_src
+
+
+* Version control
+
+Magit is a powerful Git interface for Emacs, providing an intuitive
+way to manage Git repositories directly from the editor.
+
+In the Magit status buffer:
+- press `!` to open a command prompt where you can run any git command
+  directly.
+- press `$` to open a buffer named *magit-process: <repository-path>*,
+  where you can see the commands ran by Magit.
+
+#+begin_src emacs-lisp
+(use-package magit
+  ;; The :commands directive ensures that magit is not loaded into memory until
+  ;; magit-status is explicitly called. This can improve startup performance.
+  :commands magit-status
+  :bind (:map custom-bindings-map ("C-c m" . magit-status)))
+#+end_src
+
+Below we add some visual indications for uncommitted changes with [[https://github.com/dgutov/diff-hl][~diff-hl~]].
+In addition, ~diff-hl~ can be automatically updated when interacting with Magit.
+
+#+begin_src emacs-lisp
+(use-package diff-hl
+  :defer t
+  :hook ((magit-pre-refresh . diff-hl-magit-pre-refresh)
+         (magit-post-refresh . diff-hl-magit-post-refresh))
+  :config
+  (global-diff-hl-mode 1))
+#+end_src
+
+Git-Gutter shows a git diff in the fringe (the left or right margins) of
+the editor, indicating added, modified, and deleted lines in the current
+file. It provides visual cues for changes made since the last commit,
+making it easier to track modifications.
+
+#+begin_src emacs-lisp
+(use-package git-gutter
+  :ensure git-gutter-fringe
+  :after magit
+  :init
+  (global-git-gutter-mode 1)
+  (setq-default left-fringe-width 20)
+
+  :hook
+  (magit-post-refresh . git-gutter:update-all-windows))
+#+end_src
+
+Below we integrate Treemacs with Magit to show Git status in the Treemacs sidebar.
+
+#+begin_src emacs-lisp
+(use-package treemacs-magit
+  :after (treemacs magit))
+#+end_src
+
+
+* Other useful packages
+
+** Try a new package without installing it
+
+#+begin_src emacs-lisp
+(use-package try)
+#+end_src
+
+
+** Snippets
+
+Yasnippet provides snippet expansion (type a short trigger and press TAB) and
+`yasnippet-snippets` supplies a large collection of ready-to-use snippets
+for many languages; the two packages below will enable snippets in relevant modes.
+
+#+begin_src emacs-lisp
+(use-package yasnippet
+  :demand t
+  :config
+  (yas-reload-all)
+  :hook
+  (sh-mode . yas-minor-mode))
+
+(use-package yasnippet-snippets
+  :after yasnippet)
+#+end_src
+
+
+** Undo tree
+
+Undo-Tree preserves and visualizes your undo history as a tree, making it
+easier to navigate complex edits and to revert to earlier states.
+
+#+begin_src emacs-lisp
+(defvar undo-tree-incompatible-major-modes
+  nil
+  "List of major modes incompatible with undo-tree.
+    Declared here so tangling this file defines the variable before the
+    package is loaded.")
+
+(use-package undo-tree
+  :config
+  (add-to-list 'undo-tree-incompatible-major-modes #'nxml-mode)
+  (global-undo-tree-mode)
+  :custom
+  (undo-tree-history-directory-alist '(("." . "~/.emacs.d/undo-tree"))))
+#+end_src
+
+
+** Multiple cursors
+
+Multiple Cursors lets you edit many places at once: mark the next or
+previous occurrence and type to edit them all simultaneously. Below are
+a couple of convenient keybindings.
+
+#+begin_src emacs-lisp
+(use-package multiple-cursors
+  :bind
+  ("C->" . mc/mark-next-like-this)
+  ("C-<" . mc/mark-previous-like-this))
+#+end_src
+
+
+** Scrollbar on the terminal
+
+Yascroll provides a scrollbar for Emacs running in terminal mode (tty).
+It is a nice package, but it has a known bug reported at [[https://github.com/emacs-evil/yascroll/issues/1]].
+
+#+begin_example emacs-lisp
+(use-package yascroll
+  :config
+  (global-yascroll-bar-mode 1)
+  (setq yascroll:delay-to-hide nil)
+  ;; (setq yascroll:thumb-texture 'rounded)
+  (add-hook 'treemacs-mode-hook 'yascroll-bar-mode)
+  (with-eval-after-load 'treemacs
+    (add-hook 'treemacs-mode-hook
+              (lambda ()
+                (yascroll-bar-mode 1)
+                 (setq yascroll:delay-to-hide nil))))
+)
+#+end_example
+
+Another suggestion is to use `smart-mode-line`, but that cannot be active together
+with `doom-modeline`, so we comment it out for now.
+
+#+begin_example emacs-lisp
+;; Smart Mode Line for a clean, informative modeline (works in GUI and terminal)
+(use-package smart-mode-line
+  :init
+  (setq sml/no-confirm-load-theme t)
+  (setq sml/theme 'respectful) ; or 'dark, 'light, 'powerline, etc.
+  :config
+  (sml/setup))
+#+end_example
+
+As the packages above did not work as expected, I found another package that
+seems to work nicely: `mlscroll`. It adds a scrollbar to the mode line, showing
+the current position in the buffer. It needs `which-func` (builtin) to work properly.
+It is not a full scrollbar, but at least it gives an indication of the position
+in the buffer.
+
+#+begin_src emacs-lisp
+(use-package which-func
+  :ensure t)
+
+(use-package mlscroll
+  :config
+  (setq mlscroll-shortfun-min-width 11) ; truncate which-func
+  (mlscroll-mode 1))
+
+  ;; If starting Emacs as a server, enable mlscroll for new frames
+  ;; :hook (server-after-make-frame . mlscroll-mode)
+#+end_src
+
+
+** Move Text
+
+For moving lines up and down, we use the
+[Move Text](https://github.com/emacsfodder/move-text) package.
+
+#+begin_src emacs-lisp
+(use-package move-text
+  :bind (:map custom-bindings-map
+              ("C-M-<down>" . move-text-down)
+              ("C-M-<up>" . move-text-up)))
+#+end_src
+
+
+** Expanding ripgrep
+
+Here we use the `rg` package to integrate ripgrep with Emacs.
+With it, we can search for a string in a directory using =M-x rg= and a directory.
+We can also call =rg-dwim= or =rg= and give any path.
+
+#+begin_src emacs-lisp
+(use-package rg
+  :defer t
+  :config
+  (rg-enable-default-bindings)
+  (rg-enable-menu))
+#+end_src
+
+
+** Terminal
+
+A fully capable terminal emulator.
+
+#+begin_src emacs-lisp
+(use-package vterm
+  :defer t
+  :preface
+  (defvar my/vterms nil)
+
+  ;; Don't ask about killing vterm buffers — use advice-add instead of defadvice
+  (defun my/vterm-kill-with-no-query-around (orig &rest args)
+    (let ((buf (apply orig args)))
+      (when (and (bufferp buf) (get-buffer-process buf))
+        (set-process-query-on-exit-flag (get-buffer-process buf) nil))
+      buf))
+
+  (defun toggle-vterm (&optional n)
+    (interactive)
+    (setq my/vterms (seq-filter 'buffer-live-p my/vterms))
+    (let ((default-directory (or (vc-root-dir) default-directory)))
+      (cond ((numberp n) (push (vterm n) my/vterms))
+            ((null my/vterms) (push (vterm 1) my/vterms))
+            ((seq-contains-p my/vterms (current-buffer))
+             (switch-to-buffer (car (seq-difference (buffer-list) my/vterms))))
+            (t (switch-to-buffer (car (seq-intersection (buffer-list) my/vterms)))))))
+
+  :bind (:map custom-bindings-map
+              ("C-z" . toggle-vterm)
+              ("M-1" . (lambda () (interactive) (toggle-vterm 1)))
+              ("M-2" . (lambda () (interactive) (toggle-vterm 2)))
+              ("M-3" . (lambda () (interactive) (toggle-vterm 3)))
+              ("M-4" . (lambda () (interactive) (toggle-vterm 4)))
+              ("M-5" . (lambda () (interactive) (toggle-vterm 5)))
+              ("M-6" . (lambda () (interactive) (toggle-vterm 6)))
+              ("M-7" . (lambda () (interactive) (toggle-vterm 7)))
+              ("M-8" . (lambda () (interactive) (toggle-vterm 8)))
+              ("M-9" . (lambda () (interactive) (toggle-vterm 9))))
+
+  :config
+  (advice-add 'vterm :around #'my/vterm-kill-with-no-query-around))
+
+;; Here we set the font for vterm to a Nerd Font that supports
+;; all the glyphs used by my oh-my-zsh configuration.
+
+;; https://emacsredux.com/blog/2020/11/21/disable-global-hl-line-mode-for-specific-modes/
+(add-hook 'vterm-mode-hook (lambda () (setq-local global-hl-line-mode nil)))
+
+(with-eval-after-load 'vterm
+  (set-frame-font "JetBrainsMono Nerd Font" nil t))
+#+end_src
+
+
+** Multiple cursors
+
+Multiple Cursors lets you edit many places at once: mark the next or
+previous occurrence and type to edit them all simultaneously. Below are
+a couple of convenient keybindings.
+
+#+begin_src emacs-lisp
+(use-package multiple-cursors
+  :bind
+  ("C->"   . mc/mark-next-like-this)
+  ("C-<"   . mc/mark-previous-like-this)
+  ("C-M-#" . mc/mark-all-dwim))
+
+(with-eval-after-load 'multiple-cursors
+  (defun my/mc-count-cursors ()
+    "Return the number of active cursors for the mode line."
+    (if (and (boundp 'multiple-cursors-mode) multiple-cursors-mode)
+        (format " MC:%d" (1+ (mc/num-cursors)))
+      ""))
+
+  (with-eval-after-load 'doom-modeline
+    (doom-modeline-def-segment my/mc-cursor-count
+      "Display the number of active cursors in multiple-cursors mode."
+      (my/mc-count-cursors))))
+
+#+end_src
+
+
+** Improved help
+
+#+begin_src emacs-lisp
+(use-package helpful
+  :custom
+  (counsel-describe-function-function #'helpful-callable)
+  (counsel-describe-variable-function #'helpful-variable)
+  :bind
+  ([remap describe-function] . counsel-describe-function)
+  ([remap describe-command] . helpful-command)
+  ([remap describe-variable] . counsel-describe-variable)
+  ([remap describe-key] . helpful-key))
+#+end_src
+
+
+* Org-mode packages
+
+** Managing the table of contents
+
+The `toc-org` package automatically generates and maintains a table of contents
+for Org files. Simply add a heading with the `:TOC:` tag and `toc-org` will
+populate it with links to all other headings when you save the file.
+
+#+begin_src emacs-lisp
+(use-package toc-org
+  :hook (org-mode . toc-org-mode)
+  :config
+  ;; Add blank line between TOC heading and first entry
+  (setq toc-org-hrefify-default "gh")
+  (setq toc-org-max-depth 3))
+#+end_src
+
+
+** Nice bullets
+
+#+begin_src emacs-lisp
+;; (use-package org-bullets
+;;   :config (add-hook 'org-mode-hook (lambda () (org-bullets-mode 1))))
+#+end_src
+
+
+** Babel
+
+Add a few languages for Org babel. In addition, don't evaluate code on
+export by default.
+
+#+begin_src emacs-lisp
+;; Working with Code Blocks in Org
+(use-package ob
+  :ensure nil
+  :after org
+  :config
+  (setq org-export-use-babel nil
+        org-confirm-babel-evaluate nil)
+  (org-babel-do-load-languages
+   'org-babel-load-languages
+   '((emacs-lisp . t)
+     (python . t)
+     (clojure . t))))
+#+end_src
+
+Default to use whatever interpreter is set by =python-shell-interpreter=.
+
+#+begin_src emacs-lisp
+;; Babel Functions for Python
+(use-package ob-python
+  :ensure nil
+  :after (ob python)
+  :config
+  (setq org-babel-python-command python-shell-interpreter))
+#+end_src
+
+
+** Tempo
+
+Starting at version 9.2 of Org mode, typing =<s= to get a source block (and
+similar) has been moved to the Org Tempo library. The idea is that users start
+to use =C-c C-,= instead. I added it below anyways.
+
+Note: `org-tempo` is built into Org mode (not a separate package), so we use
+`:ensure nil` to prevent `use-package` from trying to install it.
+
+#+begin_src emacs-lisp
+(use-package org-tempo
+  :ensure nil
+  :after org)
+#+end_src
+
+
+** Org Modern
+
+Touch up the appearance of org mode files with some fancy UTF-8 characters.
+I disable ~org-modern-block-fringe~ due to [[https://github.com/minad/org-modern/issues/144][org-modern conflicting with]]
+~org-adapt-indentation~.
+
+#+begin_src emacs-lisp
+;; Modern looks for Org
+(use-package org-modern
+  :after org
+  :hook (org-mode . org-modern-mode)
+  :config
+  (setq org-modern-block-fringe nil
+        org-modern-star 'replace
+        org-auto-align-tags nil
+        org-tags-column 0
+        org-fold-catch-invisible-edits 'show-and-error
+        org-adapt-indentation nil
+        org-list-indent-offset 2
+        org-special-ctrl-a/e t
+        org-insert-heading-respect-content t
+        org-edit-src-content-indentation 0
+        org-src-preserve-indentation nil))
+
+;; Use org-indent to visually indent content under headings and lists
+(add-hook 'org-mode-hook #'org-indent-mode)
+#+end_src
+
+#+begin_src emacs-lisp
+;; Minimal remap: make comment faces use the `org-block` background inside
+;; Org buffers so inline face plists don't hide the block background.
+;; This is intentionally tiny and has no undo cookie stored.
+(add-hook 'org-mode-hook
+          (lambda ()
+            (let ((bg (face-attribute 'org-block :background nil)))
+              (when (and bg (not (eq bg 'unspecified)))
+                (face-remap-add-relative 'font-lock-comment-face `(:background ,bg :extend t))
+                (face-remap-add-relative 'font-lock-comment-delimiter-face `(:background ,bg :extend t))
+                (font-lock-flush)
+                (font-lock-ensure)
+                (redisplay)))))
+
+;; Helper: show faces used on the current line (interactive)
+(defun my/show-faces-on-line ()
+  "Collect and message the face symbols used on the current line.
+
+Useful to inspect which faces are present (returns symbols or plists).
+You can also use `M-: (face-at-point) RET` or `C-u C-x =` for more detail."
+  (interactive)
+  (let* ((beg (line-beginning-position))
+         (end (line-end-position))
+         (faces '()))
+    (save-excursion
+      (goto-char beg)
+      (while (< (point) end)
+        (let ((prop (get-text-property (point) 'face)))
+          (cond
+           ((symbolp prop) (push prop faces))
+           ((listp prop) (dolist (el prop) (when (symbolp el) (push el faces))))))
+        (forward-char 1)))
+    (setq faces (delete-dups faces))
+    (if faces
+        (message "Faces on line: %s" faces)
+      (message "No face text-properties on this line; try (face-at-point) or C-u C-x ="))))
+#+end_src
+
+
+* Programming, IDE and related
+
+** Code completion
+
+Company (COMPLete ANY) provides in-buffer completion popups - automatic
+suggestions that appear *while you type* in your code buffers (not in the
+minibuffer). This is different from Ivy/Counsel which handle minibuffer
+prompts when Emacs asks you for input.
+
+Prefer `completion-at-point-functions` (CAPF) as a single, canonical source:
+it lets language servers (LSP/eglot), built-in `treesit` capf providers, and
+other backends expose candidates through Emacs' standard API so Company
+becomes a thin, reliable UI on top of those sources. Using CAPF reduces
+backend duplication, simplifies ordering, and improves snippet/expand
+interactions.
+
+#+begin_src emacs-lisp
+(use-package company
+  :demand t
+
+  :bind
+  ;; List of choices even when nothing is typed.
+  ;; CTRL-ENTER. Because C-RET does not work.
+  ([(control return)] . company-complete)
+
+  :config
+  (global-company-mode 1)
+  ;; sensible defaults
+  (setq company-idle-delay 0
+        company-echo-delay 0
+        company-minimum-prefix-length 1
+        company-show-quick-access t
+        company-tooltip-align-annotations t
+        company-require-match nil)
+
+  ;; Prefer completion-at-point functions (capf) which integrates with LSP/treesit
+  (setq company-backends '((company-capf company-files company-dabbrev-code company-dabbrev)))
+
+  ;; Use TAB/RET sensibly
+  (define-key company-active-map (kbd "<tab>") 'company-complete-selection)
+  (define-key company-active-map (kbd "TAB") 'company-complete-selection)
+  (define-key company-active-map (kbd "C-n") 'company-select-next)
+  (define-key company-active-map (kbd "C-p") 'company-select-previous)
+
+  ;; Disable company in some modes where it is noisy
+  (dolist (m '(org-mode shell-mode term-mode vterm-mode))
+    (add-hook (intern (concat (symbol-name m) "-hook")) (lambda () (company-mode -1)))))
+#+end_src
+
+
+Company-box provides a lightweight, frame-based UI for Company popups
+in GUI Emacs sessions. It enhances the visual presentation with icons,
+doc popups and nicer candidate grouping without changing Company backends.
+
+#+begin_src emacs-lisp
+(use-package company-box
+  :after company
+  :if (display-graphic-p)
+  :custom
+  (company-box-frame-behavior 'point)
+  (company-box-show-single-candidate t)
+  (company-box-doc-delay 1)
+
+  :hook
+  (company-mode . company-box-mode))
+#+end_src
+
+
+** IDE functionality with LSP
+
+LSP (Language Server Protocol) brings IDE-like features to Emacs by communicating
+with language servers for your programming language. The following packages work
+together to provide a full-featured development experience:
+
+*** lsp-mode: Core LSP client
+
+`lsp-mode` is the main package that connects Emacs to language servers, enabling
+code completion, go-to-definition, diagnostics, and more.
+
+#+begin_src emacs-lisp
+(use-package lsp-mode
+  :bind
+  (:map lsp-mode-map ("M-RET" . lsp-execute-code-action))
+
+  ;; Save automatically after edits such as lsp-rename
+  :hook
+  (lsp-after-apply-edits . save-buffer)
+
+  ;; Increase timeout for slow language servers
+  :custom
+  (lsp-response-timeout 20))
+#+end_src
+
+*** lsp-ui: UI enhancements for LSP
+
+`lsp-ui` adds visual improvements to LSP, such as inline documentation popups, code actions
+in the sideline, and better navigation.
+
+The helper below, copied from https://github.com/themkat/.emacs.d/blob/master/init.org, toggles the documentation popup:
+
+#+begin_src emacs-lisp
+;; Silence byte-compiler warnings for lsp-ui doc popup helpers
+(declare-function lsp-ui-doc-show "lsp-ui")
+(declare-function lsp-ui-doc-hide "lsp-ui")
+(declare-function lsp-ui-doc--visible-p "lsp-ui")
+
+(defun lsp-ui-show-doc-helper ()
+  (interactive)
+  (if (lsp-ui-doc--visible-p)
+      (lsp-ui-doc-hide)
+    (lsp-ui-doc-show)))
+#+end_src
+
+#+begin_src emacs-lisp
+(use-package lsp-ui
+  :after lsp-mode
+
+  ;; :commands ensures lsp-ui is loaded only when lsp-ui-mode is called
+  :commands lsp-ui-mode
+
+  :custom
+  (lsp-ui-doc-enable t)
+  (lsp-ui-doc-position 'at-point)
+  (lsp-ui-sideline-enable t)
+  (lsp-ui-sideline-show-code-actions t)
+  :bind
+  (:map lsp-mode-map ("M-s M-d" . lsp-ui-show-doc-helper)))
+#+end_src
+
+*** lsp-treemacs: Project and symbol tree views
+
+`lsp-treemacs` integrates Treemacs with LSP, providing a sidebar for project symbols,
+errors, references, and more.
+
+#+begin_src emacs-lisp
+(use-package lsp-treemacs
+  :after lsp-mode
+  :config
+  (lsp-treemacs-sync-mode 1))
+#+end_src
+
+*** dap-mode: Debug Adapter Protocol (debugging)
+
+`dap-mode` adds debugging support to Emacs using the Debug Adapter Protocol. It lets
+you set breakpoints, step through code, and inspect variables for many languages.
+
+#+begin_src emacs-lisp
+(use-package dap-mode
+  :after lsp-mode
+  :init
+  (dap-auto-configure-mode))
+#+end_src
+
+
+** Syntax checking with Flycheck
+
+Flycheck is a modern on-the-fly syntax checking extension for Emacs. It runs linters
+and compilers in the background as you edit, highlighting errors and warnings directly
+in your code buffer. This helps you catch mistakes early by providing immediate
+feedback about code issues (like syntax errors, unused variables, or style problems).
+
+By default, Flycheck limits the number of errors it will display in a buffer. Some
+language servers (such as Lean or large LSP projects) can produce many diagnostics,
+which may exceed this limit and cause Flycheck to stop reporting errors. To avoid
+missing important diagnostics, we set the error threshold to a reasonably high value
+(9999), so Flycheck continues to show all errors without being excessive.
+
+#+begin_src emacs-lisp
+(use-package flycheck
+  :custom
+  (flycheck-indication-mode nil)
+  (flycheck-highlighting-mode 'lines)
+  ;; Raise the error threshold to avoid missing diagnostics from language servers.
+  (flycheck-checker-error-threshold 9999)
+
+  ;; Enable Flycheck globally. Disabled for now. I am trying prog-mode hook instead.
+  ;; (global-flycheck-mode t)
+  :hook (prog-mode . flycheck-mode))
+#+end_src
+
+
+** Code Formatting
+
+*** Automatic code formatting with Apheleia
+
+Apheleia is a lightweight Emacs package for automatic code formatting. It runs
+external formatters (like Prettier, Black, shfmt, etc.) and replaces buffer text
+with the formatted result asynchronously, so Emacs stays responsive. You can map
+modes to formatters, and Apheleia will format files automatically on save or on
+demand. This helps keep your codebase consistent and clean with minimal effort.
+
+For Org mode source blocks, we enable =org-src-tab-acts-natively= so that
+TAB indents according to the source block's language mode.
+
+**** Usage
+
+*Manual buffer formatting:*
+
+Press =C-c f= (in any mode) to manually format the current buffer with Apheleia.
+
+*Org source blocks:*
+
+With =org-src-tab-acts-natively= enabled:
+- TAB key works natively within source blocks (respects the language's indentation)
+- Use =C-c '= to open source blocks in their native major mode (Apheleia will format on save there)
+- Use =C-c f= to manually format the current buffer if needed
+
+*Supported languages and formatters:*
+
+The following languages are configured with their respective formatters:
+
+- **Emacs Lisp** (=emacs-lisp-mode=, =lisp-interaction-mode=) → Built-in =lisp-indent=
+- **JavaScript** (=js-mode=, =js-ts-mode=) → Prettier (local installation)
+- **TypeScript** (=typescript-mode=, =typescript-ts-mode=, =tsx-ts-mode=) → Prettier (local installation)
+- **Python** (=python-mode=, =python-ts-mode=) → Prettier with =@prettier/plugin-python=
+- **JSON** (=json-mode=, =json-ts-mode=) → Prettier (local installation)
+- **Web/HTML** (=web-mode=) → Prettier (local installation)
+
+Note: Prettier is installed locally in =~/.emacs.d/nodejs_tools/= with the Python plugin.
+
+*Adding new formatters:*
+
+To add a new formatter, add it to =apheleia-formatters= and map it to the
+appropriate mode in =apheleia-mode-alist=. For example:
+
+#+begin_example
+;; Add a new formatter
+(setf (alist-get 'my-formatter apheleia-formatters)
+      '("my-formatter-command" "--option" "value" file))
+
+;; Map it to a mode
+(setf (alist-get 'my-mode apheleia-mode-alist) 'my-formatter)
+#+end_example
+
+**** Basic configuration for Apheleia
+
+#+begin_src emacs-lisp
+(use-package apheleia
+  :ensure t
+  :config
+  ;; Enable globally - formats on save
+  (apheleia-global-mode +1)
+
+  ;; Add custom formatters - you can extend this list
+  (setf (alist-get 'prettier-local apheleia-formatters)
+        `(,(expand-file-name "~/.emacs.d/nodejs_tools/bin/prettier.cjs")
+          "--stdin-filepath" filepath
+          "--plugin" ,(expand-file-name "~/.emacs.d/nodejs_tools/node_modules/@prettier/plugin-python")))
+
+  (setf (alist-get 'emacs-lisp apheleia-formatters)
+        '("emacs" "--batch" "-l" "pp"
+          "--eval" "(princ (pp-to-string (read)))"
+          file))
+
+  ;; Map modes to formatters
+  (setf (alist-get 'emacs-lisp-mode apheleia-mode-alist) 'lisp-indent)
+  (setf (alist-get 'lisp-interaction-mode apheleia-mode-alist) 'lisp-indent)
+  (setf (alist-get 'js-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'js-ts-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'typescript-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'typescript-ts-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'tsx-ts-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'json-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'json-ts-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'web-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'python-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'python-ts-mode apheleia-mode-alist) 'prettier-local))
+
+;; Global keybinding for formatting
+(global-set-key (kbd "C-c f") 'apheleia-format-buffer)
+#+end_src
+
+
+*** Prettier setup:
+
+Prettier is a popular opinionated code formatter for JavaScript, TypeScript,
+JSON, HTML, CSS, and many other languages. It enforces a consistent style by
+parsing your code and reprinting it with its own rules. This helps keep code
+clean and readable across teams and editors.
+
+In this config, Prettier is used in two ways:
+
+- Via Apheleia for on-save formatting in many modes (see above)
+- Via the `prettier-js` package for on-the-fly formatting in JS/TS buffers
+
+The `prettier-js` package runs Prettier as you type or on save, depending on
+your settings. It is especially useful for JavaScript and TypeScript projects.
+
+#+begin_src emacs-lisp
+(use-package prettier-js
+  :hook ((js-ts-mode . prettier-js-mode)
+         (typescript-ts-mode . prettier-js-mode)
+         (tsx-ts-mode . prettier-js-mode)
+         (json-ts-mode . prettier-js-mode)
+         ;; (web-mode . prettier-js-mode)
+         ;; (python-ts-mode . prettier-js-mode)
+         ;; (markdown-mode . prettier-js-mode)
+         ;; (css-mode . prettier-js-mode)
+         ;; (scss-mode . prettier-js-mode)
+         ;; (html-mode . prettier-js-mode)
+         )
+  :config
+  ;; Set the custom fallback path for the prettier executable
+  (setq prettier-js-command
+        (expand-file-name "~/.emacs.d/nodejs_tools/node_modules/.bin/prettier")))
+#+end_src
+
+
+** Org Source Block Editing
+
+Enable native TAB behavior in Org source blocks so that TAB indents according
+to the source block's language mode, not Org mode.
+
+#+begin_src emacs-lisp
+;; Enable native tab behavior in source blocks
+(setq org-src-tab-acts-natively t)
+#+end_src
+
+
+** Code metrics
+
+The `cognitive-complexity` package provides real-time code complexity and metrics
+overlays in supported programming modes. It can show cyclomatic complexity,
+maintainability index, and other metrics inline, helping you spot complex or
+hard-to-maintain code as you work. It is a port of the known ~codemetrics~ package,
+but that works with treesit (native on Emacs 29+) instead of tree-sitter (external
+package).
+
+#+begin_src emacs-lisp
+(use-package cognitive-complexity
+  :load-path "~/.emacs.d/cognitive-complexity"
+  :hook ((prog-mode . cognitive-complexity-mode))
+  :custom
+  (cognitive-complexity-complexity-threshold 15)
+  (cognitive-complexity-maintainability-threshold 50))
+#+end_src
+
+
+** Programming, languages and modes
+
+*** General setup with tree-sitter
+
+Tree-sitter is a modern incremental parsing library that provides fast,
+accurate syntax trees for programming languages. Emacs 29+ includes
+built-in tree-sitter support (`treesit`) which provides `*-ts-mode`
+modes with excellent syntax highlighting and structural editing.
+
+Remember to upgrade the versions when possible. New versions might
+not be compatible with your current Emacs build.
+
+#+begin_src emacs-lisp
+;; Configure built-in treesit system (Emacs 29+)
+(when (and (fboundp 'treesit-available-p) (treesit-available-p))
+  ;; Set up language source recipes for automatic grammar installation
+  (setq treesit-language-source-alist
+        '((typescript . ("https://github.com/tree-sitter/tree-sitter-typescript" "v0.23.2" "typescript/src"))
+          (tsx . ("https://github.com/tree-sitter/tree-sitter-typescript" "v0.23.2" "tsx/src"))
+          (javascript . ("https://github.com/tree-sitter/tree-sitter-javascript" "v0.23.1" "src"))
+          (python . ("https://github.com/tree-sitter/tree-sitter-python" "v0.23.6" "src"))
+          (java . ("https://github.com/tree-sitter/tree-sitter-java" "v0.23.5" "src"))))
+
+  ;; Auto-install grammars when missing
+  (dolist (lang '(typescript tsx javascript python java))
+    (unless (treesit-language-available-p lang)
+      (treesit-install-language-grammar lang))))
+#+end_src
+
+
+*** Python
+
+#+begin_src emacs-lisp
+(setq python-shell-interpreter "python3.12")
+(add-hook 'python-mode-hook
+          (lambda () (setq forward-sexp-function nil)))
+#+end_src
+
+
+*** Java
+
+**** Eclipse JDT Language Server (jdtls) installation
+
+To enable full IDE features for Java in Emacs, you need to install
+the Eclipse JDT Language Server (jdtls). **On first use,** `lsp-java`
+will attempt to download the server automatically if not found, but
+manual installation is more reliable and allows for custom configuration.
+
+#+begin_src sh :tangle setup.sh
+# Download specific version of JDTLS. Update version/date as needed:
+JDTLS_VERSION="1.51.0"
+JDTLS_DATE="202510022025"
+
+install_jdtls() {
+  echo -e "\033[1;32m\n[ Installing Eclipse JDT Language Server (jdtls) ]\033[0m"
+
+  local JDTLS_TMP_DIR
+  JDTLS_TMP_DIR=$(mktemp -d)
+
+  # Change it if you prefer another directory for the jdtls:
+  local JDTLS_TARGET_DIR="$HOME/.emacs.d/lsp_language_servers/eclipse.jdt.ls"
+  mkdir -p "$JDTLS_TARGET_DIR"
+
+  echo "Downloading jdt-language-server-$JDTLS_VERSION-$JDTLS_DATE.tar.gz..."
+
+  cd "$JDTLS_TMP_DIR" || exit 1
+
+  # Download and extract
+  curl -L -O "https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/jdt-language-server-${JDTLS_VERSION}-${JDTLS_DATE}.tar.gz"
+  tar -xzf "jdt-language-server-${JDTLS_VERSION}-${JDTLS_DATE}.tar.gz"
+
+  # Copy to final location
+  cp -r * "$JDTLS_TARGET_DIR/"
+
+  # Clean up temp files
+  rm -rf "$JDTLS_TMP_DIR"
+
+  echo -e "\033[1;32mEclipse JDT Language Server installed to $JDTLS_TARGET_DIR\033[0m"
+}
+
+if ! "$SKIP_JAVA"; then
+  install_jdtls
+else
+  echo -e "\033[1;33m\n[ Skipping Eclipse JDT Language Server (jdtls) as requested ]\033[0m"
+fi
+#+end_src
+
+
+**** `lsp-java` configuration
+
+The `lsp-java` package integrates the Java language server, providing rich
+editing support for Java projects. We need to configure the path in our Emacs
+configuration (this is set in the `lsp-java` section below). Make sure you
+have Java 17+ installed and available in your `PATH`.
+
+#+begin_src emacs-lisp
+(use-package lsp-java
+  :custom
+  (lsp-java-server-install-dir
+    (expand-file-name "~/.emacs.d/lsp_language_servers/eclipse.jdt.ls/"))
+
+  :hook
+  (java-mode . lsp)
+
+  :bind
+  (:map java-mode-map
+        ("M-RET" . lsp-java-organize-imports))
+
+  :config
+  (setq lsp-java-format-settings-url "https://raw.githubusercontent.com/google/styleguide/gh-pages/eclipse-java-google-style.xml")
+  (setq lsp-java-format-settings-profile "GoogleStyle"))
+#+end_src
+
+
+**** Java snippets
+
+A collection of Yasnippet snippets for Java development.
+
+#+begin_src emacs-lisp
+(use-package java-snippets
+  :after yasnippet
+  :hook
+  (java-mode . yas-minor-mode))
+#+end_src
+
+
+*** Kotlin
+
+To enable IDE features for Kotlin, you need to install the Kotlin Language Server
+(KLS) and configure Emacs to use it. There are two main ways to install it:
+
+1. **Using SDKMAN** (recommended)
+
+- **Install SDKMAN:** [https://sdkman.io/](https://sdkman.io/)
+  - SDKMAN is a tool for managing parallel versions of multiple software development
+    kits on Unix-based systems. We will use it to install the official Kotlin compiler
+    and runtime.
+
+- **Install Kotlin Language Server:**
+  - This means you need to set up the Kotlin Language Server (KLS), which provides
+    IDE features (like code completion, go-to-definition, etc.) for editors that
+    support the Language Server Protocol (LSP). SDKMAN does not provide the
+    language server—only the compiler.
+
+- **Clone and build the language server:**
+  - The Kotlin Language Server is not distributed as a prebuilt binary. We must
+    clone its source code from GitHub and build it. This step downloads the source
+    and compiles the server executable.
+
+- **The server executable will be at:**
+  - After building, the main executable for the language server will be located at:
+    `server/build/install/server/bin/kotlin-language-server`
+  - This is the file our LSP client (like Emacs with lsp-mode) will launch to provide
+    Kotlin IDE features.
+
+2. **Manual installation**
+
+   - Download a release from:
+     https://github.com/fwcd/kotlin-language-server/releases
+   - Unpack and use the `bin/kotlin-language-server` executable.
+
+Here we update our setup script snippet:
+
+#+begin_src sh :tangle setup.sh
+# Update the version for Kotlin below as needed:
+KOTLIN_VERSION="2.2.21"
+KOTLIN_LS_VERSION="1.3.13"
+
+install_kls() {
+  local KLS_TMP_DIR
+  KLS_TMP_DIR=$(mktemp -d)
+  local KLS_TARGET_DIR="$HOME/.emacs.d/lsp_language_servers/kotlin.ls"
+
+  echo "Downloading prebuilt Kotlin Language Server (KLS)..."
+  curl -L "https://github.com/fwcd/kotlin-language-server/releases/download/$KOTLIN_LS_VERSION/server.zip" -o "$KLS_TMP_DIR/kotlin-language-server.zip"
+
+  echo "Extracting Kotlin Language Server..."
+  rm -Rf "$KLS_TARGET_DIR" # Clean previous install
+  mkdir -p "$KLS_TARGET_DIR"
+  unzip -q "$KLS_TMP_DIR/kotlin-language-server.zip" -d "$KLS_TMP_DIR"
+  mv "$KLS_TMP_DIR/server"/* "$KLS_TARGET_DIR/"
+  rm -Rf "$KLS_TMP_DIR"
+
+  echo -e "\033[1;32mKotlin Language Server installed to $KLS_TARGET_DIR\033[0m"
+}
+
+install_kotlin_sdkman() {
+  echo -e "\033[1;32m\n[ Installing Kotlin Language Server (KLS) via SDKMAN ]\033[0m"
+
+  sdk install kotlin "$KOTLIN_VERSION"
+
+  local KOTLIN_HOME
+  KOTLIN_HOME=$(sdk home kotlin "$KOTLIN_VERSION" 2>/dev/null)
+
+  if [ -n "$KOTLIN_HOME" ]; then
+    echo "Kotlin installed in $KOTLIN_HOME"
+    install_kls
+  else
+    echo -e "\033[1;33mWarning: Could not determine Kotlin installation path. Skipping Kotlin Language Server installation.\033[0m"
+  fi
+}
+
+install_kotlin_manual() {
+  echo -e "\033[1;32m\n[ Installing Kotlin Language Server (KLS) Manually ]\033[0m"
+  echo "SDKMAN not found. Installing Kotlin compiler from official sources..."
+
+  local KOTLIN_DIR="$HOME/.kotlin"
+  rm -Rfv "$KOTLIN_DIR" # Clean previous install
+  mkdir -p "$KOTLIN_DIR"
+
+  echo "Downloading Kotlin $KOTLIN_VERSION..."
+  curl -L "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip" -o /tmp/kotlin.zip
+  unzip -q /tmp/kotlin.zip -d "$KOTLIN_DIR"
+  rm /tmp/kotlin.zip
+
+  echo "Kotlin compiler installed to $KOTLIN_DIR/kotlinc"
+  echo "Note: Add $KOTLIN_DIR/kotlinc/bin to your PATH manually."
+
+  # Install Kotlin Language Server
+  install_kls
+}
+
+if ! "$SKIP_KOTLIN"; then
+  if command -v sdk >/dev/null 2>&1; then
+    install_kotlin_sdkman
+  else
+    install_kotlin_manual
+  fi
+else
+  echo -e "\033[1;33m\n[ Skipping Kotlin Language Server (KLS) as requested ]\033[0m"
+fi
+#+end_src
+
+Then, we can configure Emacs:
+
+#+begin_src emacs-lisp
+;; Copied from https://github.com/themkat/.emacs.d/blob/master/init.org
+(declare-function dap-register-debug-template "dap-mode")
+(defun my/kotlin-register-debug-templates ()
+  (dap-register-debug-template "Kotlin tests with launcher"
+                            (list :type "kotlin"
+                                  :request "launch"
+                                  :mainClass "org.junit.platform.console.ConsoleLauncher --scan-class-path"
+                                  :enableJsonLogging nil
+                                  :noDebug nil)))
+
+(defvar lsp-kotlin-debug-adapter-path nil)
+
+(use-package kotlin-mode
+  :defer t
+  :after (lsp-mode dap-mode yasnippet)
+  :config
+  (require 'dap-kotlin)
+  ;; Check comment from https://github.com/themkat/.emacs.d/blob/master/init.org
+  ;; about that having to be in dap-kotlin instead of lsp-kotlin
+  (setq lsp-kotlin-debug-adapter-path (or (executable-find "kotlin-debug-adapter") ""))
+  (with-eval-after-load 'dap-mode
+    (my/kotlin-register-debug-templates))
+  :hook ((kotlin-mode . lsp)
+         (kotlin-mode . yas-minor-mode)))
+#+end_src
+
+You need Java (JDK 11+) installed for the server to run.
+
+
+*** TypeScript
+
+To enable IDE features for TypeScript, you need to install both the TypeScript
+compiler (typescript) and the TypeScript Language Server (TSLS), and configure
+Emacs to use them.
+
+Why two packages? The typescript npm package provides the compiler and tsserver,
+but not the Language Server Protocol (LSP). The typescript-language-server
+package wraps tsserver and exposes its features via LSP, which is required for
+lsp-mode and dap-mode in Emacs. This separation allows editors to Emacs. This
+separation allows editors to use a standard protocol for IDE features across
+many languages.
+
+This repository contains a local setup for TypeScript tools under
+`~/.emacs.d/typescript/` to ensure a consistent version is used regardless of
+the project. However, if a project has its own local installation of
+`typescript-language-server` in `node_modules/.bin/`, that version will be
+preferred.
+
+Note that you need to install [[https://nodejs.org/][Node.js]] before proceeding.
+Then, we can configure Emacs. The setup below enables TypeScript mode using
+tree-sitter (=*-ts-mode=):
+
+#+begin_src emacs-lisp
+(defun my/typescript-register-debug-templates ()
+  "Register DAP debug templates for TypeScript."
+  (require 'dap-mode)
+
+  (with-eval-after-load 'dap-mode
+    (dap-register-debug-template
+     "Node::Attach"
+     (list :type "node"
+           :request "attach"
+           :name "Node::Attach"
+           :port 9229
+           :address "localhost"
+           :restart t
+           :protocol "inspector")))
+
+  (with-eval-after-load 'dap-mode
+    (dap-register-debug-template
+     "Node::Launch Program"
+     (list :type "node"
+           :request "launch"
+           :name "Node::Launch Program"
+           :program "${file}"
+           :cwd "${workspaceFolder}"
+           :runtimeExecutable "node"
+           :protocol "inspector"
+           :console "integratedTerminal"
+           :internalConsoleOptions "neverOpen"))))
+
+(with-eval-after-load 'dap-mode
+  (my/typescript-register-debug-templates))
+
+(defvar lsp-typescript-server-path nil)
+
+(use-package typescript-ts-mode
+  :defer t
+  :mode "\\.tsx?\\'"
+  :after (lsp-mode dap-mode yasnippet)
+  :config
+  ;; Ensure dap-js is loaded for TypeScript/Node.js debugging
+  (require 'dap-js)
+
+  ;; Prefer project-local typescript-language-server, fallback to ~/.emacs.d/nodejs_tools
+  (let* ((project-root (or (locate-dominating-file default-directory "node_modules") default-directory))
+          (project-tsls (expand-file-name "node_modules/.bin/typescript-language-server" project-root))
+          (fallback-tsls (expand-file-name "~/.emacs.d/nodejs_tools/node_modules/.bin/typescript-language-server")))
+    (setq lsp-typescript-server-path (if (file-exists-p project-tsls) project-tsls fallback-tsls)))
+  :hook ((typescript-ts-mode . lsp)
+          (typescript-ts-mode . yas-minor-mode)))
+
+;; Associate tsx and ts files with the correct modes
+(add-to-list 'auto-mode-alist '("\\.tsx\\'" . tsx-ts-mode))
+(add-to-list 'auto-mode-alist '("\\.ts\\'" . typescript-ts-mode))
+#+end_src
+
+
+*** JavaScript
+
+Major mode for editing JavaScript:
+
+#+begin_src emacs-lisp
+(use-package js
+  :ensure nil
+  :defer t
+  :mode "\\.jsx?\\'")
+
+(add-to-list 'auto-mode-alist '("\\.cs\\'" . js-ts-mode))
+(add-to-list 'auto-mode-alist '("\\.mjs\\'" . js-ts-mode))
+(add-to-list 'auto-mode-alist '("\\.js\\'" . js-ts-mode))
+(add-to-list 'auto-mode-alist '("\\.jsx\\'" . tsx-ts-mode))
+#+end_src
+
+
+*** General Node.js development setup
+
+Node.js REPL integration with `nodejs-repl` package. This provides an interactive
+Node.js shell within Emacs, allowing you to run JavaScript code snippets and
+test functions on the fly.
+
+#+begin_src emacs-lisp
+(use-package nodejs-repl
+  :commands nodejs-repl)
+
+;; Ensure dap-js is loaded for TypeScript/Node.js debugging
+(with-eval-after-load 'dap-mode
+  (require 'dap-js)
+  (setq dap-js-debug-path (expand-file-name "vscode-js-debug" "~/.emacs.d/nodejs_tools/")))
+#+end_src
+
+
+In addition to that, here goes a setup for Flycheck to use eslint from either
+Yarn or npm, preferring Yarn if both are available in the project. This affects
+all Node.js projects.
+
+#+begin_src emacs-lisp
+(defun my/flycheck-use-eslint ()
+  "Configure Flycheck to use eslint via Yarn or npm, preferring Yarn."
+  (when-let ((root (locate-dominating-file
+                    (or buffer-file-name default-directory)
+                    "package.json")))
+    (cond
+     ((file-exists-p (expand-file-name "yarn.lock" root))
+      (setq-local flycheck-javascript-eslint-executable "yarn")
+      (setq-local flycheck-javascript-eslint-args '("eslint" "--format" "unix" "--stdin")))
+     (t
+      (setq-local flycheck-javascript-eslint-executable "npm")
+      (setq-local flycheck-javascript-eslint-args '("run" "eslint" "--"))))))
+
+(add-hook 'flycheck-mode-hook #'my/flycheck-use-eslint)
+#+end_src
+
+
+*** General Web development (HTML, CSS)
+
+We start by adding CSS/SASS inline documentation with eldoc.
+
+Eldoc is a built-in Emacs minor mode that displays function signatures, variable
+documentation, or other context-sensitive help in the minibuffer as you type or
+move the cursor. For CSS and SASS, the `css-eldoc` package integrates with eldoc
+to show documentation for CSS properties and functions inline, making it much
+easier to remember valid values and arguments without leaving your editor.
+
+#+begin_src emacs-lisp
+(use-package css-eldoc
+  :hook
+  (css-mode . turn-on-css-eldoc)
+  (scss-mode . turn-on-css-eldoc))
+#+end_src
+
+
+Then, we setup web-mode for web templates:
+
+`web-mode` is a major mode for editing web templates and component files, such as
+HTML, Vue, EJS, Nunjucks, Jinja, Twig, and ERB. It provides syntax highlighting,
+indentation, and structural editing for these formats.
+
+#+begin_src emacs-lisp
+(use-package web-mode
+  :defer t
+  :after (css-eldoc)
+  :mode ("\\.html?\\'" "\\.ejs\\'" "\\.vue\\'" "\\.njk\\'" "\\.jinja\\'" "\\.twig\\'" "\\.erb\\'")
+  :custom
+  (web-mode-enable-current-element-highlight t))
+#+end_src
+
+
+*** Shell
+
+To enable advanced shell scripting development in Emacs, we use the following tools:
+
+- `lsp-mode` with `bash-language-server` for IDE features (completion, go-to-definition, linting)
+- `company-shell` for shell completion
+- `flycheck` with `shellcheck` for on-the-fly linting
+- `bash-completion` for improved shell completion in shell buffers
+
+**Install dependencies:**
+
+Install `bash-language-server` (included in the `nodejs_tools` folder. It requires Node.js)
+and `shellcheck`. For `shellcheck`, make sure it is available to your system. For Ubuntu/Debian,
+you can install it via apt.
+
+Note that I added a small hack to make `bash-language-server` work with `lsp-mode` by
+symlinking its binary to the expected location. Setting `lsp-bash-bash-language-server-path`
+did not work as expected for unknown reasons.
+
+#+begin_src sh :tangle setup.sh
+install_shellcheck() {
+  echo -e "\033[1;32m\n[ Installing ShellCheck ]\033[0m"
+
+  if ! command -v shellcheck >/dev/null 2>&1; then
+
+    # 1. Check for Debian/Ubuntu (apt)
+    if [ -f /etc/debian_version ] && command -v apt >/dev/null 2>&1; then
+      echo "Using apt to install ShellCheck..."
+      sudo apt update
+      sudo apt install -y shellcheck
+
+    # 2. Check for Fedora/RHEL (dnf)
+    elif [ -f /etc/fedora-release ] || command -v dnf >/dev/null 2>&1; then
+      echo "Using dnf to install ShellCheck (RHEL/Fedora)..."
+      # dnf is generally available and doesn't require a preceding update like apt
+      sudo dnf install -y ShellCheck
+
+    # 3. Fallback/Manual install warning
+    else
+      echo -e "\033[1;33mWarning: Could not automatically install ShellCheck. Please install it manually using your OS package manager.\033[0m"
+      echo "See: https://github.com/koalaman/shellcheck#installing"
+    fi
+  else
+    echo "ShellCheck is already installed."
+  fi
+}
+
+install_shellcheck
+#+end_src
+
+**Emacs configuration:**
+
+#+begin_src emacs-lisp
+(use-package sh-mode
+  :ensure nil
+  :mode ("\\.sh\\'" . sh-mode)
+  :hook ((sh-mode . lsp)
+         (sh-mode . company-mode)
+         (sh-mode . flycheck-mode)))
+
+(use-package company-shell
+  :after company
+  :defer t
+  :hook (sh-mode . (lambda ()
+                     (add-to-list (make-local-variable 'company-backends) 'company-shell))))
+
+(use-package bash-completion
+  :defer t
+  :hook (shell-mode . bash-completion-mode))
+#+end_src
+
+
+This setup provides a modern shell scripting experience in Emacs with LSP features, completion, and linting.
+
+*** YAML
+
+YAML files are used for configuration in many tools and languages. The `yaml-mode` package provides syntax highlighting and indentation for YAML files.
+
+#+begin_src emacs-lisp
+(use-package yaml-mode
+  :mode "\\.ya?ml\\'")
+#+end_src
+
+
+*** Markdown
+
+Adding support for editing Markdown files with `markdown-mode`.
+
+#+begin_src emacs-lisp
+(use-package markdown-mode
+  :defer t
+  :hook (markdown-mode . (lambda () (setq fill-column 72))))
+#+end_src
+
+
+** EditorConfig
+
+Using [[https://editorconfig.org/][EditorConfig]] is a must when collaborating with others. It is also a way
+of having multiple tools that want to format your buffer to agree (e.g. both
+the language's Emacs mode and some external formatter/prettifier).
+
+
+#+begin_src emacs-lisp
+(use-package editorconfig
+  :config
+  (editorconfig-mode 1))
+#+end_src
+
+
+*** Docker and related
+
+Dockerfile support is provided by the `dockerfile-mode` package, which enables syntax highlighting
+and editing for Dockerfiles. For Docker Compose YAML files, it is recommended to use the
+`docker-compose-mode` package, which provides specialized support for `docker-compose.yml` and
+similar files.
+
+#+begin_src emacs-lisp
+(use-package dockerfile-mode
+  :mode "Dockerfile\\'")
+#+end_src
+
+#+begin_src emacs-lisp
+(use-package docker-compose-mode
+  :mode "docker-compose\\.ya?ml\\'")
+#+end_src
+
+
+* Project management
+
+Project management in Emacs is handled by the built-in `project` package, which provides
+a unified interface for working with projects. To enhance the project management experience,
+we can integrate Magit, a popular Git interface for Emacs, into the project switch commands
+
+#+begin_src emacs-lisp
+(use-package project
+  :preface
+  (defun my/treemacs-sync-with-project ()
+    "Restrict Treemacs to display only the current project."
+    (with-eval-after-load 'treemacs
+      (when (project-current)
+        (save-selected-window
+          (save-current-buffer
+            (treemacs-display-current-project-exclusively))))))
+
+  :config
+  (add-to-list 'project-switch-commands '(magit-project-status "Magit" ?m))
+
+  ;; If running as a daemon, prevent 'project.el' from asking for a project root.
+  ;; It should only prompt if run interactively (i.e., when you open emacsclient).
+  (when (daemonp)
+    (setq project-find-project-by-default nil))
+
+  ;; Ignoring temporary/emacs files in projects
+  (add-to-list 'project-vc-ignores "*~")
+  (add-to-list 'project-vc-ignores ".#*~")
+  (add-to-list 'project-vc-ignores "#*")
+  (add-to-list 'project-vc-ignores ".#*")
+
+  (add-hook 'project-switch-functions #'my/treemacs-sync-with-project)
+  (add-hook 'find-file-hook #'my/treemacs-sync-with-project)
+  (add-hook 'emacs-startup-hook #'my/treemacs-sync-with-project))
+#+end_src
+
+
+* Window management
+
+Added keybindings using Alt Gr and the numeric keyboard.
+
+#+begin_src emacs-lisp
+(use-package windmove
+  :ensure nil
+  :bind (:map custom-bindings-map
+              ("C-c <left>" . windmove-left)
+              ("C-c <down>" . windmove-down)
+              ("C-c <up>" . windmove-up)
+              ("C-c <right>" . windmove-right)
+
+              ("C-S-c <left>" . windmove-swap-states-left)
+              ("C-S-c <down>" . windmove-swap-states-down)
+              ("C-S-c <up>" . windmove-swap-states-up)
+              ("C-S-c <right>" . windmove-swap-states-right)))
+#+end_src
+
+
+* PDF Tools
+
+[[https://github.com/vedang/pdf-tools][PDF Tools]] makes a huge improvement on the built-in [[http://www.gnu.org/software/emacs/manual/html_node/emacs/Document-View.html][doc-view-mode]]! Removing
+the =header-line-format= gives a very clean PDF-viewer; let's add that to a
+key.
+
+#+begin_src emacs-lisp
+;; Preventing compile-time warning
+(declare-function pdf-loader-install "pdf-tools" nil)
+(declare-function pdf-view-desired-image-size "pdf-view")
+(declare-function pdf-view-create-page "pdf-view")
+(declare-function pdf-util-frame-scale-factor "pdf-util")
+(declare-function pdf-util-hexcolor "pdf-util")
+(declare-function pdf-view-buffer-file-name "pdf-view")
+(declare-function pdf-util-munch-file "pdf-util")
+(declare-function pdf-util-highlight-regexp-in-string "pdf-util")
+(declare-function image-mode-window-get "image-mode")
+(declare-function image-set-window-hscroll "image-mode")
+(declare-function image-set-window-vscroll "image-mode")
+
+;; Emacs support library for PDF files
+(use-package pdf-tools
+  :defer t
+  :mode "\\.pdf\\'"
+  :bind (:map pdf-view-mode-map
+              ("c" . (lambda ()
+                       (interactive)
+                       (if header-line-format
+                           (setq header-line-format nil)
+                         )))
+              ("j" . pdf-view-next-line-or-next-page)
+              ("k" . pdf-view-previous-line-or-previous-page))
+  :config
+  (unless (daemonp)
+    (pdf-loader-install))
+  (add-to-list 'revert-without-query ".pdf"))
+#+end_src
+
+
+* User functions
+
+** Autosave hooks
+
+#+begin_src emacs-lisp
+(defun my/trim-whitespace ()
+  "Trim trailing whitespace before saving."
+  (when (derived-mode-p 'prog-mode 'text-mode) ; only certain modes
+    (delete-trailing-whitespace)))
+
+(defvar my/save-hooks
+  '(my/trim-whitespace
+    delete-trailing-whitespace ; All modes for now. Decide later...
+    ;; more functions here
+    )
+  "List of functions to run before saving a file.")
+
+(defun my/run-save-hooks ()
+  "Run all functions in `my/save-hooks`."
+  (run-hooks 'my/save-hooks))
+
+(add-hook 'before-save-hook #'my/run-save-hooks)
+#+end_src
+
+
+** Yarn integration
+
+#+begin_src emacs-lisp
+(defun yarn-run-script (script)
+  "Run a Yarn script in the project root."
+  (interactive "sYarn script: ")
+  (compile (concat "yarn " script)))
+
+(global-set-key (kbd "C-c y") 'yarn-run-script)
+
+;; To load local variables, run:
+;; M-: hack-dir-local-variables
+#+end_src

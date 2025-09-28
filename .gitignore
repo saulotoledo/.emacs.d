@@ -1,0 +1,77 @@
+# Byte-compiled Emacs files
+*.elc
+
+# Backup and autosave files
+*~
+\#*\#
+
+# Session files
+server/
+undo-tree/
+.desktop
+*.desktop
+*autosave*
+
+# Temporary files created by packages
+*.cache
+*.backup
+*.log
+
+# Projectile / project-related cache
+.projectile
+.tags
+projectile-bookmarks.eld
+TAGS
+
+# eshell / shell history
+/eshell/history
+
+# package manager files
+.elpa/
+elpa/
+eln-cache
+
+# undo-tree history
+*undo-tree-history*
+
+# TRAMP files
+tramp
+*~
+
+# Org-mode export cache
+*.org~
+
+# Backups and auto-saves
+backups/
+auto-save-list/
+
+# Other packages
+cognitive-complexity
+
+# Personal drafts and notes
+drafts.el
+
+# SSH Keys for container usage
+ssh_keys/*
+
+# Other
+auto-save-list/
+eclipse*/
+lsp_language_servers/
+transient/
+tree-sitter/
+workspace/
+.dap-*
+.lsp-session*
+.mc-lists.el
+abbrev_defs
+custom.el
+early-init.el
+init.emacs_lisp
+init.el
+local.el
+ido.last
+projects
+recentf
+*.swp
+*.swo
