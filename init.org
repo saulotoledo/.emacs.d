@@ -33,6 +33,11 @@
     - [[#minibuffer-completion-and-search][Minibuffer Completion and Search]]
     - [[#maximize-frame-at-startup][Maximize frame at startup]]
 - [[#version-control][Version control]]
+    - [[#magit-a-powerful-git-interface-for-emacs][Magit: a powerful Git interface for Emacs]]
+    - [[#ansi-color-support-in-the-magit-process-buffer][ANSI color support in the magit process buffer]]
+        - [[#option-1-official-built-in-solution-with-delay][Option 1: Official built-in solution (with delay)]]
+        - [[#option-2-real-time-color-application-recommended][Option 2: Real-time color application (recommended)]]
+    - [[#other-magit-related-changes][Other magit-related changes]]
 - [[#other-useful-packages][Other useful packages]]
     - [[#try-a-new-package-without-installing-it][Try a new package without installing it]]
     - [[#snippets][Snippets]]
@@ -1129,6 +1134,8 @@ Navigate by searching for a letter on the screen and jumping to it
 
 * Version control
 
+** Magit: a powerful Git interface for Emacs
+
 Magit is a powerful Git interface for Emacs, providing an intuitive
 way to manage Git repositories directly from the editor.
 
@@ -1145,6 +1152,52 @@ In the Magit status buffer:
   :commands magit-status
   :bind (:map custom-bindings-map ("C-c m" . magit-status)))
 #+end_src
+
+
+** ANSI color support in the magit process buffer
+
+When running Git commands through Magit (e.g., hooks, pre-commit scripts), the output
+is displayed in the *magit-process* buffer (accessible by pressing `$` in the Magit
+status buffer). This buffer shows the raw output from Git commands. However, by
+default, ANSI color codes in the output are not interpreted, so the output appears
+with raw escape sequences instead of colored text.
+
+There are two approaches to enable ANSI color support in the Magit process buffer:
+
+*** Option 1: Official built-in solution (with delay)
+
+The official way to enable ANSI colors is to set `magit-process-finish-apply-ansi-colors`.
+However, this only applies colors after the Git command has finished executing. For
+slow processes (like long-running hooks), you'll see the raw escape sequences until the
+command completes, which can be distracting.
+
+#+begin_example emacs-lisp
+;; Official built-in solution - applies colors after command finishes
+(setq magit-process-finish-apply-ansi-colors t)
+#+end_example
+
+
+*** Option 2: Real-time color application (recommended)
+
+A better solution, suggested in [[https://github.com/magit/magit/issues/3549#issuecomment-1375023283][this GitHub comment]],
+applies colors in real-time as the buffer is updated. This provides immediate visual
+feedback without showing raw escape sequences during long-running commands. This is
+the approach we use in our configuration:
+
+#+begin_src emacs-lisp
+;; Apply ANSI colors in real-time as the magit-process buffer is updated
+(defun my/magit-color-buffer (proc &rest args)
+  "Apply ANSI colors to the magit-process buffer in real-time."
+  (with-current-buffer (process-buffer proc)
+    (read-only-mode -1)
+    (ansi-color-apply-on-region (point-min) (point-max))
+    (read-only-mode 1)))
+
+(advice-add 'magit-process-filter :after #'my/magit-color-buffer)
+#+end_src
+
+
+** Other magit-related changes
 
 Below we add some visual indications for uncommitted changes with [[https://github.com/dgutov/diff-hl][~diff-hl~]].
 In addition, ~diff-hl~ can be automatically updated when interacting with Magit.
@@ -2385,6 +2438,7 @@ install_shellcheck() {
 
 install_shellcheck
 #+end_src
+
 
 **Emacs configuration:**
 
