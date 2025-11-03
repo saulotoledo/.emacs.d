@@ -385,8 +385,13 @@ incomplete command.
 (setq-default cursor-type 'bar)
 
 ;; Line numbers
-(add-to-list 'prog-mode-hook 'display-line-numbers-mode)
-(add-to-list 'org-mode-hook 'display-line-numbers-mode)
+(dolist (hook '(markdown-mode-hook
+                nxml-mode-hook
+                org-mode-hook
+                prog-mode-hook
+                text-mode-hook
+                yaml-mode-hook))
+  (add-hook hook 'display-line-numbers-mode))
 
 ;; Highlighting current line
 (global-hl-line-mode 1)
@@ -1466,7 +1471,6 @@ a couple of convenient keybindings.
     (doom-modeline-def-segment my/mc-cursor-count
       "Display the number of active cursors in multiple-cursors mode."
       (my/mc-count-cursors))))
-
 #+end_src
 
 
