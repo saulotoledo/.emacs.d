@@ -1222,6 +1222,28 @@ Below we integrate Treemacs with Magit to show Git status in the Treemacs sideba
   :after (treemacs magit))
 #+end_src
 
+Next, we introduce a utility function and associated hooks to automatically enable
+`smerge-mode` when a file contains merge conflict markers. This is particularly useful
+for developers working with version control systems like Git, as it streamlines the
+process of resolving merge conflicts.
+
+We can navigate between conflict markers using the following keybindings:
+- =C-c ^ n=: Jump to the next conflict marker.
+- =C-c ^ p=: Jump to the previous conflict marker.
+
+#+begin_src emacs-lisp
+(defun maybe-enable-smerge-mode ()
+  "Enable smerge-mode if the buffer contains merge conflict markers."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward "^<<<<<<< " nil t)
+      (smerge-mode 1))))
+
+(add-hook 'find-file-hook #'maybe-enable-smerge-mode)
+(add-hook 'after-revert-hook #'maybe-enable-smerge-mode)
+(add-hook 'after-change-major-mode-hook #'maybe-enable-smerge-mode)
+#+end_src
+
 
 * Other useful packages
 
