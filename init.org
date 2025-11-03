@@ -1201,6 +1201,10 @@ the approach we use in our configuration:
 
 Below we add some visual indications for uncommitted changes with [[https://github.com/dgutov/diff-hl][~diff-hl~]].
 In addition, ~diff-hl~ can be automatically updated when interacting with Magit.
+~diff-hl~ shows a git diff in the fringe (the left or right margins) of
+the editor, indicating added, modified, and deleted lines in the current
+file. It provides visual cues for changes made since the last commit,
+making it easier to track modifications.
 
 #+begin_src emacs-lisp
 (use-package diff-hl
@@ -1209,23 +1213,6 @@ In addition, ~diff-hl~ can be automatically updated when interacting with Magit.
          (magit-post-refresh . diff-hl-magit-post-refresh))
   :config
   (global-diff-hl-mode 1))
-#+end_src
-
-Git-Gutter shows a git diff in the fringe (the left or right margins) of
-the editor, indicating added, modified, and deleted lines in the current
-file. It provides visual cues for changes made since the last commit,
-making it easier to track modifications.
-
-#+begin_src emacs-lisp
-(use-package git-gutter
-  :ensure git-gutter-fringe
-  :after magit
-  :init
-  (global-git-gutter-mode 1)
-  (setq-default left-fringe-width 20)
-
-  :hook
-  (magit-post-refresh . git-gutter:update-all-windows))
 #+end_src
 
 Below we integrate Treemacs with Magit to show Git status in the Treemacs sidebar.
