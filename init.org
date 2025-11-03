@@ -1434,6 +1434,7 @@ A fully capable terminal emulator.
               ("M-9" . (lambda () (interactive) (toggle-vterm 9))))
 
   :config
+  (setq vterm-max-scrollback 10000)
   (advice-add 'vterm :around #'my/vterm-kill-with-no-query-around))
 
 ;; Here we set the font for vterm to a Nerd Font that supports
