@@ -57,6 +57,8 @@
     - [[#org-modern][Org Modern]]
 - [[#programming-ide-and-related][Programming, IDE and related]]
     - [[#code-completion][Code completion]]
+    - [[#github-copilot-emacs-29-only][GitHub Copilot (Emacs 29+ only)]]
+    - [[#github-copilot-chat-emacs-29-only][GitHub Copilot Chat (Emacs 29+ only)]]
     - [[#ide-functionality-with-lsp][IDE functionality with LSP]]
         - [[#lsp-mode-core-lsp-client][lsp-mode: Core LSP client]]
         - [[#lsp-ui-ui-enhancements-for-lsp][lsp-ui: UI enhancements for LSP]]
@@ -259,16 +261,25 @@ opted for this file socket approach in our configuration:
 To facilitate setting up the external tools needed by our Emacs environment, we
 provide a setup script that should be executed before starting Emacs.
 
+The current version of the script requires `bash` to run: `bash setup.sh`.
+
+**Available command-line options:**
+- `--skip-java`: Skip Eclipse JDT Language Server installation
+- `--skip-kotlin`: Skip Kotlin Language Server installation
+- `--enable-copilot`: Enable GitHub Copilot support (requires Node.js 22.0.0+)
+
+Without `--enable-copilot`, the minimum Node.js version is 20.19.2. With it enabled,
+Node.js 22.0.0+ is required for Copilot compatibility.
+
 We start the script by introducing some variables and command-line flags that we
 will use later.
-
-The current version of the script requires `bash` to run: `bash setup.sh`.
 
 #+begin_src sh :tangle setup.sh
 #!/bin/bash
 
 SKIP_JAVA=false
 SKIP_KOTLIN=false
+ENABLE_COPILOT=false
 
 parse_args() {
   for arg in "$@"; do
@@ -279,6 +290,10 @@ parse_args() {
         ;;
       --skip-kotlin)
         SKIP_KOTLIN=true
+        shift
+        ;;
+      --enable-copilot)
+        ENABLE_COPILOT=true
         shift
         ;;
       *)
@@ -318,8 +333,14 @@ Multiple tools we use to support our development flow are based on Node.js.
 We need to install those tools in our system below.
 
 #+begin_src sh :tangle setup.sh
-# Minimal version of node required by our setup. Update as needed:
-REQUIRED_NODE_VERSION="20.19.2"
+# Set Node.js version requirement based on Copilot usage. Update minimum versions as needed.
+if [ "$ENABLE_COPILOT" = "true" ]; then
+  REQUIRED_NODE_VERSION="22.0.0"  # GitHub Copilot requires Node.js 22.x or later
+  echo -e "\033[1;33m[ Copilot enabled - Node.js 22.0.0+ required ]\033[0m"
+else
+  REQUIRED_NODE_VERSION="20.19.2"  # Standard requirement without Copilot.
+  echo -e "\033[1;33m[ Standard setup - Node.js 20.19.2+ required ]\033[0m"
+fi
 
 check_node_version() {
   echo -e "\033[1;32m[ Checking Node.js Version ]\033[0m"
@@ -1696,6 +1717,212 @@ doc popups and nicer candidate grouping without changing Company backends.
 
   :hook
   (company-mode . company-box-mode))
+#+end_src
+
+
+** GitHub Copilot (Emacs 29+ only)
+
+Official GitHub Copilot integration for Emacs. It provides AI-powered code
+suggestions as you type. This configuration uses ~package-vc~, which is a
+built-in package manager introduced in Emacs 29+ that can install packages
+directly from Git repositories.
+
+For older Emacs versions, you'll need to manually clone the repository.
+
+**Installation Requirements:**
+1. Node.js (handled by setup.sh)
+2. Copilot Language Server (installed via nodejs_tools/package.json)
+
+#+begin_src emacs-lisp
+;; Install and configure Copilot using package-vc (Emacs 29+)
+;; We are using package-vc-install below for compatibility with Emacs 29+. In
+;; Emacs 30+, we could use `:vc (:fetcher github :repo "copilot-emacs/copilot.el")`
+;; directly in use-package.
+(when (fboundp 'package-vc-install)
+  (unless (package-installed-p 'copilot)
+    (package-vc-install "https://github.com/copilot-emacs/copilot.el"))
+
+  (use-package copilot
+    :ensure nil  ; Installed via package-vc, don't try MELPA
+    :init
+    ;; Disable indentation offset warnings - Copilot will use existing indentation
+    ;; See https://github.com/copilot-emacs/copilot.el/issues/312#issuecomment-2729052774
+    (setq copilot-indent-offset-warning-disable t)
+
+    ;; Disable buffer size warnings - prevents "file size exceeds copilot-max-char" warnings for large files
+    ;; Not working yet. See https://github.com/copilot-emacs/copilot.el/issues/313
+    (setq copilot-max-char-warning-disabled t)
+
+    :config
+    ;; Configure Copilot to use our custom nodejs_tools installation
+    (let ((copilot-server (expand-file-name "nodejs_tools/node_modules/.bin/copilot-language-server"
+                                            user-emacs-directory))
+          (node-binary (executable-find "node")))
+      (cond
+       ;; Check if our local installation exists and is executable
+       ((and (file-executable-p copilot-server) node-binary)
+        (setq copilot-server-executable copilot-server)
+        (message "Copilot: Using local server at %s" copilot-server))
+
+       ;; Fallback to system installation
+       ((executable-find "copilot-language-server")
+        (setq copilot-server-executable (executable-find "copilot-language-server"))
+        (message "Copilot: Using system server"))
+
+       ;; No server found
+       (t
+        (message "Copilot: No language server found. Run setup.sh to install locally.")
+        (setq copilot-mode nil))))
+
+    ;; Files to exclude from Copilot
+    (defvar my/copilot-excluded-files
+      '("\\.env\\(\\..*\\)?$"
+        "\\.config$"
+        "\\.cfg$"
+        "secret"
+        "credential"
+        "^id_rsa"
+        "\\.key$"
+        "\\.log$"
+        "\\.tmp$"
+        "\\.ini$"
+        "\\.txt$")
+      "List of regex patterns for files to exclude from Copilot.")
+
+    (defun my/copilot-kubernetes-sensitive-p ()
+      "Check if current buffer contains Kubernetes sensitive content (Secrets or ConfigMaps)."
+      (save-excursion
+        (goto-char (point-min))
+        (and (re-search-forward "^apiVersion:" nil t)
+             (goto-char (point-min))
+             (re-search-forward "^kind:\\s-*\\(Secret\\|ConfigMap\\)\\s-*$" nil t))))
+
+    (defun my/copilot-excluded-file-p ()
+      "Check if current file should be excluded from Copilot."
+      (or
+       ;; Check filename patterns
+       (and buffer-file-name
+            (let ((filename (file-name-nondirectory buffer-file-name)))
+              (cl-some (lambda (pattern)
+                         (string-match-p pattern filename))
+                       my/copilot-excluded-files)))
+       ;; Check directory patterns
+       (and buffer-file-name
+            (string-match-p "/\\(dist\\|build\\|vendor\\)/" buffer-file-name))
+       ;; Check content patterns
+       (my/copilot-kubernetes-sensitive-p)))
+
+    (defun my/safe-copilot-mode ()
+      "Enable copilot-mode with silent error handling, excluding sensitive files."
+      (unless (my/copilot-excluded-file-p)
+        (condition-case err
+            (when (and copilot-server-executable
+                       (file-executable-p copilot-server-executable))
+              (copilot-mode 1))
+          (error
+           (message "Copilot mode activation failed. Check the *copilot events* buffer for details")
+           (setq copilot-mode nil)))))
+
+    :hook ((prog-mode . my/safe-copilot-mode)
+           (text-mode . my/safe-copilot-mode)
+           (markdown-mode . my/safe-copilot-mode)
+           (yaml-mode . my/safe-copilot-mode)
+           (json-mode . my/safe-copilot-mode)
+           (sh-mode . my/safe-copilot-mode)
+           (dockerfile-mode . my/safe-copilot-mode)
+           (css-mode . my/safe-copilot-mode)
+           (sql-mode . my/safe-copilot-mode)
+           (conf-mode . my/safe-copilot-mode))
+    :bind (("C-c c t" . copilot-mode)          ; Toggle copilot in buffer
+           ("C-c c l" . copilot-login)         ; Login to copilot
+           ("C-c c d" . copilot-diagnose)      ; Check copilot status
+           :map copilot-completion-map
+           ("C-g" . copilot-clear-overlay)     ; Clear suggestion
+           ("M-p" . copilot-previous-completion)
+           ("M-n" . copilot-next-completion)
+           ("C-<tab>" . copilot-accept-completion)
+           ("C-TAB" . copilot-accept-completion))))
+#+end_src
+
+
+** GitHub Copilot Chat (Emacs 29+ only)
+
+GitHub Copilot Chat provides an interactive chat interface with GitHub Copilot,
+similar to what's available in VS Code or IntelliJ. This is a separate package
+from the completion-only `copilot.el`.
+
+**Features:**
+- Interactive chat with GitHub Copilot
+- Code explanation, review, and generation
+- Multiple frontend options (Org-mode, Markdown, Shell-maker)
+- Integration with your codebase context
+- Transient menu interface for easy access
+
+#+begin_src emacs-lisp
+(when (fboundp 'package-vc-install)
+  ;; Better check for package-vc installed packages
+  (defun my/package-vc-installed-p (package &optional repo-name)
+    "Check if a package is installed via package-vc or regular package system.
+     PACKAGE is the package symbol to check.
+     REPO-NAME is the optional repository directory name (if different from package name)."
+    (let* ((installed-p (package-installed-p package))
+           (vc-installed-p (and (fboundp 'package-vc-installed-p)
+                                (package-vc-installed-p package)))
+           (feature-p (featurep package))
+           (pkg-name (format "%s" package))
+           (actual-repo-name (or repo-name pkg-name))
+           (pkg-dir (expand-file-name pkg-name package-user-dir))
+           (repo-dir (expand-file-name actual-repo-name package-user-dir))
+           (dir-exists-p (or (file-directory-p pkg-dir)
+                             (and repo-name (file-directory-p repo-dir)))))
+      (or installed-p vc-installed-p feature-p dir-exists-p)))
+
+  ;; Install required dependencies that aren't on MELPA first
+  (unless (my/package-vc-installed-p 'aio "emacs-aio")
+    (package-vc-install "https://github.com/skeeto/emacs-aio"))
+
+  (unless (my/package-vc-installed-p 'mcp "mcp.el")
+    (package-vc-install "https://github.com/lizqwerscott/mcp.el"))
+
+  ;; Install copilot-chat
+  (unless (my/package-vc-installed-p 'copilot-chat)
+    (package-vc-install "https://github.com/chep/copilot-chat.el"))
+
+  ;; Add copilot-chat to load path. The package does not work without this.
+  (add-to-list 'load-path (expand-file-name "elpa/copilot-chat" user-emacs-directory))
+
+  (use-package copilot-chat
+    :ensure nil  ; Installed via package-vc, don't try MELPA
+    :after (org markdown-mode)
+
+    :custom
+    ;; Use org-mode as the frontend (recommended for Emacs users)
+    (copilot-chat-frontend 'org)
+
+    ;; Configure the default model (will be updated from API)
+    (copilot-chat-default-model "gpt-4o")
+
+    ;; Follow chat buffer automatically
+    (copilot-chat-follow t)
+
+    :bind (("C-c p c" . copilot-chat-display)           ; Open chat
+           ("C-c p h" . copilot-chat-hide)              ; Hide chat
+           ("C-c p e" . copilot-chat-explain)           ; Explain selection
+           ("C-c p r" . copilot-chat-review)            ; Review code
+           ("C-c p f" . copilot-chat-fix)               ; Fix code
+           ("C-c p d" . copilot-chat-doc)               ; Generate docs
+           ("C-c p t" . copilot-chat-test)              ; Generate tests
+           ("C-c p o" . copilot-chat-optimize)          ; Optimize code
+           ("C-c p i" . copilot-chat-ask-and-insert)    ; Ask and insert
+           ("C-c p m" . copilot-chat-transient)         ; Main menu
+           ("C-c p y" . copilot-chat-yank)              ; Yank code block
+           ("C-c p M-y" . copilot-chat-yank-pop)        ; Yank previous
+           :map global-map
+           ("C-c p C-y" . (lambda () (interactive) (copilot-chat-yank-pop -1))))
+
+    :config
+    ;; Add current buffer automatically when opening chat
+    (add-hook 'copilot-chat-mode-hook #'copilot-chat-add-current-buffer)))
 #+end_src
 
 

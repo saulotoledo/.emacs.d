@@ -2,6 +2,7 @@
 
 SKIP_JAVA=false
 SKIP_KOTLIN=false
+ENABLE_COPILOT=false
 
 parse_args() {
   for arg in "$@"; do
@@ -12,6 +13,10 @@ parse_args() {
         ;;
       --skip-kotlin)
         SKIP_KOTLIN=true
+        shift
+        ;;
+      --enable-copilot)
+        ENABLE_COPILOT=true
         shift
         ;;
       *)
@@ -42,8 +47,14 @@ if [ ! -f "./init.el" ]; then
   cp "init-bootstrap.el" "init.el"
 fi
 
-# Minimal version of node required by our setup. Update as needed:
-REQUIRED_NODE_VERSION="20.19.2"
+# Set Node.js version requirement based on Copilot usage. Update minimum versions as needed.
+if [ "$ENABLE_COPILOT" = "true" ]; then
+  REQUIRED_NODE_VERSION="22.0.0"  # GitHub Copilot requires Node.js 22.x or later
+  echo -e "\033[1;33m[ Copilot enabled - Node.js 22.0.0+ required ]\033[0m"
+else
+  REQUIRED_NODE_VERSION="20.19.2"  # Standard requirement without Copilot.
+  echo -e "\033[1;33m[ Standard setup - Node.js 20.19.2+ required ]\033[0m"
+fi
 
 check_node_version() {
   echo -e "\033[1;32m[ Checking Node.js Version ]\033[0m"

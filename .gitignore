@@ -58,6 +58,7 @@ ssh_keys/*
 auto-save-list/
 eclipse*/
 lsp_language_servers/
+request/
 transient/
 tree-sitter/
 workspace/
