@@ -30,7 +30,9 @@
     - [[#tree-navigation-sidebar][Tree navigation sidebar]]
     - [[#centering-text-in-the-buffer-c-c-o][Centering text in the buffer (C-c o)]]
     - [[#modes-configuration][Modes configuration]]
-    - [[#minibuffer-completion-and-search][Minibuffer Completion and Search]]
+    - [[#minibuffer-completion-search-and-navigation][Minibuffer Completion, Search, and Navigation]]
+        - [[#ivy-counsel-and-ivy-rich][Ivy, Counsel, and Ivy-rich]]
+        - [[#swiper-and-avy-fast-search-and-navigation][Swiper and Avy: Fast Search and Navigation]]
     - [[#maximize-frame-at-startup][Maximize frame at startup]]
 - [[#version-control][Version control]]
     - [[#magit-a-powerful-git-interface-for-emacs][Magit: a powerful Git interface for Emacs]]
@@ -1083,27 +1085,38 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
 #+end_src
 
 
-** Minibuffer Completion and Search
+** Minibuffer Completion, Search, and Navigation
 
-Ivy, Counsel, and Swiper provide minibuffer completion - they enhance the
-interactive prompts at the bottom of Emacs when you run commands like `M-x`,
-`find-file`, or search. Ivy is the completion framework, Counsel provides
-Ivy-enhanced versions of common commands, and Swiper integrates search with Ivy.
-Together they replace IDO and Helm for a faster, cleaner completion experience.
+*** Ivy, Counsel, and Ivy-rich
+
+Ivy, Counsel, and Swiper provide minibuffer completion—they enhance the
+interactive prompts at the bottom of Emacs for commands like `M-x`, `find-file`,
+and search. Ivy is the core completion framework. Counsel adds Ivy-powered
+versions of common commands (like `M-x`, `find-file`, `rg`). Swiper integrates
+search with Ivy for better navigation. Together, they replace IDO and Helm for a
+faster, cleaner experience.
+
+`ivy-mode` enables Ivy's UI for all compatible prompts. `counsel-mode` remaps
+standard Emacs commands to their enhanced Counsel versions. Use both for the
+best experience.
+
+`ivy-switch-buffer` (from Ivy) is a fast, simple buffer switcher. `counsel-ibuffer`
+(from Counsel) is a more powerful buffer manager with groups and metadata. Bind
+either to `C-x b` depending on whether you want a quick switcher or a full buffer
+manager.
+
+Ivy-rich enhances Ivy's completion menus by adding extra information to each
+candidate (like file paths, buffer modes, or recent file details). It makes
+Ivy and Counsel popups more informative and visually appealing, without
+changing how you interact with them.
 
 #+begin_src emacs-lisp
 (use-package ivy
   :diminish (ivy-mode)
-  :bind (("C-x b" . ivy-switch-buffer))
   :config
   (ivy-mode 1)
   (setq ivy-use-virtual-buffers t)
   (setq ivy-display-style 'fancy))
-
-;; (use-package ivy-rich
-;;   :ensure t
-;;   :init
-;;   (ivy-rich-mode 1))
 
 (use-package counsel
   :bind (("M-x" . counsel-M-x)
@@ -1114,10 +1127,22 @@ Together they replace IDO and Helm for a faster, cleaner completion experience.
          ("C-r" . 'counsel-minibuffer-history))
   :config
   (counsel-mode 1))
+
+(use-package ivy-rich
+  :after ivy
+  :init
+  (ivy-rich-mode 1))
 #+end_src
 
-Swiper gives us incremental search and is integrated with ivy and counsel.
-To search for the item at point, type =M-n= with swipper open.
+
+*** Swiper and Avy: Fast Search and Navigation
+
+Swiper gives us incremental search and is integrated with Ivy and Counsel.
+To search for the item at point, type =M-n= with Swiper open.
+
+Avy is a fast navigation tool: it lets you jump to any visible character,
+word, or line by typing a short key sequence. It's great for quickly moving
+the cursor anywhere on the screen without using the mouse or arrow keys.
 
 #+begin_src emacs-lisp
 (use-package swiper
@@ -1132,11 +1157,7 @@ To search for the item at point, type =M-n= with swipper open.
     (setopt ivy-display-style 'fancy)
     (define-key read-expression-map (kbd "C-r") 'counsel-expression-history)
     ))
-#+end_src
 
-Navigate by searching for a letter on the screen and jumping to it
-
-#+begin_src emacs-lisp
 (use-package avy
   :bind ("C-:" . avy-goto-char))
 #+end_src
@@ -1148,13 +1169,6 @@ Below we maximize the Emacs frame when starting up.
 
 #+begin_src emacs-lisp
 (add-hook 'emacs-startup-hook 'toggle-frame-maximized)
-#+end_src
-
-Navigate by searching for a letter on the screen and jumping to it
-
-#+begin_src emacs-lisp
-(use-package avy
-  :bind ("C-:" . avy-goto-char))
 #+end_src
 
 
@@ -1951,6 +1965,7 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-response-timeout 20))
 #+end_src
 
+
 *** lsp-ui: UI enhancements for LSP
 
 `lsp-ui` adds visual improvements to LSP, such as inline documentation popups, code actions
@@ -1987,6 +2002,7 @@ The helper below, copied from https://github.com/themkat/.emacs.d/blob/master/in
   (:map lsp-mode-map ("M-s M-d" . lsp-ui-show-doc-helper)))
 #+end_src
 
+
 *** lsp-treemacs: Project and symbol tree views
 
 `lsp-treemacs` integrates Treemacs with LSP, providing a sidebar for project symbols,
@@ -1998,6 +2014,7 @@ errors, references, and more.
   :config
   (lsp-treemacs-sync-mode 1))
 #+end_src
+
 
 *** dap-mode: Debug Adapter Protocol (debugging)
 
@@ -2091,6 +2108,7 @@ appropriate mode in =apheleia-mode-alist=. For example:
 ;; Map it to a mode
 (setf (alist-get 'my-mode apheleia-mode-alist) 'my-formatter)
 #+end_example
+
 
 **** Basic configuration for Apheleia
 
@@ -2680,7 +2698,6 @@ install_shellcheck() {
 install_shellcheck
 #+end_src
 
-
 **Emacs configuration:**
 
 #+begin_src emacs-lisp
@@ -2704,6 +2721,7 @@ install_shellcheck
 
 
 This setup provides a modern shell scripting experience in Emacs with LSP features, completion, and linting.
+
 
 *** YAML
 
