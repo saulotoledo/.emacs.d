@@ -407,14 +407,17 @@ incomplete command.
 ;; Cursor settings
 (setq-default cursor-type 'bar)
 
-;; Line numbers
-(dolist (hook '(markdown-mode-hook
+;; Line numbers and trailing newline indicator
+(load-file (expand-file-name "trailing-newline-linenum.el" user-emacs-directory))
+(dolist (hook '(conf-unix-mode
+                markdown-mode-hook
                 nxml-mode-hook
                 org-mode-hook
                 prog-mode-hook
                 text-mode-hook
                 yaml-mode-hook))
-  (add-hook hook 'display-line-numbers-mode))
+  (add-hook hook 'display-line-numbers-mode)
+  (add-hook hook 'trailing-newline-linenum-mode))
 
 ;; Highlighting current line
 (global-hl-line-mode 1)
