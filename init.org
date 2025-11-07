@@ -27,6 +27,7 @@
     - [[#themes][Themes]]
     - [[#tabs][Tabs]]
     - [[#icons][Icons]]
+    - [[#trailing-newline][Trailing newline]]
     - [[#tree-navigation-sidebar][Tree navigation sidebar]]
     - [[#centering-text-in-the-buffer-c-c-o][Centering text in the buffer (C-c o)]]
     - [[#modes-configuration][Modes configuration]]
@@ -407,8 +408,7 @@ incomplete command.
 ;; Cursor settings
 (setq-default cursor-type 'bar)
 
-;; Line numbers and trailing newline indicator
-(load-file (expand-file-name "trailing-newline-linenum.el" user-emacs-directory))
+;; Line numbers
 (dolist (hook '(conf-unix-mode
                 markdown-mode-hook
                 nxml-mode-hook
@@ -416,8 +416,7 @@ incomplete command.
                 prog-mode-hook
                 text-mode-hook
                 yaml-mode-hook))
-  (add-hook hook 'display-line-numbers-mode)
-  (add-hook hook 'trailing-newline-linenum-mode))
+  (add-hook hook 'display-line-numbers-mode))
 
 ;; Highlighting current line
 (global-hl-line-mode 1)
@@ -870,6 +869,23 @@ is installed below.
   :config
   (unless (file-exists-p (expand-file-name "~/.local/share/fonts/all-the-icons.ttf"))
     (all-the-icons-install-fonts t)))
+#+end_src
+
+
+** Trailing newline
+
+Trailing newline indicator is my own package. It Ddisplays a customizable visual
+indicator (⏎ by default) in the left margin for the trailing newline at the end
+of a file in Emacs. Optionally shows the next line number, making it clear where
+the file ends.
+
+#+begin_src emacs-lisp
+(use-package trailing-newline-indicator
+  :ensure nil
+  :vc (:url "https://github.com/saulotoledo/trailing-newline-indicator")
+  :init
+  (global-trailing-newline-indicator-mode 1)
+  (setq trailing-newline-indicator-show-line-number t))
 #+end_src
 
 
