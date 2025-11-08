@@ -408,7 +408,7 @@ incomplete command.
 ;; Cursor settings
 (setq-default cursor-type 'bar)
 
-;; Line numbers
+;; Line numbers and trailing whitespace
 (dolist (hook '(conf-unix-mode
                 markdown-mode-hook
                 nxml-mode-hook
@@ -416,7 +416,8 @@ incomplete command.
                 prog-mode-hook
                 text-mode-hook
                 yaml-mode-hook))
-  (add-hook hook 'display-line-numbers-mode))
+  (add-hook hook 'display-line-numbers-mode)
+  (add-hook hook (lambda () (setq show-trailing-whitespace t))))
 
 ;; Highlighting current line
 (global-hl-line-mode 1)
