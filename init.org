@@ -6,8 +6,9 @@
 
 * Table of Contents :TOC:
 - [[#about][About]]
-- [[#key-bindings][Key bindings]]
 - [[#general-configuration][General configuration]]
+    - [[#the-beginning-of-the-emacs-configuration][The beginning of the Emacs configuration]]
+    - [[#key-bindings][Key bindings]]
     - [[#meta-settings][Meta settings]]
     - [[#emacs-socket-and-server-settings][Emacs socket and server settings]]
         - [[#option-1-tcpip-socket-for-direct-network-exposure][Option 1: TCP/IP Socket (For Direct Network Exposure)]]
@@ -93,6 +94,7 @@
 - [[#user-functions][User functions]]
     - [[#autosave-hooks][Autosave hooks]]
     - [[#yarn-integration][Yarn integration]]
+- [[#configuration-end-markers-lisp-integrity][Configuration End Markers (Lisp Integrity)]]
 
 * About
 This is my personal Emacs configuration, written and maintained in Org mode.
@@ -103,30 +105,9 @@ source of truth for my setup. Learn more about Org mode at
 [[https://orgmode.org][the Org mode website]].
 
 
-* Key bindings
-
-I am following [[https://github.com/larstvei/dot-emacs/blob/main/init.org][the dot-emacs repository]]
-again on maintaining a =custom-bindings-map= that holds all my custom bindings. This is based on
-[[http://stackoverflow.com/questions/683425/globally-override-key-binding-in-emacs][this StackOverflow post]].
-This map can be activated by toggling a simple =minor-mode= that just activates the map, preventing other
-=major-modes= from overridding these bindings.
-
-#+begin_src emacs-lisp
-(defvar custom-bindings-map (make-sparse-keymap)
-  "Keymap used for user custom bindings.")
-
-(define-minor-mode custom-bindings-mode
-  "A minor mode for custom keybindings that override major modes."
-  :global t
-  :keymap custom-bindings-map)
-
-(custom-bindings-mode 1)
-#+end_src
-
-
 * General configuration
 
-** Meta settings
+** The beginning of the Emacs configuration
 
 We start by activating [[https://www.gnu.org/software/emacs/manual/html_node/elisp/Lexical-Binding.html][Lexical binding]] to our init files. Note that we
 do it with 2 files: =init.el= and =early-init.el=.
@@ -139,12 +120,70 @@ introduce later.
 The =init.el= is the default Emacs initialization file.
 
 #+begin_src emacs-lisp
-;;; -*- lexical-binding: t; -*-
+;;; init.el --- Personal emacs configuration -*- lexical-binding: t; -*-
 #+end_src
 
 #+begin_src emacs-lisp :tangle early-init.el
-;;; -*- lexical-binding: t; -*-
+;;; early-init.el --- Instructions loaded before the package system and GUI -*- lexical-binding: t; -*-
 #+end_src
+
+We adhere to common Emacs Lisp conventions by establishing clear section
+headers for file organization. This structure divides the file into two
+primary sections:
+
+- =Commentary:= Provides a high-level, human-readable summary of the
+  file's contents, organization, and history (e.g., date, author, or
+  major sections). It is the first thing a reader sees.
+- =Code:= Marks the clear starting point of the executable Emacs Lisp
+  configuration. Everything following this header is the active setup
+  logic.
+
+For the main file:
+
+#+begin_src emacs-lisp
+;;; Commentary:
+;;;
+;;; This file contains my personal Emacs configuration.
+;;;
+;;; Code:
+#+end_src
+
+For the early init file:
+
+#+begin_src emacs-lisp :tangle early-init.el
+;;; Commentary:
+;;;
+;;; This file contains instructions that must be loaded before the
+;;; package system and the Emacs GUI.
+;;;
+;;; Code:
+#+end_src
+
+
+** Key bindings
+
+I am following [[https://github.com/larstvei/dot-emacs/blob/main/init.org][the dot-emacs repository]] again on maintaining a
+=custom-bindings-map= that holds all my custom bindings. This
+is based on [[http://stackoverflow.com/questions/683425/globally-override-key-binding-in-emacs][this StackOverflow post]].
+This map can be activated by toggling a simple =minor-mode= that just
+activates the map, preventing other =major-modes= from overridding
+these bindings.
+
+#+begin_src emacs-lisp
+(defvar custom-bindings-map (make-sparse-keymap)
+  "Keymap used for user custom bindings.")
+
+(define-minor-mode custom-bindings-mode
+  "A minor mode for custom keybindings that override major modes."
+  :global t
+  :group 'keybindings
+  :keymap custom-bindings-map)
+
+(custom-bindings-mode 1)
+#+end_src
+
+
+** Meta settings
 
 We generate the =init.el= file from the source blocks in the
 =init.org=. We can use =org-babel-tangle= to do this. However, to make
@@ -153,9 +192,11 @@ below and attach it to the =after-save-hook=. This solution is copied
 from [[https://github.com/larstvei/dot-emacs/blob/main/init.org][the dot-emacs repository]].
 
 #+begin_src emacs-lisp
+(declare-function org-babel-tangle "org")
 (defun tangle-init ()
-  "If the current buffer is init.org the code-blocks are
-  tangled, and the tangled file is compiled."
+  "Tangle the init.org file into other necessary files.
+If the current buffer is init.org the code-blocks are
+tangled, and the tangled file is compiled."
   (when (equal (buffer-file-name)
                (expand-file-name (concat user-emacs-directory "init.org")))
     ;; Avoid running hooks when tangling.
@@ -165,7 +206,7 @@ from [[https://github.com/larstvei/dot-emacs/blob/main/init.org][the dot-emacs r
       ;; generates native compilation files (.eln) instead of .elc:
       ;; (byte-compile-file (concat user-emacs-directory "init.el"))
       ;; We use native compilation instead:
-      (setq native-comp-deferred-compilation t)
+      (setq native-comp-jit-compilation t)
       (native-compile-async (concat user-emacs-directory "init.el")))))
 
 (add-hook 'after-save-hook 'tangle-init)
@@ -408,16 +449,20 @@ incomplete command.
 ;; Cursor settings
 (setq-default cursor-type 'bar)
 
-;; Line numbers and trailing whitespace
-(dolist (hook '(conf-unix-mode
+;; Other useful mode-specific settings
+(dolist (hook '(conf-unix-mode-hook
                 markdown-mode-hook
                 nxml-mode-hook
                 org-mode-hook
-                prog-mode-hook
+                prog-mode-hook    ; Affects all programming modes
                 text-mode-hook
                 yaml-mode-hook))
-  (add-hook hook 'display-line-numbers-mode)
-  (add-hook hook (lambda () (setq show-trailing-whitespace t))))
+  (add-hook hook
+            (lambda ()
+              (display-line-numbers-mode 1) ; Turn on line numbers
+              (column-number-mode 1)        ; Turn on column number display
+              (setq-local show-trailing-whitespace t)) ; Show trailing space locally
+            nil 'local)) ; Add this lambda function locally to the hook
 
 ;; Highlighting current line
 (global-hl-line-mode 1)
@@ -427,7 +472,7 @@ incomplete command.
 ;;   '(hl-line ((t (:background "#3B4252" :extend t)))))
 
 ;; Only auto-fill inside comments
-(setq comment-auto-fill-only t)
+(setq-default comment-auto-fill-only t)
 
 (add-hook 'prog-mode-hook
           (lambda ()
@@ -435,10 +480,10 @@ incomplete command.
             (auto-fill-mode 1)))
 
 ;; Indent and tab characters
-(setq whitespace-style '(face tabs tab-mark))
+(setq-default whitespace-style '(face tabs tab-mark))
 (define-key custom-bindings-map (kbd "S-SPC") (lambda () (interactive) (insert "\t")))
 (global-whitespace-mode 1)
-(setq whitespace-display-mappings
+(setq-default whitespace-display-mappings
       '((tab-mark 9 [8594 32] [92 9])))
 
 ;; Other tweaks
@@ -487,8 +532,8 @@ However, not all commands use IDO by default. The package
 completing read commands using IDO.
 
 #+begin_src emacs-lisp
-(setq ido-enable-flex-matching t) ; better string matching on search
-(setq ido-everywhere t)           ; toggle use of Ido for all buffer/file reading
+(setq-default ido-enable-flex-matching t) ; better string matching on search
+(setq-default ido-everywhere t)           ; toggle use of Ido for all buffer/file reading
 (ido-mode 1)
 
 (use-package ido-completing-read+
@@ -536,6 +581,7 @@ The following variables are global:
 (set-language-environment "UTF-8")
 (prefer-coding-system 'utf-8)
 
+;; The following variables are global:
 (setq auto-revert-interval 1          ; Refresh buffers faster
       create-lockfiles nil            ; Disable creation of lockfiles
       echo-keystrokes 0.1             ; Show keystrokes faster
@@ -544,13 +590,17 @@ The following variables are global:
       history-delete-duplicates t     ; Delete duplicates in M-x history log
       inhibit-startup-screen t        ; Disables splash screen
       initial-scratch-message nil     ; Clean scratch buffer
-      recentf-max-saved-items 10000   ; Show more recent files
       ring-bell-function 'ignore      ; Quiet
       scroll-margin 1                 ; Space between cursor and top/bottom
       sentence-end-double-space nil   ; No double space
       visible-bell t                  ; Visual flash instead of audible bell
-      which-key-idle-delay 0          ; Show which-key immediately when an incomplete key sequence is entered
       )
+
+;; The following variables are buffer-local and require setq-default
+;; to prevent warnings with assignment to free variables:
+(setq-default recentf-max-saved-items 10000   ; Show more recent files
+              which-key-idle-delay 0          ; Show which-key immediately when an incomplete key sequence is entered
+              )
 
 ;; Saving Emacs backups and auto-save files in a different place
 (setq backup-directory-alist
@@ -782,8 +832,8 @@ is installed below.
 ** Tabs
 
 #+begin_src emacs-lisp
-;; Silence native-compiler warnings for centaur-tabs
 (declare-function centaur-tabs-2str "centaur-tabs")
+(declare-function project-root "project")
 
 (use-package centaur-tabs
   :ensure
@@ -899,6 +949,7 @@ systems to show file status and provides a tree view of the project structure.
 We start by loading the icons for Treemacs.
 
 #+begin_src emacs-lisp
+(declare-function treemacs-load-theme "treemacs")
 (use-package treemacs-all-the-icons
   :after (treemacs all-the-icons)
   :config
@@ -934,6 +985,7 @@ Treemacs has also several useful shortcuts. A few examples:
 See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-file#default-keymaps][this link]].
 
 #+begin_src emacs-lisp
+(declare-function my/treemacs-refresh-on-file-open nil)
 (use-package treemacs
   :after (doom-themes)
   :demand t
@@ -962,12 +1014,18 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
   ;;         `(variable-pitch
   ;;          ,@(delq 'unspecified (if (listp faces) faces (list faces))))))))
 
+  (declare-function treemacs-get-local-window "treemacs")
   (defun my/treemacs-toggle ()
     "Toggle the visibility of the Treemacs window."
     (interactive)
     (if (treemacs-get-local-window)
         (delete-window (treemacs-get-local-window))
       (treemacs)))
+
+  (declare-function treemacs-do-add-project-to-workspace "treemacs")
+  (declare-function treemacs-root-down "treemacs")
+  (declare-function treemacs-root-up "treemacs")
+  (declare-function treemacs-select-window "treemacs")
 
   (defun my/treemacs-set-root-to-current-folder ()
     "Set the root of Treemacs to the folder of the current file or default directory."
@@ -1057,6 +1115,7 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
 
   ;; Refresh Treemacs when opening a new file: a tentative to fix issues when
   ;; using =C-x p k= to close all buffers in the open project.
+  (declare-function treemacs-refresh "treemacs")
   (defun my/treemacs-refresh-on-file-open ()
     "Refresh Treemacs when a file is opened."
     (when (and (treemacs-get-local-window)
@@ -1148,9 +1207,11 @@ changing how you interact with them.
   :config
   (counsel-mode 1))
 
+(declare-function ivy-rich-mode "ivy-rich")
 (use-package ivy-rich
   :after ivy
-  :init
+  :defer t
+  :config
   (ivy-rich-mode 1))
 #+end_src
 
@@ -1246,8 +1307,10 @@ the approach we use in our configuration:
 
 #+begin_src emacs-lisp
 ;; Apply ANSI colors in real-time as the magit-process buffer is updated
-(defun my/magit-color-buffer (proc &rest args)
-  "Apply ANSI colors to the magit-process buffer in real-time."
+(defun my/magit-color-buffer (proc &rest _args)
+  "Apply ANSI colors to the magit-process buffer in real-time.
+PROC is the process object for the magit-process buffer.
+_ARGS are additional arguments passed by magit-process-filter (unused)."
   (with-current-buffer (process-buffer proc)
     (read-only-mode -1)
     (ansi-color-apply-on-region (point-min) (point-max))
@@ -1269,7 +1332,7 @@ making it easier to track modifications.
 #+begin_src emacs-lisp
 (use-package diff-hl
   :defer t
-  :hook ((magit-pre-refresh . diff-hl-magit-pre-refresh)
+  :hook ((magit-pre-refresh . ignore)
          (magit-post-refresh . diff-hl-magit-post-refresh))
   :config
   (global-diff-hl-mode 1))
@@ -1293,7 +1356,7 @@ We can navigate between conflict markers using the following keybindings:
 
 #+begin_src emacs-lisp
 (defun maybe-enable-smerge-mode ()
-  "Enable smerge-mode if the buffer contains merge conflict markers."
+  "Enable `smerge-mode' for buffers with merge conflict markers."
   (save-excursion
     (goto-char (point-min))
     (when (re-search-forward "^<<<<<<< " nil t)
@@ -1321,6 +1384,7 @@ Yasnippet provides snippet expansion (type a short trigger and press TAB) and
 for many languages; the two packages below will enable snippets in relevant modes.
 
 #+begin_src emacs-lisp
+(declare-function yas-reload-all "yasnippet")
 (use-package yasnippet
   :demand t
   :config
@@ -1342,8 +1406,8 @@ easier to navigate complex edits and to revert to earlier states.
 (defvar undo-tree-incompatible-major-modes
   nil
   "List of major modes incompatible with undo-tree.
-    Declared here so tangling this file defines the variable before the
-    package is loaded.")
+Declared here so tangling this file defines the variable before the
+package is loaded.")
 
 (use-package undo-tree
   :config
@@ -1516,6 +1580,8 @@ a couple of convenient keybindings.
   ("C-<"   . mc/mark-previous-like-this)
   ("C-M-#" . mc/mark-all-dwim))
 
+(declare-function mc/num-cursors "multiple-cursors")
+(declare-function my/mc-count-cursors "multiple-cursors")
 (with-eval-after-load 'multiple-cursors
   (defun my/mc-count-cursors ()
     "Return the number of active cursors for the mode line."
@@ -1644,6 +1710,7 @@ I disable ~org-modern-block-fringe~ due to [[https://github.com/minad/org-modern
         org-src-preserve-indentation nil))
 
 ;; Use org-indent to visually indent content under headings and lists
+(declare-function org-indent-mode "org-indent")
 (add-hook 'org-mode-hook #'org-indent-mode)
 #+end_src
 
@@ -1660,29 +1727,6 @@ I disable ~org-modern-block-fringe~ due to [[https://github.com/minad/org-modern
                 (font-lock-flush)
                 (font-lock-ensure)
                 (redisplay)))))
-
-;; Helper: show faces used on the current line (interactive)
-(defun my/show-faces-on-line ()
-  "Collect and message the face symbols used on the current line.
-
-Useful to inspect which faces are present (returns symbols or plists).
-You can also use `M-: (face-at-point) RET` or `C-u C-x =` for more detail."
-  (interactive)
-  (let* ((beg (line-beginning-position))
-         (end (line-end-position))
-         (faces '()))
-    (save-excursion
-      (goto-char beg)
-      (while (< (point) end)
-        (let ((prop (get-text-property (point) 'face)))
-          (cond
-           ((symbolp prop) (push prop faces))
-           ((listp prop) (dolist (el prop) (when (symbolp el) (push el faces))))))
-        (forward-char 1)))
-    (setq faces (delete-dups faces))
-    (if faces
-        (message "Faces on line: %s" faces)
-      (message "No face text-properties on this line; try (face-at-point) or C-u C-x ="))))
 #+end_src
 
 
@@ -1776,6 +1820,8 @@ For older Emacs versions, you'll need to manually clone the repository.
   (unless (package-installed-p 'copilot)
     (package-vc-install "https://github.com/copilot-emacs/copilot.el"))
 
+  (declare-function my/copilot-kubernetes-sensitive-p nil)
+  (declare-function my/copilot-excluded-file-p nil)
   (use-package copilot
     :ensure nil  ; Installed via package-vc, don't try MELPA
     :init
@@ -1785,7 +1831,7 @@ For older Emacs versions, you'll need to manually clone the repository.
 
     ;; Disable buffer size warnings - prevents "file size exceeds copilot-max-char" warnings for large files
     ;; Not working yet. See https://github.com/copilot-emacs/copilot.el/issues/313
-    (setq copilot-max-char-warning-disabled t)
+    (setq-default copilot-max-char-warning-disabled t)
 
     :config
     ;; Configure Copilot to use our custom nodejs_tools installation
@@ -1824,7 +1870,8 @@ For older Emacs versions, you'll need to manually clone the repository.
       "List of regex patterns for files to exclude from Copilot.")
 
     (defun my/copilot-kubernetes-sensitive-p ()
-      "Check if current buffer contains Kubernetes sensitive content (Secrets or ConfigMaps)."
+      "Check if current buffer contains Kubernetes sensitive content.
+Returns non-nil if buffer contains Kubernetes Secrets or ConfigMaps."
       (save-excursion
         (goto-char (point-min))
         (and (re-search-forward "^apiVersion:" nil t)
@@ -1849,7 +1896,7 @@ For older Emacs versions, you'll need to manually clone the repository.
     (defun my/safe-copilot-mode ()
       "Enable copilot-mode with silent error handling, excluding sensitive files."
       (unless (my/copilot-excluded-file-p)
-        (condition-case err
+        (condition-case _err
             (when (and copilot-server-executable
                        (file-executable-p copilot-server-executable))
               (copilot-mode 1))
@@ -1896,9 +1943,10 @@ from the completion-only `copilot.el`.
 (when (fboundp 'package-vc-install)
   ;; Better check for package-vc installed packages
   (defun my/package-vc-installed-p (package &optional repo-name)
-    "Check if a package is installed via package-vc or regular package system.
-     PACKAGE is the package symbol to check.
-     REPO-NAME is the optional repository directory name (if different from package name)."
+    "Check whether a package is installed via package-vc.
+PACKAGE is the package symbol to check.
+REPO-NAME is the optional repository directory name (if different
+from package name)."
     (let* ((installed-p (package-installed-p package))
            (vc-installed-p (and (fboundp 'package-vc-installed-p)
                                 (package-vc-installed-p package)))
@@ -1910,6 +1958,8 @@ from the completion-only `copilot.el`.
            (dir-exists-p (or (file-directory-p pkg-dir)
                              (and repo-name (file-directory-p repo-dir)))))
       (or installed-p vc-installed-p feature-p dir-exists-p)))
+
+  (declare-function my/package-vc-installed-p nil)
 
   ;; Install required dependencies that aren't on MELPA first
   (unless (my/package-vc-installed-p 'aio "emacs-aio")
@@ -1956,6 +2006,7 @@ from the completion-only `copilot.el`.
 
     :config
     ;; Add current buffer automatically when opening chat
+    (declare-function copilot-chat-add-current-buffer "copilot-chat")
     (add-hook 'copilot-chat-mode-hook #'copilot-chat-add-current-buffer)))
 #+end_src
 
@@ -2000,6 +2051,7 @@ The helper below, copied from https://github.com/themkat/.emacs.d/blob/master/in
 (declare-function lsp-ui-doc--visible-p "lsp-ui")
 
 (defun lsp-ui-show-doc-helper ()
+  "Toggle the visibility of the lsp-ui documentation popup."
   (interactive)
   (if (lsp-ui-doc--visible-p)
       (lsp-ui-doc-hide)
@@ -2473,6 +2525,7 @@ Then, we can configure Emacs:
 ;; Copied from https://github.com/themkat/.emacs.d/blob/master/init.org
 (declare-function dap-register-debug-template "dap-mode")
 (defun my/kotlin-register-debug-templates ()
+  "Register DAP debug templates for Kotlin."
   (dap-register-debug-template "Kotlin tests with launcher"
                             (list :type "kotlin"
                                   :request "launch"
@@ -2608,7 +2661,7 @@ test functions on the fly.
 ;; Ensure dap-js is loaded for TypeScript/Node.js debugging
 (with-eval-after-load 'dap-mode
   (require 'dap-js)
-  (setq dap-js-debug-path (expand-file-name "vscode-js-debug" "~/.emacs.d/nodejs_tools/")))
+  (setq-default dap-js-debug-path (expand-file-name "vscode-js-debug" "~/.emacs.d/nodejs_tools/")))
 #+end_src
 
 
@@ -2811,7 +2864,7 @@ we can integrate Magit, a popular Git interface for Emacs, into the project swit
       (when (project-current)
         (save-selected-window
           (save-current-buffer
-            (treemacs-display-current-project-exclusively))))))
+            (treemacs-add-and-display-current-project-exclusively))))))
 
   :config
   (add-to-list 'project-switch-commands '(magit-project-status "Magit" ?m))
@@ -2819,7 +2872,7 @@ we can integrate Magit, a popular Git interface for Emacs, into the project swit
   ;; If running as a daemon, prevent 'project.el' from asking for a project root.
   ;; It should only prompt if run interactively (i.e., when you open emacsclient).
   (when (daemonp)
-    (setq project-find-project-by-default nil))
+    (setq-default project-find-project-by-default nil))
 
   ;; Ignoring temporary/emacs files in projects
   (add-to-list 'project-vc-ignores "*~")
@@ -2921,7 +2974,7 @@ key.
 
 #+begin_src emacs-lisp
 (defun yarn-run-script (script)
-  "Run a Yarn script in the project root."
+  "Run SCRIPT with Yarn in the project root."
   (interactive "sYarn script: ")
   (compile (concat "yarn " script)))
 
@@ -2930,3 +2983,25 @@ key.
 ;; To load local variables, run:
 ;; M-: hack-dir-local-variables
 #+end_src
+
+
+* Configuration End Markers (Lisp Integrity)
+
+These lines mark the end of each configuration file.
+When Emacs loads .el files, it reads Lisp code line by line. If the file ends
+abruptly (for example, with an open parenthesis or unfinished expression),
+Emacs will stop with an error such as "End of file during parsing."
+
+Including a clear end marker like this helps avoid confusion and ensures that
+the file is read completely and correctly:
+
+#+begin_src emacs-lisp
+;;; init.el ends here
+#+end_src
+
+#+begin_src emacs-lisp :tangle early-init.el
+;;; early-init.el ends here
+#+end_src
+
+These markers are a long-standing Emacs convention. They help maintain code
+integrity and make it immediately obvious that the file ends where it should.
