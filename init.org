@@ -222,20 +222,6 @@ this from happening, we define the value of =custom-file= below:
 (setq custom-file (expand-file-name "custom.el" user-emacs-directory))
 #+end_src
 
-We also ensure that the cognitive-complexity package is cloned locally if it
-doesn't already exist. This allows us to load it manually without relying on
-package managers.
-
-#+begin_src emacs-lisp :tangle early-init.el
-;; Clone cognitive-complexity (port of codemetrics for treesit) if not already present
-(let ((cognitive-complexity-dir (expand-file-name "cognitive-complexity" user-emacs-directory)))
-  (unless (file-directory-p cognitive-complexity-dir)
-    (message "Cloning cognitive-complexity...")
-    (call-process "git" nil nil nil "clone"
-                  "https://github.com/emacs-vs/cognitive-complexity"
-                  cognitive-complexity-dir)))
-#+end_src
-
 Below we will load the value of =custom-file=, but we also create a
 =local.el= file for local settings. This is useful for configurations
 that do not need to be pushed to the git repository and that are local
@@ -252,6 +238,38 @@ to the environment in use.
                 (load-file custom-file))
               (unless (server-running-p)
                 (server-start)))))
+#+end_src
+
+Modern Emacs versions (typically 27+) support direct package installation
+from Version Control (VC) using `package-vc-install`.
+
+The `when (fboundp ...)` below guard ensures this code only runs if the
+`package-vc` extension is available, maintaining compatibility with older
+or minimal Emacs setups.
+
+A critical limitation: The native 'package-installed-p' often fails to
+recognize packages installed via VC. This custom function checks the file
+system directory directly to reliably confirm their presence.
+
+#+begin_src emacs-lisp
+(declare-function my/package-vc-installed-p nil)
+(when (fboundp 'package-vc-install)
+  (defun my/package-vc-installed-p (package &optional repo-name)
+    "Check whether a package is installed via package-vc.
+PACKAGE is the package symbol to check.
+REPO-NAME is the optional repository directory name (if different
+from package name)."
+    (let* ((installed-p (package-installed-p package))
+           (vc-installed-p (and (fboundp 'package-vc-installed-p)
+                                (package-vc-installed-p package)))
+           (feature-p (featurep package))
+           (pkg-name (format "%s" package))
+           (actual-repo-name (or repo-name pkg-name))
+           (pkg-dir (expand-file-name pkg-name package-user-dir))
+           (repo-dir (expand-file-name actual-repo-name package-user-dir))
+           (dir-exists-p (or (file-directory-p pkg-dir)
+                             (and repo-name (file-directory-p repo-dir)))))
+      (or installed-p vc-installed-p feature-p dir-exists-p))))
 #+end_src
 
 
@@ -454,15 +472,12 @@ incomplete command.
                 markdown-mode-hook
                 nxml-mode-hook
                 org-mode-hook
-                prog-mode-hook    ; Affects all programming modes
+                prog-mode-hook
                 text-mode-hook
                 yaml-mode-hook))
-  (add-hook hook
-            (lambda ()
-              (display-line-numbers-mode 1) ; Turn on line numbers
-              (column-number-mode 1)        ; Turn on column number display
-              (setq-local show-trailing-whitespace t)) ; Show trailing space locally
-            nil 'local)) ; Add this lambda function locally to the hook
+  (add-hook hook 'column-number-mode) ; Turn on column number display
+  (add-hook hook 'display-line-numbers-mode) ; Turn on line numbers
+  (add-hook hook (lambda () (setq-default show-trailing-whitespace t)))) ; Show trailing space
 
 ;; Highlighting current line
 (global-hl-line-mode 1)
@@ -484,7 +499,7 @@ incomplete command.
 (define-key custom-bindings-map (kbd "S-SPC") (lambda () (interactive) (insert "\t")))
 (global-whitespace-mode 1)
 (setq-default whitespace-display-mappings
-      '((tab-mark 9 [8594 32] [92 9])))
+              '((tab-mark 9 [8594 32] [92 9])))
 
 ;; Other tweaks
 (fset 'yes-or-no-p 'y-or-n-p)
@@ -931,12 +946,15 @@ of a file in Emacs. Optionally shows the next line number, making it clear where
 the file ends.
 
 #+begin_src emacs-lisp
-(use-package trailing-newline-indicator
-  :ensure nil
-  :vc (:url "https://github.com/saulotoledo/trailing-newline-indicator")
-  :init
-  (global-trailing-newline-indicator-mode 1)
-  (setq trailing-newline-indicator-show-line-number t))
+(when (fboundp 'package-vc-install)
+  (unless (my/package-vc-installed-p 'trailing-newline-indicator)
+    (package-vc-install "https://github.com/saulotoledo/trailing-newline-indicator"))
+
+  (use-package trailing-newline-indicator
+    :ensure nil
+    :init
+    (global-trailing-newline-indicator-mode 1)
+    (setq trailing-newline-indicator-show-line-number t)))
 #+end_src
 
 
@@ -1817,7 +1835,7 @@ For older Emacs versions, you'll need to manually clone the repository.
 ;; Emacs 30+, we could use `:vc (:fetcher github :repo "copilot-emacs/copilot.el")`
 ;; directly in use-package.
 (when (fboundp 'package-vc-install)
-  (unless (package-installed-p 'copilot)
+  (unless (my/package-vc-installed-p 'copilot)
     (package-vc-install "https://github.com/copilot-emacs/copilot.el"))
 
   (declare-function my/copilot-kubernetes-sensitive-p nil)
@@ -1941,26 +1959,6 @@ from the completion-only `copilot.el`.
 
 #+begin_src emacs-lisp
 (when (fboundp 'package-vc-install)
-  ;; Better check for package-vc installed packages
-  (defun my/package-vc-installed-p (package &optional repo-name)
-    "Check whether a package is installed via package-vc.
-PACKAGE is the package symbol to check.
-REPO-NAME is the optional repository directory name (if different
-from package name)."
-    (let* ((installed-p (package-installed-p package))
-           (vc-installed-p (and (fboundp 'package-vc-installed-p)
-                                (package-vc-installed-p package)))
-           (feature-p (featurep package))
-           (pkg-name (format "%s" package))
-           (actual-repo-name (or repo-name pkg-name))
-           (pkg-dir (expand-file-name pkg-name package-user-dir))
-           (repo-dir (expand-file-name actual-repo-name package-user-dir))
-           (dir-exists-p (or (file-directory-p pkg-dir)
-                             (and repo-name (file-directory-p repo-dir)))))
-      (or installed-p vc-installed-p feature-p dir-exists-p)))
-
-  (declare-function my/package-vc-installed-p nil)
-
   ;; Install required dependencies that aren't on MELPA first
   (unless (my/package-vc-installed-p 'aio "emacs-aio")
     (package-vc-install "https://github.com/skeeto/emacs-aio"))
@@ -2277,12 +2275,16 @@ but that works with treesit (native on Emacs 29+) instead of tree-sitter (extern
 package).
 
 #+begin_src emacs-lisp
-(use-package cognitive-complexity
-  :load-path "~/.emacs.d/cognitive-complexity"
-  :hook ((prog-mode . cognitive-complexity-mode))
-  :custom
-  (cognitive-complexity-complexity-threshold 15)
-  (cognitive-complexity-maintainability-threshold 50))
+(when (fboundp 'package-vc-install)
+  (unless (my/package-vc-installed-p 'cognitive-complexity)
+    (package-vc-install "https://github.com/emacs-vs/cognitive-complexity"))
+
+  (use-package cognitive-complexity
+    :ensure nil
+    :hook ((prog-mode . cognitive-complexity-mode))
+    :custom
+    (cognitive-complexity-complexity-threshold 15)
+    (cognitive-complexity-maintainability-threshold 50)))
 #+end_src
 
 
