@@ -91,7 +91,7 @@
 - [[#project-management][Project management]]
 - [[#window-management][Window management]]
 - [[#pdf-tools][PDF Tools]]
-- [[#user-functions][User functions]]
+- [[#other-user-functions][Other user functions]]
     - [[#autosave-hooks][Autosave hooks]]
     - [[#yarn-integration][Yarn integration]]
 - [[#configuration-end-markers-lisp-integrity][Configuration End Markers (Lisp Integrity)]]
@@ -633,16 +633,40 @@ Other variables are buffer-local by default, but we can set their
 default values using =setq-default=:
 
 #+begin_src emacs-lisp
-(setq-default tab-width 2                         ; Smaller tabs
-              indent-tabs-mode nil                ; Use spaces instead of tabs
-              split-width-threshold 160           ; Split verticly by default
+(setq-default split-width-threshold 160           ; Split verticly by default
               split-height-threshold nil          ; Split verticly by default
               frame-resize-pixelwise t            ; Fine-grained frame resize
               ;; auto-fill-function 'do-auto-fill ; Auto-fill-mode everywhere
               )
 #+end_src
 
-Automatically revert DocView buffers when the file changes on
+As for the indentation settings, we can create a function that
+applies our preferred defaults and attach it to the hooks of the
+relevant modes. This way, we ensure that our settings are applied
+even if a mode overrides them later. Note that these settings are
+intended to be overridden by ~editorconfig-mode~, if in use.
+
+#+begin_src emacs-lisp
+(defun my/default-indentation ()
+  "Apply my preferred default indentation settings.
+  These settings are intended to be overridden by editorconfig-mode."
+  ;; **CRITICAL CHECK:** ;; Org mode uses a tab width of 8 by default.
+  ;; Changing that leads to an error:
+  (unless (eq major-mode 'org-mode)
+    (setq
+      tab-width 2
+      indent-tabs-mode nil)))
+
+(dolist (hook '(conf-unix-mode-hook
+                markdown-mode-hook
+                nxml-mode-hook
+                prog-mode-hook
+                text-mode-hook
+                yaml-mode-hook))
+  (add-hook hook #'my/default-indentation))
+#+end_src
+
+Finally, automatically revert DocView buffers when the file changes on
 disk. Those are Emacs buffers shown when you open a non-text document
 (PDF, PostScript, DjVu, etc.) with Emacs' built-in DocView mode. Emacs
 renders document pages into images and displays those images inside a
@@ -2947,7 +2971,7 @@ key.
 #+end_src
 
 
-* User functions
+* Other user functions
 
 ** Autosave hooks
 
