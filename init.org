@@ -2954,12 +2954,18 @@ key.
 #+begin_src emacs-lisp
 (defun my/trim-whitespace ()
   "Trim trailing whitespace before saving."
-  (when (derived-mode-p 'prog-mode 'text-mode) ; only certain modes
+  (when (derived-mode-p
+    'conf-unix-mode
+    'markdown-mode
+    'nxml-mode
+    'org-mode
+    'prog-mode
+    'text-mode
+    'yaml-mode); only certain modes
     (delete-trailing-whitespace)))
 
 (defvar my/save-hooks
   '(my/trim-whitespace
-    delete-trailing-whitespace ; All modes for now. Decide later...
     ;; more functions here
     )
   "List of functions to run before saving a file.")
