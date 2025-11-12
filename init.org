@@ -477,7 +477,7 @@ incomplete command.
                 yaml-mode-hook))
   (add-hook hook 'column-number-mode) ; Turn on column number display
   (add-hook hook 'display-line-numbers-mode) ; Turn on line numbers
-  (add-hook hook (lambda () (setq-default show-trailing-whitespace t)))) ; Show trailing space
+  (add-hook hook (lambda () (setq-local show-trailing-whitespace t)))) ; Show trailing space
 
 ;; Highlighting current line
 (global-hl-line-mode 1)
