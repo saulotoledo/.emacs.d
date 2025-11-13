@@ -1268,8 +1268,17 @@ word, or line by typing a short key sequence. It's great for quickly moving
 the cursor anywhere on the screen without using the mouse or arrow keys.
 
 #+begin_src emacs-lisp
+(defun my/swiper-thing-or-region ()
+  "Call swiper-isearch-thing-at-point if the region is active
+and contains more than one character. Otherwise, call swiper-isearch."
+  (interactive)
+  (if (and (use-region-p)
+           (> (abs (- (point) (mark))) 1)) ; the selection is more than 1 character long
+      (swiper-isearch-thing-at-point)
+    (swiper-isearch)))
+
 (use-package swiper
-  :bind (("C-s" . swiper-isearch)
+  :bind (("C-s" . my/swiper-thing-or-region)
          ("C-r" . swiper-isearch-backward)
          ("C-c C-r" . ivy-resume)
          ("C-x C-f" . counsel-find-file))
