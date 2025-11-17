@@ -970,15 +970,10 @@ of a file in Emacs. Optionally shows the next line number, making it clear where
 the file ends.
 
 #+begin_src emacs-lisp
-(when (fboundp 'package-vc-install)
-  (unless (my/package-vc-installed-p 'trailing-newline-indicator)
-    (package-vc-install "https://github.com/saulotoledo/trailing-newline-indicator"))
-
-  (use-package trailing-newline-indicator
-    :ensure nil
-    :init
-    (global-trailing-newline-indicator-mode 1)
-    (setq trailing-newline-indicator-show-line-number t)))
+(use-package trailing-newline-indicator
+  :init
+  (global-trailing-newline-indicator-mode 1)
+  (setq trailing-newline-indicator-show-line-number t))
 #+end_src
 
 
