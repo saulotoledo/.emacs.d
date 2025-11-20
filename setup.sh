@@ -233,3 +233,25 @@ install_shellcheck() {
 }
 
 install_shellcheck
+
+# Update PlantUML version as needed:
+PLANTUML_VERSION="1.2025.10"
+
+install_plantuml() {
+  echo -e "\033[1;32m\n[ Installing PlantUML ]\033[0m"
+
+  local PLANTUML_DIR="$HOME/.emacs.d/plantuml"
+  local PLANTUML_JAR="$PLANTUML_DIR/plantuml.jar"
+  local PLANTUML_URL="https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar"
+
+  if [ -f "$PLANTUML_JAR" ]; then
+    echo "PlantUML is already installed at $PLANTUML_JAR"
+  else
+    echo "Downloading PlantUML..."
+    mkdir -p "$PLANTUML_DIR"
+    curl -L "$PLANTUML_URL" -o "$PLANTUML_JAR"
+    echo -e "\033[1;32mPlantUML installed to $PLANTUML_JAR\033[0m"
+  fi
+}
+
+install_plantuml

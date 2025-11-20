@@ -47,6 +47,7 @@ auto-save-list/
 
 # Other packages
 cognitive-complexity
+plantuml
 
 # Personal drafts and notes
 drafts.el

@@ -87,7 +87,11 @@
         - [[#yaml][YAML]]
         - [[#markdown][Markdown]]
     - [[#editorconfig][EditorConfig]]
-        - [[#docker-and-related][Docker and related]]
+    - [[#plantuml][PlantUML]]
+        - [[#installation][Installation]]
+        - [[#configuration][Configuration]]
+        - [[#usage][Usage]]
+    - [[#docker-and-related][Docker and related]]
 - [[#project-management][Project management]]
 - [[#window-management][Window management]]
 - [[#pdf-tools][PDF Tools]]
@@ -2861,7 +2865,77 @@ the language's Emacs mode and some external formatter/prettifier).
 #+end_src
 
 
-*** Docker and related
+** PlantUML
+
+[[https://plantuml.com/][PlantUML]] is a tool for creating UML diagrams from a simple text description.
+The ~plantuml-mode~ package provides syntax highlighting, autocompletion, and preview
+capabilities for PlantUML diagrams within Emacs.
+
+*** Installation
+
+To use ~plantuml-mode~, you need to have PlantUML installed. The setup script
+downloads the PlantUML JAR file to =~/.emacs.d/plantuml/plantuml.jar=.
+
+#+begin_src sh :tangle setup.sh
+# Update PlantUML version as needed:
+PLANTUML_VERSION="1.2025.10"
+
+install_plantuml() {
+  echo -e "\033[1;32m\n[ Installing PlantUML ]\033[0m"
+
+  local PLANTUML_DIR="$HOME/.emacs.d/plantuml"
+  local PLANTUML_JAR="$PLANTUML_DIR/plantuml.jar"
+  local PLANTUML_URL="https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar"
+
+  if [ -f "$PLANTUML_JAR" ]; then
+    echo "PlantUML is already installed at $PLANTUML_JAR"
+  else
+    echo "Downloading PlantUML..."
+    mkdir -p "$PLANTUML_DIR"
+    curl -L "$PLANTUML_URL" -o "$PLANTUML_JAR"
+    echo -e "\033[1;32mPlantUML installed to $PLANTUML_JAR\033[0m"
+  fi
+}
+
+install_plantuml
+#+end_src
+
+
+*** Configuration
+
+#+begin_src emacs-lisp
+(use-package plantuml-mode
+  :mode (("\\.wsd\\'" . plantuml-mode)
+         ("\\.pu\\'" . plantuml-mode)
+         ("\\.puml\\'" . plantuml-mode)
+         ("\\.plantuml\\'" . plantuml-mode)
+         ("\\.iuml\\'" . plantuml-mode))
+  :custom
+  (plantuml-jar-path (expand-file-name "~/.emacs.d/plantuml/plantuml.jar"))
+  (plantuml-default-exec-mode 'jar)
+  (plantuml-output-type "svg")
+  (plantuml-indent-level 2)
+  :config
+  ;; Enable PlantUML integration with org-mode
+  (with-eval-after-load 'org
+    (add-to-list 'org-src-lang-modes '("plantuml" . plantuml))))
+
+(use-package flycheck-plantuml
+  :after flycheck
+  :config
+  (flycheck-plantuml-setup))
+#+end_src
+
+
+*** Usage
+
+- Open or create a file with extensions =.wsd=, =.pu=, =.puml=, =.plantuml=, or =.iuml=
+- Write your PlantUML diagram
+- Preview with =C-c C-c= (~plantuml-preview~)
+- When editing PlantUML code blocks in org-mode, use =C-c '= to edit in ~plantuml-mode~
+
+
+** Docker and related
 
 Dockerfile support is provided by the `dockerfile-mode` package, which enables syntax highlighting
 and editing for Dockerfiles. For Docker Compose YAML files, it is recommended to use the
