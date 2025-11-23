@@ -273,7 +273,7 @@ from package name)."
            (repo-dir (expand-file-name actual-repo-name package-user-dir))
            (dir-exists-p (or (file-directory-p pkg-dir)
                              (and repo-name (file-directory-p repo-dir)))))
-      (or installed-p vc-installed-p feature-p dir-exists-p))))
+      (and (or installed-p vc-installed-p feature-p) dir-exists-p))))
 #+end_src
 
 
@@ -2297,7 +2297,7 @@ package).
 #+begin_src emacs-lisp
 (when (fboundp 'package-vc-install)
   (unless (my/package-vc-installed-p 'cognitive-complexity)
-    (package-vc-install "https://github.com/emacs-vs/cognitive-complexity"))
+    (package-vc-install 'cognitive-complexity "https://github.com/emacs-vs/cognitive-complexity"))
 
   (use-package cognitive-complexity
     :ensure nil
