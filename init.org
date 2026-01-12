@@ -790,18 +790,18 @@ is installed below.
 (add-to-list 'package-directory-list package-user-dir)
 
 (setq package-archives
-      '(("MELPA Stable" . "https://stable.melpa.org/packages/")
-        ("GNU ELPA"     . "https://elpa.gnu.org/packages/")
-        ("MELPA"        . "https://melpa.org/packages/")
-        ("Non-GNU"      . "https://elpa.nongnu.org/nongnu/")
-        ("GNU-devel"    . "https://elpa.gnu.org/devel/"))
+      '(("MELPA Stable"   . "https://stable.melpa.org/packages/")
+        ("GNU ELPA"       . "https://elpa.gnu.org/packages/")
+        ("MELPA Unstable" . "https://melpa.org/packages/")
+        ("Non-GNU"        . "https://elpa.nongnu.org/nongnu/")
+        ("GNU-devel"      . "https://elpa.gnu.org/devel/"))
 
       package-archive-priorities
-      '(("MELPA"        . 20)
-        ("GNU ELPA"     . 15)
-        ("MELPA Stable" . 10)
-        ("Non-GNU"      . 5)
-        ("GNU-devel"    . 0)))
+      '(("MELPA Stable"   . 20)
+        ("GNU ELPA"       . 15)
+        ("MELPA Unstable" . 10)
+        ("Non-GNU"        . 5)
+        ("GNU-devel"      . 0)))
 
 (package-initialize)
 (unless 'package-archive-results
