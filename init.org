@@ -10,6 +10,7 @@
     - [[#the-beginning-of-the-emacs-configuration][The beginning of the Emacs configuration]]
     - [[#key-bindings][Key bindings]]
     - [[#meta-settings][Meta settings]]
+    - [[#storing-secrets][Storing Secrets]]
     - [[#emacs-socket-and-server-settings][Emacs socket and server settings]]
         - [[#option-1-tcpip-socket-for-direct-network-exposure][Option 1: TCP/IP Socket (For Direct Network Exposure)]]
         - [[#option-2-file-socket-directory-for-simpler-ssh-forwarding][Option 2: File Socket Directory (For Simpler SSH Forwarding)]]
@@ -61,8 +62,12 @@
     - [[#org-modern][Org Modern]]
 - [[#programming-ide-and-related][Programming, IDE and related]]
     - [[#code-completion][Code completion]]
-    - [[#github-copilot-emacs-29-only][GitHub Copilot (Emacs 29+ only)]]
-    - [[#github-copilot-chat-emacs-29-only][GitHub Copilot Chat (Emacs 29+ only)]]
+    - [[#general-ai-assistant-configuration][General AI Assistant Configuration]]
+        - [[#encrypted-api-keys-for-the-ai-providers][Encrypted API Keys for the AI providers]]
+        - [[#eca-editor-code-assistant][ECA (Editor Code Assistant)]]
+        - [[#eca-config-installation-with-default-model-override][ECA Config Installation with Default Model Override]]
+        - [[#github-copilot][GitHub Copilot]]
+        - [[#github-copilot-chat][GitHub Copilot Chat]]
     - [[#ide-functionality-with-lsp][IDE functionality with LSP]]
         - [[#lsp-mode-core-lsp-client][lsp-mode: Core LSP client]]
         - [[#lsp-ui-ui-enhancements-for-lsp][lsp-ui: UI enhancements for LSP]]
@@ -277,6 +282,72 @@ from package name)."
 #+end_src
 
 
+** Storing Secrets
+
+We use the the Emacs built-in =auth-source= package to securely retrieve API keys from
+encrypted storage. For several cases, we set them as environment variables for later
+usage.
+
+#+begin_src emacs-lisp
+(use-package auth-source
+  :ensure nil  ; It's built-in, don't download it
+  :config
+  ;; Tell Emacs to look at your encrypted file first
+  (setq auth-sources '("~/.authinfo.gpg")))
+#+end_src
+
+In =~/.authinfo.gpg=, a GPG-encrypted file storing your credentials, you'd have
+entries like the following:
+
+#+begin_example
+machine api.anthropic.com login apikey password YOUR_ANTHROPIC_API_KEY
+machine api.openai.com login apikey password YOUR_OPENAI_API_KEY
+#+end_example
+
+The example above shows how to store API keys. In this case, the "login" is "apikey"
+and the  password is the API key. This approach keeps API keys encrypted in
+=~/.authinfo.gpg= and avoids hardcoding them in your configuration files.
+
+If you do not have a GPG-encrypted =~/.authinfo.gpg= file, follow these steps:
+
+1. **Generate or use an existing GPG key**:
+   - If you don't have a GPG key, generate one with: =gpg --full-generate-key=
+   - You'll need to provide a name, email, and optionally a passphrase
+   - Note: If your GPG key has no passphrase, decryption will be transparent
+     on your machine (no password prompt), which is convenient but less secure
+     if someone gains access to your machine.
+
+2. **Create the authinfo file**:
+   - Create a plain text file =~/.authinfo= with your credentials (API keys):
+
+#+begin_example
+machine api.anthropic.com login apikey password YOUR_ANTHROPIC_API_KEY
+machine api.openai.com login apikey password YOUR_OPENAI_API_KEY
+machine api.mistral.ai login apikey password YOUR_MISTRAL_API_KEY
+#+end_example
+
+3. **Encrypt the file with GPG**:
+   - Encrypt the file: =gpg --encrypt --recipient YOUR_EMAIL ~/.authinfo=
+   - This creates =~/.authinfo.gpg= (the encrypted version)
+   - Delete the plain text file: =rm ~/.authinfo= (for security)
+
+4. **Editing the encrypted file in Emacs**:
+   - Emacs can transparently decrypt and edit GPG-encrypted files
+   - Simply open =~/.authinfo.gpg= in Emacs: =C-x C-f ~/.authinfo.gpg=
+   - Emacs will prompt for your GPG passphrase (if set) and decrypt the file
+   - After editing, save with =C-x C-s= and Emacs will automatically re-encrypt
+   - The =epa-file= package (built into Emacs) handles this automatically
+
+To automate this process, you can run the setup script (defined later in this file):
+
+#+begin_src sh
+bash setup.sh --setup-tokens
+#+end_src
+
+This will interactively prompt you for your API keys (GitHub, Gemini, Groq, DeepSeek)
+and update your =~/.authinfo.gpg= securely, preserving any existing entries.
+
+
 ** Emacs socket and server settings
 
 When running Emacs as a daemon using `emacs --daemon`, the `(server-start)` command is
@@ -341,11 +412,13 @@ We start the script by introducing some variables and command-line flags that we
 will use later.
 
 #+begin_src sh :tangle setup.sh
+
 #!/bin/bash
 
 SKIP_JAVA=false
 SKIP_KOTLIN=false
 ENABLE_COPILOT=false
+SETUP_TOKENS=false
 
 parse_args() {
   for arg in "$@"; do
@@ -360,6 +433,10 @@ parse_args() {
         ;;
       --enable-copilot)
         ENABLE_COPILOT=true
+        shift
+        ;;
+      --setup-tokens)
+        SETUP_TOKENS=true
         shift
         ;;
       *)
@@ -379,10 +456,84 @@ initialize_sdkman() {
   fi
 }
 
+setup_tokens() {
+    AUTH_FILE="$HOME/.authinfo.gpg"
+    TEMP_FILE=$(mktemp)
+    chmod 600 "$TEMP_FILE"
+
+    echo -e "\033[1;36m[ Setting up AI API Tokens ]\033[0m"
+    echo "Files will be stored in $AUTH_FILE"
+
+    # Decrypt existing file if it exists
+    if [ -f "$AUTH_FILE" ]; then
+        echo "Decrypting existing credentials..."
+        # Try to decrypt. If it fails (e.g. bad passphrase), we abort to be safe
+        gpg --quiet --decrypt "$AUTH_FILE" > "$TEMP_FILE" 2>/dev/null
+        if [ $? -ne 0 ]; then
+             echo -e "\033[1;31mError: Could not decrypt existing file. Aborting to prevent data loss.\033[0m"
+             rm "$TEMP_FILE"
+             exit 1
+        fi
+    else
+        echo "Creating new credentials file..."
+        touch "$TEMP_FILE"
+    fi
+
+    # Helper to update a key
+    update_key() {
+        local machine=$1
+        local user=$2
+        local name=$3
+
+        echo ""
+        read -s -p "Enter $name API Key (leave empty to keep existing): " key
+        echo ""
+
+        if [ ! -z "$key" ]; then
+            # Cleanly remove existing entry for this machine/user combo
+            # We use a temp file for sed to avoid issues in some environments
+            sed -i "/machine $machine login $user/d" "$TEMP_FILE"
+            # Add new entry
+            echo "machine $machine login $user password $key" >> "$TEMP_FILE"
+            echo -e "\033[1;32mUpdated $name key.\033[0m"
+        else
+            echo "Skipping $name (unchanged)."
+        fi
+    }
+
+    # Prompt for keys
+    update_key "api.github.com" "apikey" "GitHub Copilot"
+    update_key "generativelanguage.googleapis.com" "apikey" "Google Gemini"
+    update_key "api.groq.com" "apikey" "Groq"
+    update_key "api.deepseek.com" "apikey" "DeepSeek"
+    update_key "api.openai.com" "apikey" "OpenAI"
+
+    # Encrypt back
+    echo ""
+    echo "Encrypting credentials..."
+    # We encrypt for the current user
+    RECIPIENT=$(whoami)
+    gpg --yes --quiet --encrypt --recipient "$RECIPIENT" --output "$AUTH_FILE" "$TEMP_FILE"
+
+    if [ $? -eq 0 ]; then
+        echo -e "\033[1;32mSuccess! Credentials saved to $AUTH_FILE\033[0m"
+    else
+        echo -e "\033[1;31mError: Encryption failed.\033[0m"
+    fi
+
+    # Secure cleanup
+    shred -u "$TEMP_FILE" 2>/dev/null || rm "$TEMP_FILE"
+    exit 0
+}
+
 parse_args "$@"
 
 if [ "$SKIP_JAVA" = "false" ] || [ "$SKIP_KOTLIN" = "false" ]; then
   initialize_sdkman
+fi
+
+if [ "$SETUP_TOKENS" = "true" ]; then
+  setup_tokens
 fi
 #+end_src
 
@@ -881,6 +1032,7 @@ is installed below.
 (use-package centaur-tabs
   :ensure
   :demand
+  :after all-the-icons
   :config
   (centaur-tabs-mode t)
   (setq centaur-tabs-set-icons t
@@ -892,6 +1044,7 @@ is installed below.
         centaur-tabs-set-bar 'over
         centaur-tabs-set-modified-marker t
         centaur-tabs-adjust-buffer-order t)
+
 
   ;; Group tabs by project
   (defun centaur-tabs-buffer-groups ()
@@ -1848,14 +2001,352 @@ doc popups and nicer candidate grouping without changing Company backends.
 #+end_src
 
 
-** GitHub Copilot (Emacs 29+ only)
+** General AI Assistant Configuration
+
+This section covers the configuration of AI-powered tools integrated into Emacs
+to enhance productivity, code generation, and interactive assistance. These
+tools leverage advanced language models and AI capabilities to provide
+intelligent suggestions, code completion, and interactive chat interfaces.
+
+*** Encrypted API Keys for the AI providers
+
+This section covers the configuration of encrypted API keys for the AI providers
+(see next section). Here's how it works (functions are defined later in this file):
+
+1. =my/get-token-from-auth-source= function:
+   - Searches auth-source for a credential entry matching the given host
+   - Looks for user ="apikey"= (common convention for API keys)
+   - Requires both =:user= and =:secret= to be present
+   - Returns the secret (API key) as a string, or signals an error if not found
+
+2. =my/eca-setup-tokens= function:
+   - Iterates over a list of providers, each mapping:
+     - Environment variable name (e.g., ="ANTHROPIC_API_KEY"=)
+     - Hostname (e.g., ="api.anthropic.com"=)
+   - For each provider:
+     - Calls =my/get-token-from-auth-source= with the hostname
+     - If found, sets the environment variable using =setenv=
+     - Handles errors gracefully (missing keys don't crash the setup)
+
+3. Deferred execution with idle timer:
+   - Uses =run-with-idle-timer= with 0 delay to run after Emacs is idle
+   - Why: auth-source backends (gpg-agent, pass, keychain) initialize lazily
+     and may rely on async processes
+   - During early startup, =auth-source-search= can return =nil= because:
+     - The command loop isn't running yet
+     - Async processes haven't completed
+     - Backends may not be initialized
+   - Waiting for the first idle moment ensures:
+     - The command loop is running
+     - Async processes can complete
+     - Auth-source backends are initialized
+
+The flow is as follows:
+
+1. Emacs starts up
+2. ECA package (see next section) loads (after auth-source)
+3. Idle timer waits for first idle moment
+4. =my/eca-setup-tokens= runs:
+   - For each provider (Anthropic, OpenAI, etc.)
+   - Searches =~/.authinfo.gpg= for entry matching host and extracts the API key
+   - Sets it as environment variable
+5. ECA can now use these environment variables to authenticate with the AI providers
+
+
+*** ECA (Editor Code Assistant)
+
+ECA (Editor Code Assistant) is a powerful AI assistant designed to integrate
+seamlessly with Emacs. It provides advanced features such as code generation,
+refactoring, debugging, and interactive chat. ECA supports multiple AI models
+and can be configured to work alongside or as an alternative to GitHub Copilot,
+depending on your workflow and preferences.
+
+We start with a few helper functions to retrieve tokens from the auth-source and
+check if the machine is authorized for GitHub Copilot. We do not enable ECA if
+copilot is enabled in the current machine. In addition, we have a helper to
+install the ECA config file to the global path.
+
+#+begin_src emacs-lisp
+(defun my/get-token-from-auth-source (host)
+  "Find token in auth-source for HOST."
+  (let* ((found (auth-source-search
+                 :host host
+                 :user "apikey"
+                 :require '(:user :secret)
+                 :max 1))
+         (entry (car found))
+         (secret-fn (when entry (plist-get entry :secret))))
+
+    (cond
+     ((null found)
+      (error "Token not found for host %s user %s" host "apikey"))
+     ((null secret-fn)
+      (error "Secret not available for host %s user %s (backend may not support secrets)" host "apikey"))
+     (t
+      (funcall secret-fn)))))
+
+(defun my/ai-copilot-authorized-p ()
+  "Check if this machine is authorized for GitHub Copilot.
+Returns t only if a valid entry with secret exists in auth-source.
+Returns nil if auth-source is not ready or key is missing."
+  (let ((auth-file (expand-file-name "~/.config/github-copilot/apps.json")))
+    (and (file-exists-p auth-file)
+         (file-readable-p auth-file)
+         ;; Check if the file is not just an empty JSON object "{}"
+         (> (file-attribute-size (file-attributes auth-file)) 5))))
+#+end_src
+
+
+*** ECA Config Installation with Default Model Override
+
+The =my/eca-install-config= function syncs =eca-config.json= from your Emacs
+directory to =~/.config/eca/config.json=. It supports overriding the
+=defaultModel= setting via a local variable:
+
+1. **Default model in config**: The =eca-config.json= file has =defaultModel=
+   set to a copilot model by default.
+
+2. **Local override variable**: You can set =my/eca-default-model= in =local.el=
+   to override the default model for your machine:
+
+#+begin_example
+;;; -*- lexical-binding: t -*-
+;;; local.el - Local configuration that doesn't need to be in version control
+;;;
+;;; This file is loaded after custom.el and init.el
+;;; Use this for machine-specific settings
+
+;; ECA default model override
+;; Set this to override the default model in eca-config.json
+;; If nil or not set, uses copilot from eca-config.json
+;; Example: (setq my/eca-default-model "mistral/devstral-2512")
+(setq my/eca-default-model "mistral/devstral-2512")
+#+end_example
+
+3. **Replacement process**: When =my/eca-install-config= runs:
+   - It reads the source =eca-config.json= file
+   - If =my/eca-default-model= is set, it replaces the =defaultModel= value
+     in the JSON content before comparing or copying
+   - The replacement happens =before= comparing with the existing target file,
+     so the comparison uses the processed content
+   - The processed content is then written to =~/.config/eca/config.json=
+
+4. **Benefits**: This allows you to:
+   - Keep ="copilot"= as the default in version control
+   - Override it per-machine via =local.el= (which is typically not versioned)
+   - Have different models on different machines without conflicts
+
+#+begin_src emacs-lisp
+(defun my/eca-install-config ()
+  "Sync eca-config.json to global path.
+Replaces defaultModel with value from my/eca-default-model if set.
+Skips if file exists and is identical, backups if different."
+  ;; Ensure local.el is loaded to get my/eca-default-model if it exists
+  (let ((local-file (concat user-emacs-directory "local.el")))
+    (when (and (file-exists-p local-file)
+               (not (boundp 'my/eca-default-model)))
+      (load-file local-file)))
+  (let* ((source (expand-file-name "eca-config.json" user-emacs-directory))
+         (dest-dir (expand-file-name "~/.config/eca/"))
+         (dest-file (expand-file-name "config.json" dest-dir))
+         (default-model (when (bound-and-true-p my/eca-default-model)
+                          my/eca-default-model))
+         (replace-default-model (lambda (content)
+                                 "Replace defaultModel in JSON content if override is set."
+                                 (if default-model
+                                     (replace-regexp-in-string
+                                      "\"defaultModel\"\\s-*:\\s-*\"[^\"]*\""
+                                      (format "\"defaultModel\" : \"%s\"" default-model)
+                                      content)
+                                   content))))
+
+    (unless (file-exists-p dest-dir)
+      (make-directory dest-dir t))
+
+    (if (file-exists-p source)
+        (let* ((source-content (with-temp-buffer
+                                 (insert-file-contents source)
+                                 (buffer-string)))
+               (processed-content (funcall replace-default-model source-content)))
+
+          (if (file-exists-p dest-file)
+              (let ((dest-content (with-temp-buffer
+                                    (insert-file-contents dest-file)
+                                    (buffer-string))))
+                (if (string= processed-content dest-content)
+                    (message "ECA [✓]: Config is already installed and up to date.")
+
+                  (if (y-or-n-p "ECA: Global config has changed. Overwrite with emacs config? ")
+                      (progn
+                        (rename-file dest-file (concat dest-file ".~" (format-time-string "%Y%m%d-%H%M%S") "~") t)
+                        (with-temp-file dest-file
+                          (insert processed-content))
+                        (message "ECA [✓]: Config updated and backed up.%s"
+                                 (if default-model
+                                     (format " (defaultModel set to %s)" default-model)
+                                   ""))
+                        (when (fboundp 'eca-restart-server) (eca-restart-server)))
+                    (message "ECA [-]: Config update skipped by user."))))
+            (progn
+              (with-temp-file dest-file
+                (insert processed-content))
+              (message "ECA [✓]: Config installed to global path.%s"
+                       (if default-model
+                           (format " (defaultModel set to %s)" default-model)
+                         "")))))
+      (message "ECA [x]: Source eca-config.json not found!"))))
+#+end_src
+
+
+Finally, we setup the ECA package and its completion mode:
+
+#+begin_src emacs-lisp
+;; ECA tries to use evil-mode functions. If Evil is not installed, we see warnings.
+;; To prevent those warnings from appearing, we define placeholders for the
+;; Evil functions that ECA tries to use.
+(unless (fboundp 'evil-delete)
+  (defun evil-delete (&rest _)
+    "Placeholder for evil-delete (Evil mode not installed)."
+    interactive nil))
+
+(unless (fboundp 'evil-change-line)
+  (defun evil-change-line (&rest _)
+    "Placeholder for evil-change-line (Evil mode not installed)."
+    interactive nil))
+
+(use-package eca
+  :after auth-source
+  :pin "MELPA Unstable"
+  :custom
+  (eca-chat-select-model "google/gemini-3-flash-preview") ; Your preferred "Brain"
+
+  :config
+  ;; Use ediff for file change diffs (smerge is for merge conflicts, not file changes)
+  (setq eca-chat-diff-tool 'ediff)
+  (setq eca-extra-args '("--verbose" "--log-level" "debug"))
+  (add-hook 'eca-chat-mode-hook (lambda () (setq-local show-trailing-whitespace nil)))
+
+  ;; Define completion setup function after ECA is fully loaded
+  ;; ECA uses eca-completion-mode (overlay-based), not company-mode
+  (with-eval-after-load 'eca
+    (defun my/eca-setup-completion (&optional _arg)
+      "Enable ECA completion mode only if Copilot is disabled.
+ECA uses its own overlay-based completion system, not company-mode.
+Optional _ARG is ignored (for compatibility with advice)."
+      (interactive)
+
+      (if (my/ai-copilot-authorized-p)
+          (progn
+            ;; If Copilot is ON, disable ECA completion to avoid conflicts
+            (when (bound-and-true-p eca-completion-mode)
+              (eca-completion-mode -1))
+            (message "ECA [-]: Skipping ECA completion because Copilot is enabled"))
+        ;; If Copilot is OFF, enable ECA completion
+        (when (and (fboundp 'eca-completion-mode) (not (derived-mode-p 'eca-chat-mode)))
+          (eca-completion-mode 1)
+          (message "ECA [✓]: Using ECA for ghost completions"))))
+
+    ;; Special handling for org-mode: org-mode uses org-self-insert-command instead of self-insert-command
+    ;; We need to make ECA's post-command function recognize org-mode's insertion commands
+    (when (fboundp 'eca-completion--post-command)
+      (defun my/eca-org-post-command-wrapper (orig-fn)
+        "Wrapper for ECA post-command that handles org-mode's insertion commands."
+        (if (and (derived-mode-p 'org-mode)
+                 (eq this-command 'org-self-insert-command))
+            ;; In org-mode, treat org-self-insert-command like self-insert-command
+            (let ((this-command 'self-insert-command))
+              (funcall orig-fn))
+          ;; For other modes, call normally
+          (funcall orig-fn)))
+
+      (advice-add 'eca-completion--post-command :around #'my/eca-org-post-command-wrapper))
+
+    ;; Set up hooks after ECA is loaded and function is defined
+    (dolist (hook '(prog-mode-hook
+                    text-mode-hook
+                    markdown-mode-hook
+                    org-mode-hook
+                    yaml-mode-hook
+                    json-mode-hook
+                    sh-mode-hook
+                    dockerfile-mode-hook
+                    css-mode-hook
+                    sql-mode-hook
+                    conf-mode-hook
+                    shell-mode-hook
+                    term-mode-hook
+                    vterm-mode-hook))
+      (add-hook hook #'my/eca-setup-completion))
+
+    ;; Advice copilot-mode to update ECA completion when toggled
+    (when (fboundp 'copilot-mode)
+      (advice-add 'copilot-mode :after #'my/eca-setup-completion)))
+
+  ;; Setup tokens when auth-source backends are initialized
+  (defun my/eca-setup-tokens ()
+    "Setup ECA provider tokens from auth-source."
+    (let ((providers '(("ANTHROPIC_API_KEY"   "api.anthropic.com")
+                       ("DEEPSEEK_API_KEY"    "api.deepseek.com")
+                       ("GEMINI_API_KEY"      "generativelanguage.googleapis.com")
+                       ("GROQ_API_KEY"        "api.groq.com")
+                       ("HUGGINGFACE_API_KEY" "router.huggingface.co")
+                       ("KAGI_API_KEY"        "kagi.com")
+                       ("MISTRAL_API_KEY"     "api.mistral.ai")
+                       ("MOONSHOT_API_KEY"    "api.moonshot.cn")
+                       ("NOVITA_API_KEY"      "api.novita.ai")
+                       ("OPENAI_API_KEY"      "api.openai.com")
+                       ("OPENROUTER_API_KEY"  "openrouter.ai")
+                       ("PERPLEXITY_API_KEY"  "api.perplexity.ai"))))
+      (dolist (provider providers)
+        (let ((env-var (car provider))
+              (host    (cadr provider)))
+          (condition-case err
+              (let ((token (my/get-token-from-auth-source host)))
+                (if token
+                    (progn
+                      (setenv env-var token)
+                      (message "ECA [✓]: Key %s initialized with token for %s from credentials" env-var host))
+                  (message "ECA [-]: Skipping key %s: no token found for host (%s) on credentials" env-var host)))
+            (error
+             (message "ECA [-]: Skipping key %s: %s"
+                      env-var (error-message-string err))))))))
+
+  ;; NOTE: auth-source backends (gpg-agent, pass, keychain, etc.) are initialized
+  ;; lazily and may rely on async subprocesses and the Emacs event loop.
+  ;;
+  ;; During early startup (even in `after-init-hook`), Emacs has not yet entered
+  ;; the command loop, so async processes and process filters may not have run.
+  ;; As a result, `auth-source-search` can return nil on the first call.
+  ;;
+  ;; Using an idle timer guarantees that Emacs is fully "alive":
+  ;; - the command loop is running
+  ;; - async processes can complete
+  ;; - auth-source backends are initialized
+  ;;
+  ;; A 1-second delay ensures ECA and its dependencies (auth-source, package loading,
+  ;; server connection) have sufficient time to initialize properly. A 0-second delay
+  ;; was originally enough (the key was waiting for the first idle moment), but it
+  ;; became insufficient after adding a delay for starting up copilot-mode on buffers,
+  ;; causing ECA to start with an empty buffer.
+  ;; This also prevents files from opening on top of the ECA chat buffer.
+  (run-with-idle-timer
+   1 nil
+   (lambda ()
+     ;; Ensure local.el is loaded (it's loaded in after-init-hook, but be safe)
+     (let ((local-file (concat user-emacs-directory "local.el")))
+       (when (and (file-exists-p local-file)
+                  (not (boundp 'my/eca-default-model)))
+         (load-file local-file)))
+     (my/eca-setup-tokens)
+     (my/eca-install-config)
+     (eca))))
+#+end_src
+
+
+*** GitHub Copilot
 
 Official GitHub Copilot integration for Emacs. It provides AI-powered code
-suggestions as you type. This configuration uses ~package-vc~, which is a
-built-in package manager introduced in Emacs 29+ that can install packages
-directly from Git repositories.
-
-For older Emacs versions, you'll need to manually clone the repository.
+suggestions as you type.
 
 **Installation Requirements:**
 1. Node.js (handled by setup.sh)
@@ -1866,6 +2357,11 @@ For older Emacs versions, you'll need to manually clone the repository.
 (declare-function my/copilot-excluded-file-p nil)
 
 (use-package copilot
+  ;; We activate the copilot extension only if it is authorized on this computer.
+  ;; This will prevent us from loading it if not in use:
+  :if (my/ai-copilot-authorized-p)
+  :pin "MELPA Unstable"
+  :after eca
   :init
   ;; Disable indentation offset warnings - Copilot will use existing indentation
   ;; See https://github.com/copilot-emacs/copilot.el/issues/312#issuecomment-2729052774
@@ -1875,11 +2371,19 @@ For older Emacs versions, you'll need to manually clone the repository.
   ;; Not working yet. See https://github.com/copilot-emacs/copilot.el/issues/313
   (setq-default copilot-max-char-warning-disabled t)
 
+  :custom
+  ;; Provide valid settings structure to prevent "Cannot read properties of null (reading 'copilot')" error
+  (copilot-lsp-settings '(:copilot ()))
+
   :config
   ;; Configure Copilot to use our custom nodejs_tools installation
   (let ((copilot-server (expand-file-name "nodejs_tools/node_modules/.bin/copilot-language-server"
                                           user-emacs-directory))
         (node-binary (executable-find "node")))
+
+    ;; Add NODE_NO_WARNINGS=1 to environment for Copilot server, or it will spam warnings
+    ;; about deprecated Node.js APIs on stderr that cause Copilot to malfunction.
+    (setenv "NODE_NO_WARNINGS" "1")
 
     ;; Check Node.js version (Copilot requires >= 22.0.0)
     (if (or (not node-binary)
@@ -1948,15 +2452,25 @@ Returns non-nil if buffer contains Kubernetes Secrets or ConfigMaps."
      (my/copilot-kubernetes-sensitive-p)))
 
   (defun my/safe-copilot-mode ()
-    "Enable copilot-mode with silent error handling, excluding sensitive files."
+    "Enable copilot-mode with silent error handling, excluding sensitive files.
+Defers activation to ensure Copilot server is ready."
     (unless (my/copilot-excluded-file-p)
-      (condition-case _err
-          (when (and copilot-server-executable
-                     (file-executable-p copilot-server-executable))
-            (copilot-mode 1))
-        (error
-         (message "Copilot mode activation failed. Check the *copilot events* buffer for details")
-         (setq copilot-mode nil)))))
+      (let ((buf (current-buffer)))
+        (run-with-idle-timer
+         0.5 nil
+         (lambda ()
+           (when (buffer-live-p buf)
+             (with-current-buffer buf
+               (condition-case err
+                   (when (and (featurep 'copilot)
+                              (boundp 'copilot-server-executable)
+                              copilot-server-executable
+                              (file-executable-p copilot-server-executable))
+                     (copilot-mode 1))
+                 (error
+                  ;; Only report errors if copilot is loaded (real errors)
+                  (when (featurep 'copilot)
+                    (message "Copilot activation failed: %S" err)))))))))))
 
   :hook ((prog-mode . my/safe-copilot-mode)
          (text-mode . my/safe-copilot-mode)
@@ -1980,11 +2494,13 @@ Returns non-nil if buffer contains Kubernetes Secrets or ConfigMaps."
 #+end_src
 
 
-** GitHub Copilot Chat (Emacs 29+ only)
+*** GitHub Copilot Chat
 
 GitHub Copilot Chat provides an interactive chat interface with GitHub Copilot,
 similar to what's available in VS Code or IntelliJ. This is a separate package
-from the completion-only `copilot.el`.
+from the completion-only `copilot.el`. It enables natural language interactions
+with Copilot, allowing you to ask questions, request code explanations, generate
+tests, and more, all within Emacs.
 
 **Features:**
 - Interactive chat with GitHub Copilot
@@ -1995,6 +2511,10 @@ from the completion-only `copilot.el`.
 
 #+begin_src emacs-lisp
 (use-package copilot-chat
+  ;; We activate the copilot chat extension only if it is authorized on this computer.
+  ;; This will prevent us from loading it if not in use:
+  :if (my/ai-copilot-authorized-p)
+  :pin "MELPA Unstable"
   :after (org markdown-mode)
 
   :custom
@@ -2008,19 +2528,19 @@ from the completion-only `copilot.el`.
   (copilot-chat-follow t)
 
   :bind (("C-c p c" . copilot-chat-display)           ; Open chat
-        ("C-c p h" . copilot-chat-hide)              ; Hide chat
-        ("C-c p e" . copilot-chat-explain)           ; Explain selection
-        ("C-c p r" . copilot-chat-review)            ; Review code
-        ("C-c p f" . copilot-chat-fix)               ; Fix code
-        ("C-c p d" . copilot-chat-doc)               ; Generate docs
-        ("C-c p t" . copilot-chat-test)              ; Generate tests
-        ("C-c p o" . copilot-chat-optimize)          ; Optimize code
-        ("C-c p i" . copilot-chat-ask-and-insert)    ; Ask and insert
-        ("C-c p m" . copilot-chat-transient)         ; Main menu
-        ("C-c p y" . copilot-chat-yank)              ; Yank code block
-        ("C-c p M-y" . copilot-chat-yank-pop)        ; Yank previous
-        :map global-map
-        ("C-c p C-y" . (lambda () (interactive) (copilot-chat-yank-pop -1))))
+         ("C-c p h" . copilot-chat-hide)              ; Hide chat
+         ("C-c p e" . copilot-chat-explain)           ; Explain selection
+         ("C-c p r" . copilot-chat-review)            ; Review code
+         ("C-c p f" . copilot-chat-fix)               ; Fix code
+         ("C-c p d" . copilot-chat-doc)               ; Generate docs
+         ("C-c p t" . copilot-chat-test)              ; Generate tests
+         ("C-c p o" . copilot-chat-optimize)          ; Optimize code
+         ("C-c p i" . copilot-chat-ask-and-insert)    ; Ask and insert
+         ("C-c p m" . copilot-chat-transient)         ; Main menu
+         ("C-c p y" . copilot-chat-yank)              ; Yank code block
+         ("C-c p M-y" . copilot-chat-yank-pop)        ; Yank previous
+         :map global-map
+         ("C-c p C-y" . (lambda () (interactive) (copilot-chat-yank-pop -1))))
 
   :config
   ;; Add current buffer automatically when opening chat
@@ -2405,6 +2925,14 @@ have Java 17+ installed and available in your `PATH`.
 
 #+begin_src emacs-lisp
 (use-package lsp-java
+;; (add-to-list 'load-path "/home/saulo/java-agent-loader/")
+;; (load "/home/saulo/java-agent-loader/java-agent-loader.el")
+;; (require 'java-agent-loader)
+
+;;use-package lsp-java
+;;   :init
+;;   (jal/lsp-java-setup '(("lombok")))
+
   :custom
   (lsp-java-server-install-dir
     (expand-file-name "~/.emacs.d/lsp_language_servers/eclipse.jdt.ls/"))

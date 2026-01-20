@@ -3,6 +3,7 @@
 SKIP_JAVA=false
 SKIP_KOTLIN=false
 ENABLE_COPILOT=false
+SETUP_TOKENS=false
 
 parse_args() {
   for arg in "$@"; do
@@ -17,6 +18,10 @@ parse_args() {
         ;;
       --enable-copilot)
         ENABLE_COPILOT=true
+        shift
+        ;;
+      --setup-tokens)
+        SETUP_TOKENS=true
         shift
         ;;
       *)
@@ -36,10 +41,84 @@ initialize_sdkman() {
   fi
 }
 
+setup_tokens() {
+    AUTH_FILE="$HOME/.authinfo.gpg"
+    TEMP_FILE=$(mktemp)
+    chmod 600 "$TEMP_FILE"
+
+    echo -e "\033[1;36m[ Setting up AI API Tokens ]\033[0m"
+    echo "Files will be stored in $AUTH_FILE"
+
+    # Decrypt existing file if it exists
+    if [ -f "$AUTH_FILE" ]; then
+        echo "Decrypting existing credentials..."
+        # Try to decrypt. If it fails (e.g. bad passphrase), we abort to be safe
+        gpg --quiet --decrypt "$AUTH_FILE" > "$TEMP_FILE" 2>/dev/null
+        if [ $? -ne 0 ]; then
+             echo -e "\033[1;31mError: Could not decrypt existing file. Aborting to prevent data loss.\033[0m"
+             rm "$TEMP_FILE"
+             exit 1
+        fi
+    else
+        echo "Creating new credentials file..."
+        touch "$TEMP_FILE"
+    fi
+
+    # Helper to update a key
+    update_key() {
+        local machine=$1
+        local user=$2
+        local name=$3
+
+        echo ""
+        read -s -p "Enter $name API Key (leave empty to keep existing): " key
+        echo ""
+
+        if [ ! -z "$key" ]; then
+            # Cleanly remove existing entry for this machine/user combo
+            # We use a temp file for sed to avoid issues in some environments
+            sed -i "/machine $machine login $user/d" "$TEMP_FILE"
+            # Add new entry
+            echo "machine $machine login $user password $key" >> "$TEMP_FILE"
+            echo -e "\033[1;32mUpdated $name key.\033[0m"
+        else
+            echo "Skipping $name (unchanged)."
+        fi
+    }
+
+    # Prompt for keys
+    update_key "api.github.com" "apikey" "GitHub Copilot"
+    update_key "generativelanguage.googleapis.com" "apikey" "Google Gemini"
+    update_key "api.groq.com" "apikey" "Groq"
+    update_key "api.deepseek.com" "apikey" "DeepSeek"
+    update_key "api.openai.com" "apikey" "OpenAI"
+
+    # Encrypt back
+    echo ""
+    echo "Encrypting credentials..."
+    # We encrypt for the current user
+    RECIPIENT=$(whoami)
+    gpg --yes --quiet --encrypt --recipient "$RECIPIENT" --output "$AUTH_FILE" "$TEMP_FILE"
+
+    if [ $? -eq 0 ]; then
+        echo -e "\033[1;32mSuccess! Credentials saved to $AUTH_FILE\033[0m"
+    else
+        echo -e "\033[1;31mError: Encryption failed.\033[0m"
+    fi
+
+    # Secure cleanup
+    shred -u "$TEMP_FILE" 2>/dev/null || rm "$TEMP_FILE"
+    exit 0
+}
+
 parse_args "$@"
 
 if [ "$SKIP_JAVA" = "false" ] || [ "$SKIP_KOTLIN" = "false" ]; then
   initialize_sdkman
+fi
+
+if [ "$SETUP_TOKENS" = "true" ]; then
+  setup_tokens
 fi
 
 if [ ! -f "./init.el" ]; then
