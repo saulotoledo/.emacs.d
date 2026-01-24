@@ -1743,6 +1743,13 @@ A fully capable terminal emulator.
              (switch-to-buffer (car (seq-difference (buffer-list) my/vterms))))
             (t (switch-to-buffer (car (seq-intersection (buffer-list) my/vterms)))))))
 
+  (defun my/vterm-send-next-key ()
+    "Prompt for a key sequence and send it to the vterm terminal."
+    (interactive)
+    (when (derived-mode-p 'vterm-mode)
+      (message "The next key will be sent to vterm")
+      (vterm-send-next-key)))
+
   :bind (:map custom-bindings-map
               ("C-z" . toggle-vterm)
               ("M-1" . (lambda () (interactive) (toggle-vterm 1)))
@@ -1753,7 +1760,8 @@ A fully capable terminal emulator.
               ("M-6" . (lambda () (interactive) (toggle-vterm 6)))
               ("M-7" . (lambda () (interactive) (toggle-vterm 7)))
               ("M-8" . (lambda () (interactive) (toggle-vterm 8)))
-              ("M-9" . (lambda () (interactive) (toggle-vterm 9))))
+              ("M-9" . (lambda () (interactive) (toggle-vterm 9)))
+              ("C-c C-x" . my/vterm-send-next-key))
 
   :config
   (setq vterm-max-scrollback 10000)
