@@ -66,6 +66,7 @@
         - [[#encrypted-api-keys-for-the-ai-providers][Encrypted API Keys for the AI providers]]
         - [[#eca-editor-code-assistant][ECA (Editor Code Assistant)]]
         - [[#eca-config-installation-with-default-model-override][ECA Config Installation with Default Model Override]]
+        - [[#eca-chat-management-auto-save-and-index][ECA Chat Management (Auto-save and Index)]]
         - [[#github-copilot][GitHub Copilot]]
         - [[#github-copilot-chat][GitHub Copilot Chat]]
     - [[#ide-functionality-with-lsp][IDE functionality with LSP]]
@@ -2348,6 +2349,158 @@ Optional _ARG is ignored (for compatibility with advice)."
      (my/eca-setup-tokens)
      (my/eca-install-config)
      (eca))))
+#+end_src
+
+
+*** ECA Chat Management (Auto-save and Index)
+
+This section adds automatic saving of ECA chats to a dedicated folder and
+maintains an Org-mode index for easy navigation.
+
+#+begin_src emacs-lisp
+(defvar my/eca-chat-directory (expand-file-name "eca-chats/" user-emacs-directory)
+  "Directory to save ECA chats.")
+
+(defvar-local my/eca-chat-last-saved-file nil
+  "The last file where this chat was saved.")
+
+(defun my/eca-chat-get-file-name ()
+  "Get a filename for the current ECA chat."
+  (or my/eca-chat-last-saved-file
+      (let* ((title (or eca-chat--custom-title eca-chat--title "untitled"))
+             ;; Sanitize title for filename
+             (safe-title (replace-regexp-in-string "[^a-zA-Z0-9_-]" "_" title))
+             (id (or (and (boundp 'eca-chat--id) eca-chat--id) "new"))
+             (date-time (format-time-string "%Y-%m-%d_%H-%M-%S")))
+        (setq-local my/eca-chat-last-saved-file
+                    (expand-file-name (format "%s_%s_%s.md"
+                                              date-time
+                                              id
+                                              safe-title)
+                                      my/eca-chat-directory)))))
+
+(defun my/eca-chat-update-index (file)
+  "Update the index.org file with the new chat FILE."
+  (let ((index-file (expand-file-name "index.org" my/eca-chat-directory))
+        (title (file-name-base file))
+        (relative-path (file-name-nondirectory file)))
+    ;; Ensure directory exists
+    (unless (file-exists-p my/eca-chat-directory)
+      (make-directory my/eca-chat-directory t))
+    ;; Initialize index file if it doesn't exist
+    (unless (file-exists-p index-file)
+      (with-temp-file index-file
+        (insert "#+TITLE: ECA Chats Index\n\n")))
+    ;; Insert link at the top (after header) if not present
+    (save-excursion
+      (let ((buf (find-file-noselect index-file)))
+        (with-current-buffer buf
+          (goto-char (point-min))
+          ;; Prune orphaned links while we are here
+          (while (re-search-forward "^- \\[\\[file:\\([^]]+\\)\\]" nil t)
+            (let ((target (expand-file-name (match-string 1) my/eca-chat-directory)))
+              (unless (file-exists-p target)
+                (delete-region (line-beginning-position) (line-beginning-position 2)))))
+          (goto-char (point-min))
+          (unless (search-forward relative-path nil t)
+            ;; Find the end of the header or title
+            (goto-char (point-min))
+            (if (re-search-forward "^- " nil t)
+                (goto-char (match-beginning 0))
+              (goto-char (point-max)))
+            (let ((display-title (if (string-match-p "_reset_" relative-path)
+                                     (format "↺ %s" title)
+                                   title)))
+              (insert (format "- [[file:%s][%s]]\n" relative-path display-title))
+              (save-buffer))))))))
+
+(defun my/eca-chat-rebuild-index ()
+  "Rebuild the ECA chats index.org from all files in the directory.
+Useful if the index gets out of sync or files are manually deleted."
+  (interactive)
+  (let ((index-file (expand-file-name "index.org" my/eca-chat-directory))
+        (files (seq-filter #'file-exists-p
+                           (directory-files my/eca-chat-directory t "\\.md$"))))
+    (with-temp-file index-file
+      (insert "#+TITLE: ECA Chats Index (Rebuilt)\n\n")
+      (dolist (file (sort files #'string>)) ; Sort newest first
+        (unless (string-match-p "index\\.org$" file)
+          (let* ((relative-path (file-name-nondirectory file))
+                 (title (file-name-base relative-path))
+                 (display-title (if (string-match-p "_reset_" relative-path)
+                                    (format "↺ %s" title)
+                                  title)))
+            (insert (format "- [[file:%s][%s]]\n"
+                            relative-path
+                            display-title))))))
+    (message "ECA: Index rebuilt with %d chats." (length files))))
+
+(defun my/eca-chat-auto-save-h ()
+  "Auto-save the current ECA chat buffer."
+  (when (and (derived-mode-p 'eca-chat-mode)
+             (not (and (boundp 'eca-chat--chat-loading) eca-chat--chat-loading))
+             (not (and (boundp 'eca-chat--empty) eca-chat--empty)))
+    (unless (file-exists-p my/eca-chat-directory)
+      (make-directory my/eca-chat-directory t))
+    (let ((file (my/eca-chat-get-file-name))
+          (inhibit-message t))
+      ;; Use write-region to save without visiting/changing the buffer file name
+      (write-region (point-min) (point-max) file nil 'quiet)
+      (my/eca-chat-update-index file))))
+
+;; Advice to trigger auto-save when ECA finishes loading a response
+(advice-add 'eca-chat--set-chat-loading :after
+            (lambda (&rest args)
+              (let ((loading (cadr args)))
+                (when (not loading)
+                  (my/eca-chat-auto-save-h)))))
+
+;; Also save when killing the buffer
+(add-hook 'eca-chat-mode-hook
+          (lambda ()
+            (add-hook 'kill-buffer-hook #'my/eca-chat-auto-save-h nil t)))
+
+(defun my/eca-chat-rename-to-backup-h ()
+  "Rename the current chat file to a backup if it exists."
+  (let ((session (eca-session)))
+    (when (eca-process-running-p session)
+      (when-let ((buffer (eca-chat--get-last-buffer session)))
+        (with-current-buffer buffer
+          (message "ECA: Backing up chat file...")
+          (let ((file (my/eca-chat-get-file-name)))
+            (when (file-exists-p file)
+              (let* ((timestamp (format-time-string "%Y%m%d-%H%M%S"))
+                     (backup (concat (file-name-sans-extension file) "_reset_" timestamp ".md")))
+                (rename-file file backup t)
+                (my/eca-chat-update-index backup)
+                (setq-local my/eca-chat-last-saved-file nil)
+                (message "ECA: Chat backed up and indexed: %s" (file-name-nondirectory backup))))))))))
+
+;; Advice to backup the chat file before it's reset/cleared
+(advice-add 'eca-chat-reset :before #'my/eca-chat-rename-to-backup-h)
+
+;; Navigation commands
+(defun my/eca-chat-open-index ()
+  "Open the ECA chats index file."
+  (interactive)
+  (find-file (expand-file-name "index.org" my/eca-chat-directory)))
+
+(defun my/eca-chat-browse ()
+  "Browse ECA chat files using completion."
+  (interactive)
+  (let ((default-directory my/eca-chat-directory))
+    (if (fboundp 'counsel-find-file)
+        (counsel-find-file)
+      (call-interactively #'find-file))))
+
+;; Bindings for ECA chat mode
+(with-eval-after-load 'eca-chat
+  (define-key eca-chat-mode-map (kbd "C-c C-S-i") #'my/eca-chat-open-index))
+
+;; Global binding for finding chats
+(global-set-key (kbd "C-c c f") #'my/eca-chat-browse)
+(global-set-key (kbd "C-c c i") #'my/eca-chat-open-index)
+(global-set-key (kbd "C-c c r") #'my/eca-chat-rebuild-index)
 #+end_src
 
 

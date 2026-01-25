@@ -9,6 +9,7 @@
 eca/
 server/
 undo-tree/
+eca-chats/
 .desktop
 *.desktop
 *autosave*
