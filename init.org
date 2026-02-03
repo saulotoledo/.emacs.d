@@ -1711,6 +1711,8 @@ We can also call =rg-dwim= or =rg= and give any path.
 #+begin_src emacs-lisp
 (use-package rg
   :defer t
+  :bind (:map custom-bindings-map
+              ("C-c C-f" . rg))
   :config
   (rg-enable-default-bindings)
   (rg-enable-menu))
