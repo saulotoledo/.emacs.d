@@ -805,13 +805,13 @@ intended to be overridden by ~editorconfig-mode~, if in use.
 #+begin_src emacs-lisp
 (defun my/default-indentation ()
   "Apply my preferred default indentation settings.
-  These settings are intended to be overridden by editorconfig-mode."
-  ;; **CRITICAL CHECK:** ;; Org mode uses a tab width of 8 by default.
+These settings are intended to be overridden by `editorconfig-mode'."
+  ;; **CRITICAL CHECK:** Org mode uses a tab width of 8 by default.
   ;; Changing that leads to an error:
   (unless (eq major-mode 'org-mode)
     (setq
-      tab-width 2
-      indent-tabs-mode nil)))
+     tab-width 2
+     indent-tabs-mode nil)))
 
 (dolist (hook '(conf-unix-mode-hook
                 markdown-mode-hook
@@ -1421,9 +1421,12 @@ word, or line by typing a short key sequence. It's great for quickly moving
 the cursor anywhere on the screen without using the mouse or arrow keys.
 
 #+begin_src emacs-lisp
+(declare-function swiper-isearch-thing-at-point "swiper")
+
 (defun my/swiper-thing-or-region ()
-  "Call swiper-isearch-thing-at-point if the region is active
-and contains more than one character. Otherwise, call swiper-isearch."
+  "Call `swiper-isearch-thing-at-point' or `swiper-isearch'.
+If the region is active and contains more than one character, call
+`swiper-isearch-thing-at-point'. Otherwise, call `swiper-isearch'."
   (interactive)
   (if (and (use-region-p)
            (> (abs (- (point) (mark))) 1)) ; the selection is more than 1 character long
@@ -1519,6 +1522,8 @@ _ARGS are additional arguments passed by magit-process-filter (unused)."
     (read-only-mode -1)
     (ansi-color-apply-on-region (point-min) (point-max))
     (read-only-mode 1)))
+
+(declare-function ansi-color-apply-on-region "ansi-color")
 
 (advice-add 'magit-process-filter :after #'my/magit-color-buffer)
 #+end_src
@@ -1749,6 +1754,7 @@ A fully capable terminal emulator.
              (switch-to-buffer (car (seq-difference (buffer-list) my/vterms))))
             (t (switch-to-buffer (car (seq-intersection (buffer-list) my/vterms)))))))
 
+  (declare-function vterm-send-next-key "vterm")
   (defun my/vterm-send-next-key ()
     "Prompt for a key sequence and send it to the vterm terminal."
     (interactive)
@@ -2190,7 +2196,7 @@ Skips if file exists and is identical, backups if different."
                 (if (string= processed-content dest-content)
                     (message "ECA [✓]: Config is already installed and up to date.")
 
-                  (if (y-or-n-p "ECA: Global config has changed. Overwrite with emacs config? ")
+                  (if (y-or-n-p "ECA: Global config has changed. Overwrite with Emacs config? ")
                       (progn
                         (rename-file dest-file (concat dest-file ".~" (format-time-string "%Y%m%d-%H%M%S") "~") t)
                         (with-temp-file dest-file
@@ -2221,12 +2227,12 @@ Finally, we setup the ECA package and its completion mode:
 (unless (fboundp 'evil-delete)
   (defun evil-delete (&rest _)
     "Placeholder for evil-delete (Evil mode not installed)."
-    interactive nil))
+    (interactive)))
 
 (unless (fboundp 'evil-change-line)
   (defun evil-change-line (&rest _)
     "Placeholder for evil-change-line (Evil mode not installed)."
-    interactive nil))
+    (interactive)))
 
 (use-package eca
   :after auth-source
@@ -2363,6 +2369,14 @@ This section adds automatic saving of ECA chats to a dedicated folder and
 maintains an Org-mode index for easy navigation.
 
 #+begin_src emacs-lisp
+(declare-function eca-process-running-p "eca")
+(declare-function eca-session "eca")
+(declare-function eca-chat--custom-title "eca-chat")
+(declare-function eca-chat--get-last-buffer "eca-chat")
+(declare-function eca-chat--title "eca-chat")
+
+(defvar eca-chat-mode-map nil "Keymap for ECA chat mode.")
+
 (defvar my/eca-chat-directory (expand-file-name "eca-chats/" user-emacs-directory)
   "Directory to save ECA chats.")
 
@@ -2372,7 +2386,9 @@ maintains an Org-mode index for easy navigation.
 (defun my/eca-chat-get-file-name ()
   "Get a filename for the current ECA chat."
   (or my/eca-chat-last-saved-file
-      (let* ((title (or eca-chat--custom-title eca-chat--title "untitled"))
+      (let* ((title (or (and (boundp 'eca-chat--custom-title) eca-chat--custom-title)
+                        (and (boundp 'eca-chat--title) eca-chat--title)
+                        "untitled"))
              ;; Sanitize title for filename
              (safe-title (replace-regexp-in-string "[^a-zA-Z0-9_-]" "_" title))
              (id (or (and (boundp 'eca-chat--id) eca-chat--id) "new"))
@@ -2485,18 +2501,84 @@ Useful if the index gets out of sync or files are manually deleted."
 (advice-add 'eca-chat-reset :before #'my/eca-chat-rename-to-backup-h)
 
 ;; Navigation commands
+(defun my/eca-chat-mark-buffer (&optional proj-context)
+  "Make buffer read-only, mark as ECA chat buffer, and optionally set project context."
+  (read-only-mode 1)
+  (setq-local my/eca-chat-buffer t)
+  (when proj-context
+    (setq-local my/original-project-context proj-context)))
+
 (defun my/eca-chat-open-index ()
   "Open the ECA chats index file."
   (interactive)
-  (find-file (expand-file-name "index.org" my/eca-chat-directory)))
+  (let ((index-file (expand-file-name "index.org" my/eca-chat-directory))
+        ;; Save current project BEFORE opening the file
+        (current-project (project-current)))
+    (find-file index-file)
+    (my/eca-chat-mark-buffer current-project)))
 
 (defun my/eca-chat-browse ()
   "Browse ECA chat files using completion."
   (interactive)
-  (let ((default-directory my/eca-chat-directory))
+  (let* ((default-directory my/eca-chat-directory)
+         ;; Save the current project using project.el
+         (current-project (project-current)))
     (if (fboundp 'counsel-find-file)
         (counsel-find-file)
-      (call-interactively #'find-file))))
+      (call-interactively #'find-file))
+    ;; Make the opened buffer read-only and mark as ECA chat buffer
+    (run-with-idle-timer 0 nil
+      (lambda (proj-context)
+        (when (buffer-live-p (current-buffer))
+          (with-current-buffer (current-buffer)
+            (my/eca-chat-mark-buffer proj-context))))
+      current-project)))
+
+(declare-function org-element-context "org")
+(declare-function org-element-property "org")
+
+(defun my/eca-chat-follow-link-no-project (orig-fun &rest args)
+  "Advice for org-open-at-point to open chat files without changing project.
+Preserves the current project context when opening linked files.
+
+- ORIG-FUN is the original function passed by advice.
+- ARGS: Arguments passed to the original function (ignored)."
+  (let* ((context (org-element-context))
+         (type (org-element-property :type context))
+         (_path (org-element-property :path context))
+         ;; Save current project before opening (using project.el)
+         (current-project (project-current)))
+    ;; Only handle file links in the eca-chats directory
+    (if (and (string= type "file")
+             (buffer-file-name)
+             (string-prefix-p (expand-file-name my/eca-chat-directory)
+                              (expand-file-name (buffer-file-name))))
+        (progn
+          ;; Open the file normally
+          (apply orig-fun args)
+          (my/eca-chat-mark-buffer current-project))
+      ;; For all other cases, use the original function
+      (apply orig-fun args))))
+
+(advice-add 'org-open-at-point :around #'my/eca-chat-follow-link-no-project)
+
+;; Advice to return original project context for ECA chat buffers
+(defun my/eca-chat-restore-project-context (orig-fun &rest args)
+  "Return the original project context for ECA chat buffers.
+This allows project.el commands to work from chat buffers while treating
+the project where the chat was opened from as the current project.
+
+- ORIG-FUN: The original `project-current' function.
+- ARGS: Arguments passed to `project-current' (ignored)."
+  (if (and (boundp 'my/eca-chat-buffer) my/eca-chat-buffer)
+      ;; Return the stored original project if available
+      (if (and (boundp 'my/original-project-context) my/original-project-context)
+          my/original-project-context
+        ;; No stored context - return nil (no project) rather than detecting eca-chats
+        nil)
+    (apply orig-fun args)))
+
+(advice-add 'project-current :around #'my/eca-chat-restore-project-context)
 
 ;; Bindings for ECA chat mode
 (with-eval-after-load 'eca-chat
