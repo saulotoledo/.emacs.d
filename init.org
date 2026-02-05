@@ -1715,7 +1715,10 @@ We can also call =rg-dwim= or =rg= and give any path.
               ("C-c C-f" . rg))
   :config
   (rg-enable-default-bindings)
-  (rg-enable-menu))
+  (rg-enable-menu)
+  (add-to-list 'display-buffer-alist
+               '("\\*rg\\*"
+                 (display-buffer-same-window))))
 #+end_src
 
 
