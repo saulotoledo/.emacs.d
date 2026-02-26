@@ -81,7 +81,7 @@
     - [[#org-source-block-editing][Org Source Block Editing]]
     - [[#code-metrics][Code metrics]]
     - [[#programming-languages-and-modes][Programming, languages and modes]]
-        - [[#general-setup-with-tree-sitter][General setup with tree-sitter]]
+        - [[#general-setup-with-treesit][General setup with treesit]]
         - [[#python][Python]]
         - [[#java][Java]]
         - [[#kotlin][Kotlin]]
@@ -630,7 +630,7 @@ incomplete command.
                 org-mode-hook
                 prog-mode-hook
                 text-mode-hook
-                yaml-mode-hook))
+                yaml-ts-mode-hook))
   (add-hook hook 'column-number-mode) ; Turn on column number display
   (add-hook hook 'display-line-numbers-mode) ; Turn on line numbers
   (add-hook hook (lambda () (setq-local show-trailing-whitespace t)))) ; Show trailing space
@@ -818,7 +818,7 @@ These settings are intended to be overridden by `editorconfig-mode'."
                 nxml-mode-hook
                 prog-mode-hook
                 text-mode-hook
-                yaml-mode-hook))
+                yaml-ts-mode-hook))
   (add-hook hook #'my/default-indentation))
 #+end_src
 
@@ -946,14 +946,16 @@ is installed below.
         ("GNU ELPA"       . "https://elpa.gnu.org/packages/")
         ("MELPA Unstable" . "https://melpa.org/packages/")
         ("Non-GNU"        . "https://elpa.nongnu.org/nongnu/")
-        ("GNU-devel"      . "https://elpa.gnu.org/devel/"))
+        ("GNU-devel"      . "https://elpa.gnu.org/devel/")
+        ("JCS-ELPA"       . "https://jcs-emacs.github.io/jcs-elpa/packages/"))
 
       package-archive-priorities
-      '(("MELPA Stable"   . 20)
-        ("GNU ELPA"       . 15)
-        ("MELPA Unstable" . 10)
-        ("Non-GNU"        . 5)
-        ("GNU-devel"      . 0)))
+      '(("MELPA Stable"   . 25)
+        ("GNU ELPA"       . 20)
+        ("MELPA Unstable" . 15)
+        ("Non-GNU"        . 10)
+        ("GNU-devel"      . 5)
+        ("JCS-ELPA")      . 0))
 
 (package-initialize)
 (unless 'package-archive-results
@@ -2294,7 +2296,7 @@ Optional _ARG is ignored (for compatibility with advice)."
                     text-mode-hook
                     markdown-mode-hook
                     org-mode-hook
-                    yaml-mode-hook
+                    yaml-ts-mode-hook
                     json-mode-hook
                     sh-mode-hook
                     dockerfile-mode-hook
@@ -2731,7 +2733,7 @@ Defers activation to ensure Copilot server is ready."
   :hook ((prog-mode . my/safe-copilot-mode)
          (text-mode . my/safe-copilot-mode)
          (markdown-mode . my/safe-copilot-mode)
-         (yaml-mode . my/safe-copilot-mode)
+         (yaml-ts-mode . my/safe-copilot-mode)
          (json-mode . my/safe-copilot-mode)
          (sh-mode . my/safe-copilot-mode)
          (dockerfile-mode . my/safe-copilot-mode)
@@ -3086,29 +3088,35 @@ package).
 
 ** Programming, languages and modes
 
-*** General setup with tree-sitter
+*** General setup with treesit
 
-Tree-sitter is a modern incremental parsing library that provides fast,
-accurate syntax trees for programming languages. Emacs 29+ includes
-built-in tree-sitter support (`treesit`) which provides `*-ts-mode`
+Treesit is a modern incremental parsing library that provides fast,
+accurate syntax trees for programming languages. Originally known
+as `tree-sitter`, it was included into Emacs 29+ as a built-in
+functonality and known as `treesit`, which provides `*-ts-mode`
 modes with excellent syntax highlighting and structural editing.
 
 Remember to upgrade the versions when possible. New versions might
 not be compatible with your current Emacs build.
 
 #+begin_src emacs-lisp
-;; Configure built-in treesit system (Emacs 29+)
-(when (and (fboundp 'treesit-available-p) (treesit-available-p))
-  ;; Set up language source recipes for automatic grammar installation
+(use-package treesit-auto
+  :custom
+  (treesit-auto-install 'prompt)
+  :config
+  ;; Preferred grammar sources
   (setq treesit-language-source-alist
-        '((typescript . ("https://github.com/tree-sitter/tree-sitter-typescript" "v0.23.2" "typescript/src"))
-          (tsx . ("https://github.com/tree-sitter/tree-sitter-typescript" "v0.23.2" "tsx/src"))
-          (javascript . ("https://github.com/tree-sitter/tree-sitter-javascript" "v0.23.1" "src"))
-          (python . ("https://github.com/tree-sitter/tree-sitter-python" "v0.23.6" "src"))
-          (java . ("https://github.com/tree-sitter/tree-sitter-java" "v0.23.5" "src"))))
+        '((typescript "https://github.com/tree-sitter/tree-sitter-typescript" "v0.23.2" "typescript/src")
+          (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "v0.23.2" "tsx/src")
+          (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "v0.23.1" "src")
+          (python "https://github.com/tree-sitter/tree-sitter-python" "v0.23.6" "src")
+          (java "https://github.com/tree-sitter/tree-sitter-java" "v0.23.5" "src")
+          (yaml "https://github.com/ikatyang/tree-sitter-yaml")
+          (bash "https://github.com/tree-sitter/tree-sitter-bash")
+          (json "https://github.com/tree-sitter/tree-sitter-json")))
 
-  ;; Auto-install grammars when missing
-  (dolist (lang '(typescript tsx javascript python java))
+  ;; 2. Proactively install out "Must-Have" list at startup
+  (dolist (lang '(typescript tsx javascript python java yaml))
     (unless (treesit-language-available-p lang)
       (treesit-install-language-grammar lang))))
 #+end_src
@@ -3379,7 +3387,7 @@ preferred.
 
 Note that you need to install [[https://nodejs.org/][Node.js]] before proceeding.
 Then, we can configure Emacs. The setup below enables TypeScript mode using
-tree-sitter (=*-ts-mode=):
+treesit (=*-ts-mode=):
 
 #+begin_src emacs-lisp
 (defun my/typescript-register-debug-templates ()
@@ -3510,7 +3518,6 @@ easier to remember valid values and arguments without leaving your editor.
   (scss-mode . turn-on-css-eldoc))
 #+end_src
 
-
 Then, we setup web-mode for web templates:
 
 `web-mode` is a major mode for editing web templates and component files, such as
@@ -3604,11 +3611,105 @@ This setup provides a modern shell scripting experience in Emacs with LSP featur
 
 *** YAML
 
-YAML files are used for configuration in many tools and languages. The `yaml-mode` package provides syntax highlighting and indentation for YAML files.
+YAML files are used for configuration in many tools and languages. The
+`yaml-ts-mode` package provides syntax highlighting and indentation for YAML
+files.
 
 #+begin_src emacs-lisp
-(use-package yaml-mode
-  :mode "\\.ya?ml\\'")
+(with-eval-after-load 'lsp-yaml
+  (setq lsp-yaml-server-command
+        (list (expand-file-name "~/.emacs.d/nodejs_tools/node_modules/.bin/yaml-language-server")
+              "--stdio")))
+
+(with-eval-after-load 'lsp-mode
+  ;; Enable LSP support for YAML gives real-time schema validation, smart
+  ;; completion, hover help, and automatic formatting:
+  (add-hook 'yaml-ts-mode-hook #'lsp-deferred))
+
+(use-package yaml-ts-mode
+  :mode "\\.ya?ml\\'"
+  :config
+  (setq treesit-font-lock-level 4)
+  (unless (treesit-language-available-p 'yaml)
+    (treesit-install-language-grammar 'yaml)))
+#+end_src
+
+`treesit-fold` is a syntax-aware folding engine built for the Treesit system
+in Emacs 29+. Unlike traditional folding that relies on indentation "guessing,"
+it uses a concrete parser to identify the precise boundaries of YAML blocks,
+maps, and lists. This allows for lightning-fast, reliable collapsing of massive
+datasets, often enhanced by visual indicators in the margin that let you
+navigate complex hierarchies with the same ease as an Org-mode document.
+
+#+begin_src emacs-lisp
+(use-package treesit-fold
+  :pin "JCS-ELPA"
+  :hook (yaml-ts-mode . treesit-fold-mode)
+  :config
+  ;; Enable margin indicators so you can see where to fold
+  (global-treesit-fold-indicators-mode 1))
+#+end_src
+
+`yaml-pro` provides a specialized toolkit for structural refactoring and advanced
+visibility. It allows you to treat YAML nodes as physical objects, enabling you
+to swap entire nested blocks up or down without breaking indentation. Beyond
+movement, it offers "tree convolution" for restructuring hierarchies
+and adds specific highlighting for advanced YAML features like anchors and
+tags, ensuring that the logical structure of your configuration is always
+transparent and easy to manipulate safely.
+
+#+begin_src emacs-lisp
+(use-package yaml-pro
+  :after yaml-ts-mode
+  :hook ((yaml-ts-mode . yaml-pro-mode)
+         (yaml-ts-mode . outline-minor-mode))
+  :preface
+  (defun my/yaml-toggle-fold-all ()
+    "Toggle all folds in the buffer."
+    (interactive)
+    (if (bound-and-true-p my/yaml-folded-p)
+        (progn (treesit-fold-open-all) (setq-local my/yaml-folded-p nil))
+      (progn (treesit-fold-close-all) (setq-local my/yaml-folded-p t))))
+
+  (defun my/yaml-pro-toggle-feature (var name)
+    (set (make-local-variable var) (not (symbol-value var)))
+    (font-lock-flush)
+    (font-lock-ensure)
+    (message "YAML %s highlighting: %s" name (if (symbol-value var) "Enabled" "Disabled")))
+
+  :config
+  (setq yaml-pro-set-colors t)
+
+  (let ((map custom-bindings-map))
+    ;; Structural Movement
+    (define-key map (kbd "C-c v k") #'yaml-pro-move-up)
+    (define-key map (kbd "C-c v j") #'yaml-pro-move-down)
+    (define-key map (kbd "C-c v h") #'yaml-pro-up-level)
+    (define-key map (kbd "C-c v l") #'yaml-pro-down-level)
+
+    ;; Folding & Magic
+    (define-key map (kbd "C-<tab>") #'treesit-fold-toggle)
+    (define-key map (kbd "C-c v f") #'treesit-fold-toggle)
+    (define-key map (kbd "C-c v F") #'my/yaml-toggle-fold-all)
+    (define-key map (kbd "C-c v c") #'yaml-pro-convolute-tree)
+
+    ;; Toggles
+    (define-key map (kbd "C-c v a") (lambda () (interactive) (my/yaml-pro-toggle-feature 'yaml-pro-highlight-anchors "Anchor")))
+    (define-key map (kbd "C-c v t") (lambda () (interactive) (my/yaml-pro-toggle-feature 'yaml-pro-highlight-tags "Tag")))))
+#+end_src
+
+Finally, here are practical schema configurations for `lsp-yaml` in Emacs,
+covering well-known YAML use cases. Other schemas might be detected
+automatically:
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'lsp-yaml
+  (setq lsp-yaml-schemas
+        '(:https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json
+          ["**/docker-compose*.ya*ml"]
+
+          :https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.30.3-standalone-strict/all.json
+          ["*-k8s.yaml" "*-k8s.yml" "**/k8s/*.ya*ml"])))
 #+end_src
 
 
@@ -3709,19 +3810,14 @@ install_plantuml
 
 ** Docker and related
 
-Dockerfile support is provided by the `dockerfile-mode` package, which enables syntax highlighting
-and editing for Dockerfiles. For Docker Compose YAML files, it is recommended to use the
-`docker-compose-mode` package, which provides specialized support for `docker-compose.yml` and
-similar files.
+Dockerfile support is provided by the `dockerfile-mode` package, which enables
+syntax highlighting  and editing for Dockerfiles. For Docker Compose YAML files,
+we do not use the available `docker-compose-mode` because it cannot be used
+together with the `yaml-ts-mode` (they are both major modes).
 
 #+begin_src emacs-lisp
 (use-package dockerfile-mode
   :mode "Dockerfile\\'")
-#+end_src
-
-#+begin_src emacs-lisp
-(use-package docker-compose-mode
-  :mode "docker-compose\\.ya?ml\\'")
 #+end_src
 
 
@@ -3835,7 +3931,7 @@ key.
     'org-mode
     'prog-mode
     'text-mode
-    'yaml-mode); only certain modes
+    'yaml-ts-mode); only certain modes
     (delete-trailing-whitespace)))
 
 (defvar my/save-hooks
