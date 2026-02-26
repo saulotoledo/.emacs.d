@@ -1717,13 +1717,21 @@ We can also call =rg-dwim= or =rg= and give any path.
 (use-package rg
   :defer t
   :bind (:map custom-bindings-map
-              ("C-c C-f" . rg))
+              ("C-c C-f" . rg)
+              ("C-c C-t" . my/toggle-search-case-sensitivity))
   :config
   (rg-enable-default-bindings)
   (rg-enable-menu)
   (add-to-list 'display-buffer-alist
                '("\\*rg\\*"
-                 (display-buffer-same-window))))
+                 (display-buffer-same-window)))
+
+  (defun my/toggle-search-case-sensitivity ()
+    "Toggle case sensitivity for searches (case-fold-search)."
+    (interactive)
+    (setq-default case-fold-search (not case-fold-search))
+    (message "Case Sensitive Search: %s"
+             (if case-fold-search "OFF (Lax)" "ON (Strict)"))))
 #+end_src
 
 
