@@ -1398,7 +1398,6 @@ changing how you interact with them.
   :bind (("M-x" . counsel-M-x)
          ("C-x b" . counsel-ibuffer)
          ("C-x C-f" . counsel-find-file)
-         ("C-c s" . counsel-rg)
          :map minibuffer-local-map
          ("C-r" . 'counsel-minibuffer-history))
   :config
@@ -1717,23 +1716,54 @@ We can also call =rg-dwim= or =rg= and give any path.
 
 #+begin_src emacs-lisp
 (use-package rg
-  :defer t
-  :bind (:map custom-bindings-map
-              ("C-c C-f" . rg)
-              ("C-c C-t" . my/toggle-search-case-sensitivity))
   :config
   (rg-enable-default-bindings)
   (rg-enable-menu)
+
+  (defun my/counsel-rg-project-prompt ()
+    "Prompt for directory, default to project root if available."
+    (interactive)
+    (let* ((proj-root
+            (cond
+             ((fboundp 'projectile-project-root)
+              (projectile-project-root))
+             ((fboundp 'project-current)
+              (let ((proj (project-current)))
+                (when proj
+                  (car (project-roots proj)))))
+             ((fboundp 'vc-root-dir)
+              (vc-root-dir))
+             (t default-directory)))
+           (dir (read-directory-name "Search directory: " proj-root nil t)))
+      (counsel-rg nil dir)))
+
+  (defun my/rg-abort-to-counsel ()
+    "Abort the current transient menu and launch counsel-rg."
+    (interactive)
+    (transient-quit-all)
+    (my/counsel-rg-project-prompt))
+
+  (transient-define-infix my/search-case-strategy ()
+    :class 'transient-lisp-variable
+    :variable 'rg-ignore-case
+    :description
+    (lambda ()
+      (let* ((val (oref (transient-suffix-object) value))
+             (shown (if val (symbol-name val) "nil")))
+        (format "Search Case Strategy [%s]" shown)))
+    :reader
+    (lambda (_prompt _initial _history)
+      (let* ((choices '(case-fold-search smart force nil))
+             ;; Safe even if current value isn’t in CHOICES.
+             (pos (or (cl-position rg-ignore-case choices) 0)))
+        (nth (mod (1+ pos) (length choices)) choices))))
+
+  (rg-menu-transient-insert "Search" "z" "Live Search (Counsel)" 'my/rg-abort-to-counsel)
+  (rg-menu-transient-insert "Custom" "g" "Search Case Strategy" 'my/search-case-strategy)
+
   (add-to-list 'display-buffer-alist
                '("\\*rg\\*"
-                 (display-buffer-same-window)))
-
-  (defun my/toggle-search-case-sensitivity ()
-    "Toggle case sensitivity for searches (case-fold-search)."
-    (interactive)
-    (setq-default case-fold-search (not case-fold-search))
-    (message "Case Sensitive Search: %s"
-             (if case-fold-search "OFF (Lax)" "ON (Strict)"))))
+                 (display-buffer-same-window))))
 #+end_src
 
 
