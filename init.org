@@ -39,6 +39,7 @@
     - [[#maximize-frame-at-startup][Maximize frame at startup]]
 - [[#version-control][Version control]]
     - [[#magit-a-powerful-git-interface-for-emacs][Magit: a powerful Git interface for Emacs]]
+    - [[#blamerel][Blamer.el]]
     - [[#ansi-color-support-in-the-magit-process-buffer][ANSI color support in the magit process buffer]]
         - [[#option-1-official-built-in-solution-with-delay][Option 1: Official built-in solution (with delay)]]
         - [[#option-2-real-time-color-application-recommended][Option 2: Real-time color application (recommended)]]
@@ -1493,6 +1494,35 @@ In the Magit status buffer:
   ;; magit-status is explicitly called. This can improve startup performance.
   :commands magit-status
   :bind (:map custom-bindings-map ("C-c m" . magit-status)))
+#+end_src
+
+
+** Blamer.el
+
+=blamer.el= is a Git blame plugin for Emacs that brings a "GitLens-like"
+experience to your editing environment. It provides inline, contextual
+annotations that display the author, date, and commit message of the current
+line (or selected ones) directly within your buffer. Because it is designed with
+high configurability -- supporting various display modes like overlays, margins, or
+floating posframe popups -- it offers a flexible way to surface version control
+history without cluttering your code or interfering with other completion
+overlays.
+
+#+begin_src emacs-lisp
+(use-package blamer
+  :demand t ;; Make sure blamer.el is loaded immediately
+  :bind (("s-i" . blamer-show-commit-info)
+         ("C-c i" . blamer-show-posframe-commit-info))
+  :custom
+  (blamer-type 'both)
+  (blamer-idle-time 0.3)
+  (blamer-overlay-priority 1) ;; Low priority: make sure Copilot/ECA overlays win
+  :custom-face
+  (blamer-face ((t :foreground "#5c6370"
+                   :background nil
+                   :height 85)))
+  :config
+  (global-blamer-mode 1))
 #+end_src
 
 
