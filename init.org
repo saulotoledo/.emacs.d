@@ -1342,8 +1342,14 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
   :defer t
   :bind (:map custom-bindings-map ("C-c o" . olivetti-mode))
   :config
-  (setq-default olivetti-body-width (+ fill-column 3)))
+  (setq-default olivetti-body-width (max 120 (+ fill-column 3))))
 #+end_src
+
+Other useful shortcuts for the extension are:
+
+- =C-c {= : Decreases width (=olivetti-shrink=).
+- =C-c }= : Increases width (=olivetti-expand=).
+- =C-c |= : Sets a specific width (=olivetti-set-width=).
 
 
 ** Modes configuration
