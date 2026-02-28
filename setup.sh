@@ -42,73 +42,73 @@ initialize_sdkman() {
 }
 
 setup_tokens() {
-    AUTH_FILE="$HOME/.authinfo.gpg"
-    TEMP_FILE=$(mktemp)
-    chmod 600 "$TEMP_FILE"
+  AUTH_FILE="$HOME/.authinfo.gpg"
+  TEMP_FILE=$(mktemp)
+  chmod 600 "$TEMP_FILE"
 
-    echo -e "\033[1;36m[ Setting up AI API Tokens ]\033[0m"
-    echo "Files will be stored in $AUTH_FILE"
+  echo -e "\033[1;36m[ Setting up AI API Tokens ]\033[0m"
+  echo "Files will be stored in $AUTH_FILE"
 
-    # Decrypt existing file if it exists
-    if [ -f "$AUTH_FILE" ]; then
-        echo "Decrypting existing credentials..."
-        # Try to decrypt. If it fails (e.g. bad passphrase), we abort to be safe
-        gpg --quiet --decrypt "$AUTH_FILE" > "$TEMP_FILE" 2>/dev/null
-        if [ $? -ne 0 ]; then
-             echo -e "\033[1;31mError: Could not decrypt existing file. Aborting to prevent data loss.\033[0m"
-             rm "$TEMP_FILE"
-             exit 1
-        fi
-    else
-        echo "Creating new credentials file..."
-        touch "$TEMP_FILE"
-    fi
+  # Decrypt existing file if it exists
+  if [ -f "$AUTH_FILE" ]; then
+      echo "Decrypting existing credentials..."
+      # Try to decrypt. If it fails (e.g. bad passphrase), we abort to be safe
+      gpg --quiet --decrypt "$AUTH_FILE" > "$TEMP_FILE" 2>/dev/null
+      if [ $? -ne 0 ]; then
+            echo -e "\033[1;31mError: Could not decrypt existing file. Aborting to prevent data loss.\033[0m"
+            rm "$TEMP_FILE"
+            exit 1
+      fi
+  else
+      echo "Creating new credentials file..."
+      touch "$TEMP_FILE"
+  fi
 
-    # Helper to update a key
-    update_key() {
-        local machine=$1
-        local user=$2
-        local name=$3
+  # Helper to update a key
+  update_key() {
+      local machine=$1
+      local user=$2
+      local name=$3
 
-        echo ""
-        read -s -p "Enter $name API Key (leave empty to keep existing): " key
-        echo ""
+      echo ""
+      read -s -p "Enter $name API Key (leave empty to keep existing): " key
+      echo ""
 
-        if [ ! -z "$key" ]; then
-            # Cleanly remove existing entry for this machine/user combo
-            # We use a temp file for sed to avoid issues in some environments
-            sed -i "/machine $machine login $user/d" "$TEMP_FILE"
-            # Add new entry
-            echo "machine $machine login $user password $key" >> "$TEMP_FILE"
-            echo -e "\033[1;32mUpdated $name key.\033[0m"
-        else
-            echo "Skipping $name (unchanged)."
-        fi
-    }
+      if [ ! -z "$key" ]; then
+          # Cleanly remove existing entry for this machine/user combo
+          # We use a temp file for sed to avoid issues in some environments
+          sed -i "/machine $machine login $user/d" "$TEMP_FILE"
+          # Add new entry
+          echo "machine $machine login $user password $key" >> "$TEMP_FILE"
+          echo -e "\033[1;32mUpdated $name key.\033[0m"
+      else
+          echo "Skipping $name (unchanged)."
+      fi
+  }
 
-    # Prompt for keys
-    update_key "api.github.com" "apikey" "GitHub Copilot"
-    update_key "generativelanguage.googleapis.com" "apikey" "Google Gemini"
-    update_key "api.groq.com" "apikey" "Groq"
-    update_key "api.deepseek.com" "apikey" "DeepSeek"
-    update_key "api.openai.com" "apikey" "OpenAI"
+  # Prompt for keys
+  update_key "api.github.com" "apikey" "GitHub Copilot"
+  update_key "generativelanguage.googleapis.com" "apikey" "Google Gemini"
+  update_key "api.groq.com" "apikey" "Groq"
+  update_key "api.deepseek.com" "apikey" "DeepSeek"
+  update_key "api.openai.com" "apikey" "OpenAI"
 
-    # Encrypt back
-    echo ""
-    echo "Encrypting credentials..."
-    # We encrypt for the current user
-    RECIPIENT=$(whoami)
-    gpg --yes --quiet --encrypt --recipient "$RECIPIENT" --output "$AUTH_FILE" "$TEMP_FILE"
+  # Encrypt back
+  echo ""
+  echo "Encrypting credentials..."
+  # We encrypt for the current user
+  RECIPIENT=$(whoami)
+  gpg --yes --quiet --encrypt --recipient "$RECIPIENT" --output "$AUTH_FILE" "$TEMP_FILE"
 
-    if [ $? -eq 0 ]; then
-        echo -e "\033[1;32mSuccess! Credentials saved to $AUTH_FILE\033[0m"
-    else
-        echo -e "\033[1;31mError: Encryption failed.\033[0m"
-    fi
+  if [ $? -eq 0 ]; then
+      echo -e "\033[1;32mSuccess! Credentials saved to $AUTH_FILE\033[0m"
+  else
+      echo -e "\033[1;31mError: Encryption failed.\033[0m"
+  fi
 
-    # Secure cleanup
-    shred -u "$TEMP_FILE" 2>/dev/null || rm "$TEMP_FILE"
-    exit 0
+  # Secure cleanup
+  shred -u "$TEMP_FILE" 2>/dev/null || rm "$TEMP_FILE"
+  exit 0
 }
 
 parse_args "$@"
@@ -284,34 +284,44 @@ else
   echo -e "\033[1;33m\n[ Skipping Kotlin Language Server (KLS) as requested ]\033[0m"
 fi
 
-install_shellcheck() {
-  echo -e "\033[1;32m\n[ Installing ShellCheck ]\033[0m"
+install_required_tools() {
+  echo -e "\033[1;32m\n[ Checking System Dependencies ]\033[0m"
 
-  if ! command -v shellcheck >/dev/null 2>&1; then
+  local system_tools=("shellcheck" "pipx")
+  local missing_system=()
 
-    # 1. Check for Debian/Ubuntu (apt)
-    if [ -f /etc/debian_version ] && command -v apt >/dev/null 2>&1; then
-      echo "Using apt to install ShellCheck..."
-      sudo apt update
-      sudo apt install -y shellcheck
-
-    # 2. Check for Fedora/RHEL (dnf)
-    elif [ -f /etc/fedora-release ] || command -v dnf >/dev/null 2>&1; then
-      echo "Using dnf to install ShellCheck (RHEL/Fedora)..."
-      # dnf is generally available and doesn't require a preceding update like apt
-      sudo dnf install -y ShellCheck
-
-    # 3. Fallback/Manual install warning
-    else
-      echo -e "\033[1;33mWarning: Could not automatically install ShellCheck. Please install it manually using your OS package manager.\033[0m"
-      echo "See: https://github.com/koalaman/shellcheck#installing"
+  # 1. Identify missing system tools
+  for tool in "${system_tools[@]}"; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      missing_system+=("$tool")
     fi
+  done
+
+  # 2. Batch install system tools
+  if [ ${#missing_system[@]} -gt 0 ]; then
+    echo "Installing missing system packages: ${missing_system[*]}"
+    if [ -f /etc/debian_version ]; then
+      sudo apt update && sudo apt install -y "${missing_system[@]}"
+    elif [ -f /etc/fedora-release ] || command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y "${missing_system[@]}"
+    fi
+    # Refresh PATH to ensure new tools are found
+    export PATH="$PATH:$HOME/.local/bin"
+  fi
+
+  # 3. Install pipx-managed tools (Semgrep)
+  echo -e "\033[1;32m\n[ Checking Isolated Dependencies (pipx) ]\033[0m"
+  if ! command -v semgrep >/dev/null 2>&1; then
+    echo "Installing semgrep via pipx..."
+    # Ensure pipx path is registered
+    pipx ensurepath >/dev/null 2>&1
+    pipx install semgrep
   else
-    echo "ShellCheck is already installed."
+    echo "Semgrep is already installed via pipx."
   fi
 }
 
-install_shellcheck
+install_required_tools
 
 # Update PlantUML version as needed:
 PLANTUML_VERSION="1.2025.10"
