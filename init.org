@@ -90,7 +90,7 @@
         - [[#general-nodejs-development-setup][General Node.js development setup]]
         - [[#general-web-development-html-css][General Web development (HTML, CSS)]]
         - [[#shell][Shell]]
-        - [[#yaml][YAML]]
+        - [[#yaml-json-and-typescript][YAML, JSON and TypeScript]]
         - [[#markdown][Markdown]]
     - [[#editorconfig][EditorConfig]]
     - [[#plantuml][PlantUML]]
@@ -98,6 +98,8 @@
         - [[#configuration][Configuration]]
         - [[#usage][Usage]]
     - [[#docker-and-related][Docker and related]]
+        - [[#dockerfile-and-docker-compose][Dockerfile and docker-compose]]
+        - [[#development-containers][Development containers]]
 - [[#project-management][Project management]]
 - [[#window-management][Window management]]
 - [[#pdf-tools][PDF Tools]]
@@ -1048,7 +1050,6 @@ is installed below.
         centaur-tabs-set-modified-marker t
         centaur-tabs-adjust-buffer-order t)
 
-
   ;; Group tabs by project
   (defun centaur-tabs-buffer-groups ()
     "Organize tabs into groups by project."
@@ -1068,6 +1069,8 @@ is installed below.
        "Magit")
       ((derived-mode-p 'dired-mode)
        "Dired")
+      ((file-remote-p default-directory)
+       "Remote")
       ((project-current)
        (format "Project: %s" (file-name-nondirectory
                               (directory-file-name
@@ -1225,14 +1228,17 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
   (declare-function treemacs-select-window "treemacs")
 
   (defun my/treemacs-set-root-to-current-folder ()
-    "Set the root of Treemacs to the folder of the current file or default directory."
+    "Set the root of Treemacs to the folder of the current file or default directory.
+Skips TRAMP paths as treemacs cannot reliably read remote paths."
     (interactive)
     (let ((folder (or (file-name-directory (or (buffer-file-name) default-directory))
                       default-directory)))
-      (treemacs-select-window)
-      (treemacs-do-add-project-to-workspace folder (file-name-nondirectory (directory-file-name folder)))
-      (treemacs-root-up)
-      (treemacs-root-down)))
+      ;; Skip TRAMP paths - treemacs cannot reliably read remote paths
+      (unless (file-remote-p folder)
+        (treemacs-select-window)
+        (treemacs-do-add-project-to-workspace folder (file-name-nondirectory (directory-file-name folder)))
+        (treemacs-root-up)
+        (treemacs-root-down))))
 
   (defun my/update-treemacs-faces-except (excluded-faces)
     "Update all Treemacs-related faces, excluding specified faces."
@@ -1314,9 +1320,10 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
   ;; using =C-x p k= to close all buffers in the open project.
   (declare-function treemacs-refresh "treemacs")
   (defun my/treemacs-refresh-on-file-open ()
-    "Refresh Treemacs when a file is opened."
+    "Refresh Treemacs when a file is opened. Skip for remote paths."
     (when (and (treemacs-get-local-window)
-               buffer-file-name)
+               buffer-file-name
+               (not (file-remote-p buffer-file-name)))
       (ignore-errors (treemacs-refresh))))
 
   (add-hook 'find-file-hook #'my/treemacs-refresh-on-file-open)
@@ -2748,7 +2755,8 @@ Returns non-nil if buffer contains Kubernetes Secrets or ConfigMaps."
   (defun my/safe-copilot-mode ()
     "Enable copilot-mode with silent error handling, excluding sensitive files.
 Defers activation to ensure Copilot server is ready."
-    (unless (my/copilot-excluded-file-p)
+    (unless (or (file-remote-p (current-buffer))
+                (my/copilot-excluded-file-p))
       (let ((buf (current-buffer)))
         (run-with-idle-timer
          0.5 nil
@@ -2856,16 +2864,149 @@ code completion, go-to-definition, diagnostics, and more.
 
 #+begin_src emacs-lisp
 (use-package lsp-mode
+  :init
+  ;; Needed for TRAMP performance
+  (setq lsp-auto-register-remote-clients t)
+
   :bind
   (:map lsp-mode-map ("M-RET" . lsp-execute-code-action))
 
   ;; Save automatically after edits such as lsp-rename
   :hook
   (lsp-after-apply-edits . save-buffer)
+  (prog-mode . lsp-deferred)
 
   ;; Increase timeout for slow language servers
   :custom
-  (lsp-response-timeout 20))
+  (lsp-response-timeout 20)
+
+  ;; Configure LSP to work with TRAMP/devcontainer
+  ;; When using TRAMP to access files inside devcontainer, LSP should use
+  ;; the container's environment and paths
+  (lsp-use-plists t)  ; Use plists for better TRAMP compatibility
+
+  :config
+  ;; When using TRAMP with devcontainer, LSP servers run inside the container.
+  ;; The container should have Node.js and language server extensions installed.
+  ;; LSP-mode automatically handles TRAMP, but ESLint extension must be installed in the container.
+
+  ;; Configure ESLint for Tramp/devcontainer
+  ;; The local ESLint server path doesn't exist on remote machines.
+  ;; We configure lsp-mode to use `vscode-eslint-language-server` which must be installed globally on the remote.
+  ;; Run: `npm install -g vscode-langservers-extracted` on the remote/container.
+
+  ;; Configure ESLint for Tramp/devcontainer
+  ;; The local ESLint server path doesn't exist on remote machines.
+  ;; Strategy: Disable the default `eslint` client (which hardcodes local paths)
+  ;; and register a specialized `eslint-remote` client that uses the global server.
+
+  ;; Performance tuning
+  (setq read-process-output-max (* 1024 1024))
+  ;; Add the following to $HOME/.ssh/config to reuse existing connections:
+  ;; Host *
+  ;;   ControlMaster auto
+  ;;   ControlPath ~/.ssh/sockets/%r@%h-%p
+  ;;   ControlPersist 600
+
+  ;; Disable ESLint for TRAMP using connection-local variables
+  ;; This sets lsp-eslint-enable to nil BEFORE the activation function runs
+  ;; The activation function checks lsp-eslint-enable, so this prevents it from activating
+  (connection-local-set-profile-variables
+   'remote-lsp-disable-eslint
+   '((lsp-eslint-enable . nil)))
+
+  (connection-local-set-profiles
+   '(:application tramp) 'remote-lsp-disable-eslint)
+
+  (defun my-lsp-tramp-optimize-clients ()
+    "Disable specific LSP clients when working over TRAMP.
+The built-in ESLint client ID is 'eslint'. When lsp-auto-register-remote-clients
+is t, lsp-mode may create remote versions automatically. We disable both 'eslint'
+and use 'eslint-remote' instead for TRAMP buffers.
+
+Add-on clients (like ESLint) are LSP clients registered with :add-on? t.
+They can run alongside other language servers (e.g., TypeScript + ESLint).
+Because they're add-on clients, they may bypass lsp-disabled-clients checks,
+so we also set lsp-eslint-enable to nil for extra reliability."
+    (when (file-remote-p (or buffer-file-name default-directory))
+      ;; Disable the default 'eslint' client which tries to use local paths
+      (setq-local lsp-disabled-clients (cons 'eslint (bound-and-true-p lsp-disabled-clients)))
+      ;; Also disable via the enable flag (more reliable for add-on clients)
+      ;; Add-on clients can bypass lsp-disabled-clients, so this is a safety net
+      ;; Note: This is already set via connection-local, but we set it again as a safety net
+      (setq-local lsp-eslint-enable nil)
+      ;; Also highly recommended: disable file watchers on remote
+      (setq-local lsp-enable-file-watchers nil)
+      (message "LSP: Disabled 'eslint' client for TRAMP (using 'eslint-remote' instead)")))
+
+  ;; Run on multiple hooks to catch the client before it initializes:
+  ;; - lsp-before-initialize-hook: Earliest hook, runs before workspace initialization
+  ;; - lsp-configure-hook: Main hook when LSP configures a buffer
+  ;; - find-file-hook: Safety net for buffers opened before LSP initializes
+  ;; Run on hooks to catch the client before it initializes:
+  (add-hook 'lsp-before-initialize-hook #'my-lsp-tramp-optimize-clients)
+  (add-hook 'lsp-configure-hook #'my-lsp-tramp-optimize-clients)
+
+  ;; 1. Add node modules binary path to TRAMP path
+  (connection-local-set-profile-variables
+   'remote-path-with-node
+   '((tramp-remote-path . (tramp-own-remote-path
+                           tramp-default-remote-path
+                           "~/.emacs.d/nodejs_tools/node_modules/.bin"
+                           "/usr/local/share/npm-global/bin"
+                           "/usr/local/bin"
+                           "/usr/bin"
+                           "/bin"))))
+
+  (connection-local-set-profiles
+   '(:application tramp) 'remote-path-with-node)
+
+  (with-eval-after-load 'lsp-mode
+    ;; Also remove any already-registered remote eslint clients
+    (when (gethash 'eslint lsp-clients)
+      (let ((eslint-client (gethash 'eslint lsp-clients)))
+        (when (lsp--client-remote? eslint-client)
+          (remhash 'eslint lsp-clients)
+          (message "LSP: Removed pre-existing auto-registered remote 'eslint' client"))))
+
+    (defun my/lsp-inspect-remote-clients ()
+      "Inspect active LSP clients and their processes for the current remote buffer."
+      (interactive)
+      (when (file-remote-p default-directory)
+        (message "--- LSP Remote Client Inspection ---")
+        (message "Buffer: %s" (buffer-name))
+        (message "lsp-disabled-clients: %S" lsp-disabled-clients)
+        (message "lsp-eslint-enable: %S" lsp-eslint-enable)
+        (if (bound-and-true-p lsp-mode)
+            (progn
+              (message "Active Clients: %S" (mapcar #'lsp--client-server-id lsp--managed-clients))
+              (dolist (client lsp--managed-clients)
+                (let* ((server-id (lsp--client-server-id client))
+                       (workspace (cl-find-if (lambda (w) (eq (lsp--workspace-client w) client)) lsp--buffer-workspaces))
+                       (proc (and workspace (lsp--workspace-proc workspace))))
+                  (message " Client: %s | Process: %s | Status: %s"
+                           server-id
+                           (or proc "None")
+                           (if proc (process-status proc) "N/A")))))
+          (message "LSP mode NOT active in this buffer"))
+        (message "------------------------------------")))
+
+    ;; Register a dedicated client for remote ESLint that relies on PATH
+    ;; We use 'vscode-eslint-language-server' which is provided by `vscode-langservers-extracted`
+    ;; Install it on remote: `npm install -g vscode-langservers-extracted`
+    (lsp-register-client
+     (make-lsp-client :new-connection (lsp-stdio-connection '("vscode-eslint-language-server" "--stdio"))
+                      :activation-fn (lambda (file-name _mode)
+                                       (let* ((filename (or file-name (buffer-file-name)))
+                                              (is-match (and filename (string-match-p "\\.\\(js\\|ts\\|jsx\\|tsx\\|html\\|vue\\)\\'" filename))))
+                                         ;; Only check for TRAMP if the extension already matched
+                                         (and is-match (file-remote-p filename))))
+                      :server-id 'eslint-remote
+                      :priority 10
+                      :add-on? t
+                      :environment-fn (lambda ()
+                                        '(("NODE_NO_WARNINGS" . "1"))))))
+)
 #+end_src
 
 
@@ -2947,6 +3088,13 @@ missing important diagnostics, we set the error threshold to a reasonably high v
 (9999), so Flycheck continues to show all errors without being excessive.
 
 #+begin_src emacs-lisp
+(defun my/flycheck-maybe-enable ()
+  "Enable flycheck-mode only if the file is local (not a TRAMP file).
+This is important because Flycheck does not support TRAMP yet."
+  (when (and (buffer-file-name)
+             (not (tramp-tramp-file-p (buffer-file-name))))
+    (flycheck-mode 1)))
+
 (use-package flycheck
   :custom
   (flycheck-indication-mode nil)
@@ -2956,7 +3104,7 @@ missing important diagnostics, we set the error threshold to a reasonably high v
 
   ;; Enable Flycheck globally. Disabled for now. I am trying prog-mode hook instead.
   ;; (global-flycheck-mode t)
-  :hook (prog-mode . flycheck-mode))
+  :hook (prog-mode . my/flycheck-maybe-enable))
 #+end_src
 
 
@@ -3022,6 +3170,9 @@ appropriate mode in =apheleia-mode-alist=. For example:
   :config
   ;; Enable globally - formats on save
   (apheleia-global-mode +1)
+
+  ;; Optimization: Disable for TRAMP buffers to prevent synchronous path resolution hangs.
+  (add-to-list 'apheleia-inhibit-functions (lambda () (file-remote-p default-directory)))
 
   ;; Add custom formatters - you can extend this list
   (setf (alist-get 'prettier-local apheleia-formatters)
@@ -3467,11 +3618,14 @@ treesit (=*-ts-mode=):
   ;; Ensure dap-js is loaded for TypeScript/Node.js debugging
   (require 'dap-js)
 
-  ;; Prefer project-local typescript-language-server, fallback to ~/.emacs.d/nodejs_tools
-  (let* ((project-root (or (locate-dominating-file default-directory "node_modules") default-directory))
-          (project-tsls (expand-file-name "node_modules/.bin/typescript-language-server" project-root))
-          (fallback-tsls (expand-file-name "~/.emacs.d/nodejs_tools/node_modules/.bin/typescript-language-server")))
-    (setq lsp-typescript-server-path (if (file-exists-p project-tsls) project-tsls fallback-tsls)))
+  ;; Prefer project-local typescript-language-server, fallback to ~/.emacs.d/nodejs_tools.
+  ;; Optimization: The remote-TSLS path is now handled by connection-local variables.
+  (if (file-remote-p default-directory)
+      (setq lsp-typescript-server-path "typescript-language-server")
+    (let* ((project-root (or (locate-dominating-file default-directory "node_modules") default-directory))
+           (project-tsls (expand-file-name "node_modules/.bin/typescript-language-server" project-root))
+           (fallback-tsls (expand-file-name "~/.emacs.d/nodejs_tools/node_modules/.bin/typescript-language-server")))
+      (setq lsp-typescript-server-path (if (file-exists-p project-tsls) project-tsls fallback-tsls))))
   :hook ((typescript-ts-mode . lsp)
           (typescript-ts-mode . yas-minor-mode)))
 
@@ -3645,19 +3799,22 @@ install_shellcheck
 This setup provides a modern shell scripting experience in Emacs with LSP features, completion, and linting.
 
 
-*** YAML
+*** YAML, JSON and TypeScript
 
-YAML files are used for configuration in many tools and languages. The
-`yaml-ts-mode` package provides syntax highlighting and indentation for YAML
-files.
+YAML and JSON files are used for configuration in many tools and languages.
+The `yaml-ts-mode` package provides syntax highlighting and indentation for
+YAML files.
+
+We additionally set up the language id configuration for JSON, TypeScript,
+TSX, and JavaScript:
 
 #+begin_src emacs-lisp
-(with-eval-after-load 'lsp-yaml
-  (setq lsp-yaml-server-command
-        (list (expand-file-name "~/.emacs.d/nodejs_tools/node_modules/.bin/yaml-language-server")
-              "--stdio")))
-
 (with-eval-after-load 'lsp-mode
+  (add-to-list 'lsp-language-id-configuration '(yaml-ts-mode . "yaml"))
+  (add-to-list 'lsp-language-id-configuration '(json-ts-mode . "json"))
+  (add-to-list 'lsp-language-id-configuration '(typescript-ts-mode . "typescript"))
+  (add-to-list 'lsp-language-id-configuration '(tsx-ts-mode . "typescriptreact"))
+  (add-to-list 'lsp-language-id-configuration '(js-ts-mode . "javascript"))
   ;; Enable LSP support for YAML gives real-time schema validation, smart
   ;; completion, hover help, and automatic formatting:
   (add-hook 'yaml-ts-mode-hook #'lsp-deferred))
@@ -3770,6 +3927,11 @@ the language's Emacs mode and some external formatter/prettifier).
 #+begin_src emacs-lisp
 (use-package editorconfig
   :config
+  ;; Ensure JSON modes respect EditorConfig indentation
+  (add-to-list 'editorconfig-indentation-alist '(json-mode json-indent-level))
+  (add-to-list 'editorconfig-indentation-alist '(json-ts-mode json-ts-mode-indent-level))
+  (add-to-list 'editorconfig-indentation-alist '(js-json-mode js-indent-level))
+
   (editorconfig-mode 1))
 #+end_src
 
@@ -3846,8 +4008,10 @@ install_plantuml
 
 ** Docker and related
 
+*** Dockerfile and docker-compose
+
 Dockerfile support is provided by the `dockerfile-mode` package, which enables
-syntax highlighting  and editing for Dockerfiles. For Docker Compose YAML files,
+syntax highlighting and editing for Dockerfiles. For Docker Compose YAML files,
 we do not use the available `docker-compose-mode` because it cannot be used
 together with the `yaml-ts-mode` (they are both major modes).
 
@@ -3855,6 +4019,146 @@ together with the `yaml-ts-mode` (they are both major modes).
 (use-package dockerfile-mode
   :mode "Dockerfile\\'")
 #+end_src
+
+
+*** Development containers
+
+[[https://github.com/johannes-mueller/devcontainer.el][devcontainer.el]] provides support for managing and working with [[https://containers.dev/][Development
+containers (devcontainers)]] in Emacs. Devcontainers allow you to develop inside
+Docker containers, ensuring consistent development environments across different
+machines.
+
+The package provides commands to build, launch, stop, and manage devcontainer,
+and automatically forwards `compile` commands into the devcontainer so builds
+and tests run inside the container environment.
+
+**** Prerequisites:
+
+To prepare our environment, we need the following:
+
+- [[https://github.com/devcontainers/cli][devcontainers/cli]]: The official command-line interface for the Dev Containers
+  specification. It allows you to build, run, and manage development container
+  environments defined by a `devcontainer.json` file independently of the IDE
+  extension. It is already added to the =nodejs_tools= in this folder, but it
+  requires you to run =npm install=.
+
+- ~Container Runtime~: Have a functioning installation of either Docker or Podman.
+
+- ~Docker Compose~: Required only if your Dev Containers configuration relies on it.
+
+
+**** Configuration:
+
+The devcontainer.el package is configured as follows:
+
+- ~Global Mode~ : The =devcontainer-mode= is enabled globally to automatically
+  intercept and forward compilation commands to the active container.
+- ~Backend Engine~ : The =devcontainer-container-engine= can be toggled between
+  ='docker= (default) or ='podman=, depending on your environment.
+- ~Host Execution~ : Programs listed in =devcontainer-execute-outside-container=
+  (e.g., =grep=) run directly on the host to avoid container latency and improve
+  performance.
+- ~CLI Integration~ : The package automatically detects and utilizes the local
+  Dev Containers CLI from =nodejs_tools/=, ensuring portability without requiring
+  global Node.js installations.
+
+When =devcontainer-mode= is active, all `compile` commands are automatically forwarded
+into the devcontainer. Your local working directory is typically mounted into the
+container, so you edit files normally, but builds and tests run inside the container.
+
+Alternatively, you can use TRAMP to edit files directly inside the container using
+=M-x devcontainer-tramp-dired=.
+
+All interactive functions use the =devcontainer-= prefix:
+
+- =M-x devcontainer-up= - Start the devcontainer for the current project
+- =M-x devcontainer-restart= - Stop and restart the devcontainer
+- =M-x devcontainer-rebuild-and-restart= - Rebuild and restart (useful after Dockerfile changes)
+- =M-x devcontainer-execute-command= - Execute an arbitrary command inside the container
+- =M-x devcontainer-term= - Launch a terminal inside the container
+
+#+begin_src emacs-lisp
+(use-package devcontainer
+  :config
+  ;; Configure devcontainer to use the local CLI from nodejs_tools
+  (let ((devcontainer-cli-path (expand-file-name "nodejs_tools/node_modules/.bin/devcontainer"
+                                                  user-emacs-directory)))
+    (when (file-exists-p devcontainer-cli-path)
+      (add-to-list 'exec-path (file-name-directory devcontainer-cli-path))))
+
+  (devcontainer-mode 1)
+  (unless (boundp 'devcontainer-engine)
+    (setq devcontainer-engine 'docker))
+
+  (setq devcontainer-execute-outside-container '("grep" "rg" "ripgrep"))
+  (setq devcontainer-term-environment '(("TERM" . "xterm-256color")))
+
+  ;; Optional: Hook to open dired inside container after startup
+  (add-hook 'devcontainer-post-startup-hook 'devcontainer-tramp-dired)
+
+  (defun my/get-devcontainer-shell ()
+    "Searches for a shell preference in devcontainer.json.
+Falls back to VS Code settings if a shell is not found."
+    (condition-case nil
+        (when-let* ((config (devcontainer--read-devcontainer-json))
+                    (customizations (gethash "customizations" config)))
+          (or
+           ;; 1. Check for Emacs-specific shell setting
+           (when-let ((emacs (gethash "emacs" customizations)))
+             (gethash "shell" emacs))
+           ;; 2. Fallback to VS Code default profile
+           (when-let ((vscode (gethash "vscode" customizations)))
+             (when-let ((settings (gethash "settings" vscode)))
+               (gethash "terminal.integrated.defaultProfile.linux" settings)))))
+      (error nil)))
+
+  (defun my/vterm-use-devcontainer-shell-advice (orig-fun &rest args)
+    "Advice for `vterm' to use `devcontainer-term-shell' when in a container."
+    (let ((vterm-shell (if (and (bound-and-true-p devcontainer-mode)
+                                (tramp-tramp-file-p default-directory)
+                                (let ((method (tramp-file-name-method (tramp-dissect-file-name default-directory))))
+                                  (member method (list "docker" "podman"))))
+                           (or (my/get-devcontainer-shell)
+                               (bound-and-true-p devcontainer-term-shell)
+                               vterm-shell)
+                         vterm-shell)))
+      (apply orig-fun args)))
+
+  (with-eval-after-load 'vterm
+    (advice-add 'vterm :around #'my/vterm-use-devcontainer-shell-advice))
+
+  ;; Optimization: Skip customizations on remote files to prevent TRAMP freeze
+  (defun my/devcontainer-skip-remote-customization-advice (orig-fun &rest args)
+    "Skip `devcontainer--read-and-apply-customizations' for remote files."
+    (unless (file-remote-p (or buffer-file-name default-directory))
+      (apply orig-fun args)))
+
+  (advice-add 'devcontainer--read-and-apply-customizations :around #'my/devcontainer-skip-remote-customization-advice)
+  )
+#+end_src
+
+
+**** Flycheck limitations
+
+Running Flycheck within TRAMP currently involves a few known friction points. The technical challenges and specific limitations are well-documented in the following pull requests, and the maintainers are planning to address these through a future redesign of the system:
+
+- [[https://github.com/flycheck/flycheck/pull/1842][Flycheck PR #1842]]
+- [[https://github.com/flycheck/flycheck/pull/1922][Flycheck PR #1922]]
+
+For now, we are skipping Flycheck in this scenario.
+
+
+**** Running tools inside devcontainer
+
+To make tools like flycheck, linters, and other executables run inside the devcontainer,
+we configure them to use devcontainer's command forwarding. This ensures that tools
+running in your project use the container's environment and dependencies.
+
+
+**** LSP integration with devcontainer/TRAMP:
+
+LSP servers run inside the container when using TRAMP to access files. The
+container should have Node.js and language server extensions installed.
 
 
 * Project management
@@ -3867,12 +4171,16 @@ we can integrate Magit, a popular Git interface for Emacs, into the project swit
 (use-package project
   :preface
   (defun my/treemacs-sync-with-project ()
-    "Restrict Treemacs to display only the current project."
+    "Restrict Treemacs to display only the current project.
+Skips TRAMP paths as treemacs cannot reliably read remote paths."
     (with-eval-after-load 'treemacs
       (when (project-current)
-        (save-selected-window
-          (save-current-buffer
-            (treemacs-add-and-display-current-project-exclusively))))))
+        (let ((project-root (project-root (project-current))))
+          ;; Skip TRAMP paths - treemacs cannot reliably read remote paths
+          (unless (file-remote-p project-root)
+            (save-selected-window
+              (save-current-buffer
+                (treemacs-add-and-display-current-project-exclusively))))))))
 
   :config
   (add-to-list 'project-switch-commands '(magit-project-status "Magit" ?m))
