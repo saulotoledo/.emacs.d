@@ -2340,7 +2340,7 @@ Optional _ARG is ignored (for compatibility with advice)."
                     markdown-mode-hook
                     org-mode-hook
                     yaml-ts-mode-hook
-                    json-mode-hook
+                    json-ts-mode-hook
                     sh-mode-hook
                     dockerfile-mode-hook
                     css-mode-hook
@@ -2737,6 +2737,19 @@ Returns non-nil if buffer contains Kubernetes Secrets or ConfigMaps."
            (goto-char (point-min))
            (re-search-forward "^kind:\\s-*\\(Secret\\|ConfigMap\\)\\s-*$" nil t))))
 
+  (defun my/tab-indent-or-complete ()
+    (interactive)
+    (cond
+     ;; 1. If Company menu is open, select the completion
+     ((company-tooltip-visible-p)
+      (company-complete-selection))
+     ;; 2. If Copilot has a suggestion, accept it
+     ((copilot-accept-completion)
+      (copilot-accept-completion))
+     ;; 3. Otherwise, do the default Emacs indentation
+     (t
+      (indent-for-tab-command))))
+
   (defun my/copilot-excluded-file-p ()
     "Check if current file should be excluded from Copilot."
     (or
@@ -2778,7 +2791,7 @@ Defers activation to ensure Copilot server is ready."
          (text-mode . my/safe-copilot-mode)
          (markdown-mode . my/safe-copilot-mode)
          (yaml-ts-mode . my/safe-copilot-mode)
-         (json-mode . my/safe-copilot-mode)
+         (json-ts-mode . my/safe-copilot-mode)
          (sh-mode . my/safe-copilot-mode)
          (dockerfile-mode . my/safe-copilot-mode)
          (css-mode . my/safe-copilot-mode)
@@ -2791,8 +2804,7 @@ Defers activation to ensure Copilot server is ready."
          ("C-g" . copilot-clear-overlay)     ; Clear suggestion
          ("M-p" . copilot-previous-completion)
          ("M-n" . copilot-next-completion)
-         ("C-<tab>" . copilot-accept-completion)
-         ("C-TAB" . copilot-accept-completion)))
+         ("TAB" . my/tab-indent-or-complete)))
 #+end_src
 
 
@@ -3308,6 +3320,36 @@ not be compatible with your current Emacs build.
       (treesit-install-language-grammar lang))))
 #+end_src
 
+`treesit-fold` is a syntax-aware folding engine built for the Treesit system
+in Emacs 29+. Unlike traditional folding that relies on indentation "guessing,"
+it uses a concrete parser to identify the precise boundaries of YAML blocks,
+maps, and lists. This allows for lightning-fast, reliable collapsing of massive
+datasets, often enhanced by visual indicators in the margin that let you
+navigate complex hierarchies with the same ease as an Org-mode document.
+
+#+begin_src emacs-lisp
+(use-package treesit-fold
+  :pin "JCS-ELPA"
+  :config
+  ;; Enable indicators globally
+  (global-treesit-fold-indicators-mode 1)
+
+  ;; Enable folding for all programming modes
+  (add-hook 'prog-mode-hook #'treesit-fold-mode)
+
+  (defun my/treesit-fold-toggle-all ()
+    "Toggle all folds in the current buffer."
+    (interactive)
+    (if (bound-and-true-p my/treesit-folded-p)
+        (progn (treesit-fold-open-all) (setq-local my/treesit-folded-p nil))
+      (progn (treesit-fold-close-all) (setq-local my/treesit-folded-p t))))
+
+  ;; Global Keybindings (using 'C-c f' as a mnemonic for Fold)
+  (keymap-global-set "C-<tab>" #'treesit-fold-toggle)
+  (keymap-global-set "C-c v f" #'treesit-fold-toggle)
+  (keymap-global-set "C-c v F" #'my/treesit-fold-toggle-all))
+#+end_src
+
 
 *** Python
 
@@ -3809,6 +3851,8 @@ We additionally set up the language id configuration for JSON, TypeScript,
 TSX, and JavaScript:
 
 #+begin_src emacs-lisp
+(add-to-list 'auto-mode-alist '("\\.json\\'" . json-ts-mode))
+
 (with-eval-after-load 'lsp-mode
   (add-to-list 'lsp-language-id-configuration '(yaml-ts-mode . "yaml"))
   (add-to-list 'lsp-language-id-configuration '(json-ts-mode . "json"))
@@ -3827,22 +3871,6 @@ TSX, and JavaScript:
     (treesit-install-language-grammar 'yaml)))
 #+end_src
 
-`treesit-fold` is a syntax-aware folding engine built for the Treesit system
-in Emacs 29+. Unlike traditional folding that relies on indentation "guessing,"
-it uses a concrete parser to identify the precise boundaries of YAML blocks,
-maps, and lists. This allows for lightning-fast, reliable collapsing of massive
-datasets, often enhanced by visual indicators in the margin that let you
-navigate complex hierarchies with the same ease as an Org-mode document.
-
-#+begin_src emacs-lisp
-(use-package treesit-fold
-  :pin "JCS-ELPA"
-  :hook (yaml-ts-mode . treesit-fold-mode)
-  :config
-  ;; Enable margin indicators so you can see where to fold
-  (global-treesit-fold-indicators-mode 1))
-#+end_src
-
 `yaml-pro` provides a specialized toolkit for structural refactoring and advanced
 visibility. It allows you to treat YAML nodes as physical objects, enabling you
 to swap entire nested blocks up or down without breaking indentation. Beyond
@@ -3857,13 +3885,6 @@ transparent and easy to manipulate safely.
   :hook ((yaml-ts-mode . yaml-pro-mode)
          (yaml-ts-mode . outline-minor-mode))
   :preface
-  (defun my/yaml-toggle-fold-all ()
-    "Toggle all folds in the buffer."
-    (interactive)
-    (if (bound-and-true-p my/yaml-folded-p)
-        (progn (treesit-fold-open-all) (setq-local my/yaml-folded-p nil))
-      (progn (treesit-fold-close-all) (setq-local my/yaml-folded-p t))))
-
   (defun my/yaml-pro-toggle-feature (var name)
     (set (make-local-variable var) (not (symbol-value var)))
     (font-lock-flush)
@@ -3881,9 +3902,6 @@ transparent and easy to manipulate safely.
     (define-key map (kbd "C-c v l") #'yaml-pro-down-level)
 
     ;; Folding & Magic
-    (define-key map (kbd "C-<tab>") #'treesit-fold-toggle)
-    (define-key map (kbd "C-c v f") #'treesit-fold-toggle)
-    (define-key map (kbd "C-c v F") #'my/yaml-toggle-fold-all)
     (define-key map (kbd "C-c v c") #'yaml-pro-convolute-tree)
 
     ;; Toggles
