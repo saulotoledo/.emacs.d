@@ -313,8 +313,22 @@ install_required_tools() {
   echo -e "\033[1;32m\n[ Checking Isolated Dependencies (pipx) ]\033[0m"
   if ! command -v semgrep >/dev/null 2>&1; then
     echo "Installing semgrep via pipx..."
+
     # Ensure pipx path is registered
-    pipx ensurepath >/dev/null 2>&1
+    SHELL_CONFIG_FILES=("$HOME/.zshrc" "$HOME/.bashrc")
+    LINE='export PATH="$PATH:$HOME/.local/bin"'
+
+    for FILE in "${SHELL_CONFIG_FILES[@]}"; do
+      if [ -f "$FILE" ]; then
+        if ! grep -qF "$LINE" "$FILE"; then
+	  echo "$LINE" >> "$FILE"
+	  echo "[+] Local bin path added to $FILE"
+        else
+	  echo "[!] Local bin path already in $FILE"
+        fi
+      fi
+    done
+
     pipx install semgrep
   else
     echo "Semgrep is already installed via pipx."

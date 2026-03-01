@@ -15,6 +15,7 @@
         - [[#option-1-tcpip-socket-for-direct-network-exposure][Option 1: TCP/IP Socket (For Direct Network Exposure)]]
         - [[#option-2-file-socket-directory-for-simpler-ssh-forwarding][Option 2: File Socket Directory (For Simpler SSH Forwarding)]]
     - [[#setup-script][Setup script]]
+    - [[#global-setup-path][Global setup path]]
     - [[#general-interface-tweaks][General interface tweaks]]
     - [[#font-and-theme][Font and theme]]
     - [[#interactive-do-settings][Interactive DO settings]]
@@ -606,6 +607,20 @@ install_nodejs_tools() {
 
 check_node_version
 install_nodejs_tools
+#+end_src
+
+
+** Global setup path
+
+Global path setup for node tools. This ensures that language servers and
+formatters installed in our =nodejs_tools= directory are found throughout
+the configuration.
+
+#+begin_src emacs-lisp
+(let ((local-node-bin (expand-file-name "nodejs_tools/node_modules/.bin" user-emacs-directory)))
+  (when (file-directory-p local-node-bin)
+    (add-to-list 'exec-path local-node-bin)
+    (setenv "PATH" (concat local-node-bin path-separator (getenv "PATH")))))
 #+end_src
 
 
@@ -1325,7 +1340,7 @@ Skips TRAMP paths as treemacs cannot reliably read remote paths."
     "Refresh Treemacs when a file is opened. Skip for remote paths."
     (when (and (treemacs-get-local-window)
                buffer-file-name
-               (not (file-remote-p default-directory)))
+               (not (file-remote-p (or (buffer-file-name) default-directory))))
       (ignore-errors (treemacs-refresh))))
 
   (add-hook 'find-file-hook #'my/treemacs-refresh-on-file-open)
@@ -2708,9 +2723,8 @@ suggestions as you type.
   (copilot-lsp-settings '(:copilot ()))
 
   :config
-  ;; Configure Copilot to use our custom nodejs_tools installation
-  (let ((copilot-server (expand-file-name "nodejs_tools/node_modules/.bin/copilot-language-server"
-                                          user-emacs-directory))
+  ;; Configure Copilot to use the server from our PATH
+  (let ((copilot-server (executable-find "copilot-language-server"))
         (node-binary (executable-find "node")))
 
     ;; Add NODE_NO_WARNINGS=1 to environment for Copilot server, or it will spam warnings
@@ -2728,21 +2742,12 @@ suggestions as you type.
                 (if node-binary (string-trim (shell-command-to-string (concat node-binary " -v"))) "none"))
           (setq copilot-server-executable nil))
 
-      (cond
-       ;; Check if our local installation exists and is executable
-       ((and (file-executable-p copilot-server) node-binary)
-        (setq copilot-server-executable copilot-server)
-        (message "Copilot: Using local server at %s" copilot-server))
-
-       ;; Fallback to system installation
-       ((executable-find "copilot-language-server")
-        (setq copilot-server-executable (executable-find "copilot-language-server"))
-        (message "Copilot: Using system server"))
-
-       ;; No server found
-       (t
+      (if (and copilot-server node-binary)
+          (progn
+            (setq copilot-server-executable copilot-server)
+            (message "Copilot: Using server at %s" copilot-server))
         (message "Copilot: No language server found. Run setup.sh to install locally.")
-        (setq copilot-mode nil)))))
+        (setq copilot-mode nil))))
 
   ;; Files to exclude from Copilot
   (defvar my/copilot-excluded-files
@@ -2799,7 +2804,7 @@ Returns non-nil if buffer contains Kubernetes Secrets or ConfigMaps."
   (defun my/safe-copilot-mode ()
     "Enable copilot-mode with silent error handling, excluding sensitive files.
 Defers activation to ensure Copilot server is ready."
-    (unless (or (file-remote-p default-directory)
+    (unless (or (file-remote-p (or (buffer-file-name) default-directory))
                 (my/copilot-excluded-file-p))
       (let ((buf (current-buffer)))
         (run-with-idle-timer
@@ -2981,7 +2986,7 @@ Add-on clients (like ESLint) are LSP clients registered with :add-on? t.
 They can run alongside other language servers (e.g., TypeScript + ESLint).
 Because they're add-on clients, they may bypass lsp-disabled-clients checks,
 so we also set lsp-eslint-enable to nil for extra reliability."
-    (when (file-remote-p default-directory)
+    (when (file-remote-p (or (buffer-file-name) default-directory))
       ;; Disable the default 'eslint' client which tries to use local paths
       (setq-local lsp-disabled-clients (cons 'eslint (bound-and-true-p lsp-disabled-clients)))
       ;; Also disable via the enable flag (more reliable for add-on clients)
@@ -3000,12 +3005,11 @@ so we also set lsp-eslint-enable to nil for extra reliability."
   (add-hook 'lsp-before-initialize-hook #'my-lsp-tramp-optimize-clients)
   (add-hook 'lsp-configure-hook #'my-lsp-tramp-optimize-clients)
 
-  ;; 1. Add node modules binary path to TRAMP path
+  ;; 2. Configure TRAMP paths
   (connection-local-set-profile-variables
    'remote-path-with-node
    '((tramp-remote-path . (tramp-own-remote-path
                            tramp-default-remote-path
-                           "~/.emacs.d/nodejs_tools/node_modules/.bin"
                            "/usr/local/share/npm-global/bin"
                            "/usr/local/bin"
                            "/usr/bin"
@@ -3037,7 +3041,7 @@ Run once if you see wrong-type-argument hash-table-p when flycheck runs LSP diag
     (defun my/lsp-inspect-remote-clients ()
       "Inspect active LSP clients and their processes for the current remote buffer."
       (interactive)
-      (when (file-remote-p default-directory)
+      (when (file-remote-p (or (buffer-file-name) default-directory))
         (message "--- LSP Remote Client Inspection ---")
         (message "Buffer: %s" (buffer-name))
         (message "lsp-disabled-clients: %S" lsp-disabled-clients)
@@ -3070,8 +3074,7 @@ Run once if you see wrong-type-argument hash-table-p when flycheck runs LSP diag
                       :priority 10
                       :add-on? t
                       :environment-fn (lambda ()
-                                        '(("NODE_NO_WARNINGS" . "1"))))))
-)
+                                        '(("NODE_NO_WARNINGS" . "1")))))))
 #+end_src
 
 By default, =lsp-mode= uses hash tables to handle the serialization of JSON-RPC
@@ -3259,7 +3262,7 @@ appropriate mode in =apheleia-mode-alist=. For example:
   (apheleia-global-mode +1)
 
   ;; Optimization: Disable for TRAMP buffers to prevent synchronous path resolution hangs.
-  (add-to-list 'apheleia-inhibit-functions (lambda () (file-remote-p default-directory)))
+  (add-to-list 'apheleia-inhibit-functions (lambda () (file-remote-p (or (buffer-file-name) default-directory))))
 
   ;; Add custom formatters - you can extend this list
   (setf (alist-get 'prettier-local apheleia-formatters)
@@ -3320,9 +3323,8 @@ your settings. It is especially useful for JavaScript and TypeScript projects.
          ;; (html-mode . prettier-js-mode)
          )
   :config
-  ;; Set the custom fallback path for the prettier executable
-  (setq prettier-js-command
-        (expand-file-name "~/.emacs.d/nodejs_tools/node_modules/.bin/prettier")))
+  ;; Use the prettier executable found in our PATH
+  (setq prettier-js-command (executable-find "prettier")))
 #+end_src
 
 
@@ -3495,21 +3497,23 @@ have Java 17+ installed and available in your `PATH`.
 (use-package lsp-java
 ;; (add-to-list 'load-path "/home/saulo/java-agent-loader/")
 ;; (load "/home/saulo/java-agent-loader/java-agent-loader.el")
-;; (require 'java-agent-loader)
+;; (require 'java-agent-loader)java
 
 ;;use-package lsp-java
 ;;   :init
 ;;   (jal/lsp-java-setup '(("lombok")))
 
+  :init
+  (add-to-list 'auto-mode-alist '("\\.java\\'" . java-ts-mode))
   :custom
   (lsp-java-server-install-dir
     (expand-file-name "~/.emacs.d/lsp_language_servers/eclipse.jdt.ls/"))
 
   :hook
-  (java-mode . lsp)
+  (java-ts-mode . lsp-deferred)
 
   :bind
-  (:map java-mode-map
+  (:map java-ts-mode-map
         ("M-RET" . lsp-java-organize-imports))
 
   :config
@@ -3526,7 +3530,7 @@ A collection of Yasnippet snippets for Java development.
 (use-package java-snippets
   :after yasnippet
   :hook
-  (java-mode . yas-minor-mode))
+  (java-ts-mode . yas-minor-mode))
 #+end_src
 
 
@@ -3737,11 +3741,11 @@ treesit (=*-ts-mode=):
 
   ;; Prefer project-local typescript-language-server, fallback to ~/.emacs.d/nodejs_tools.
   ;; Optimization: The remote-TSLS path is now handled by connection-local variables.
-  (if (file-remote-p default-directory)
+  (if (file-remote-p (or (buffer-file-name) default-directory))
       (setq lsp-typescript-server-path "typescript-language-server")
-    (let* ((project-root (or (locate-dominating-file default-directory "node_modules") default-directory))
+    (let* ((project-root (or (locate-dominating-file (or (buffer-file-name) default-directory) "node_modules") (or (buffer-file-name) default-directory)))
            (project-tsls (expand-file-name "node_modules/.bin/typescript-language-server" project-root))
-           (fallback-tsls (expand-file-name "~/.emacs.d/nodejs_tools/node_modules/.bin/typescript-language-server")))
+           (fallback-tsls (executable-find "typescript-language-server")))
       (setq lsp-typescript-server-path (if (file-exists-p project-tsls) project-tsls fallback-tsls))))
   :hook ((typescript-ts-mode . lsp)
           (typescript-ts-mode . yas-minor-mode)))
@@ -3900,8 +3904,22 @@ install_required_tools() {
   echo -e "\033[1;32m\n[ Checking Isolated Dependencies (pipx) ]\033[0m"
   if ! command -v semgrep >/dev/null 2>&1; then
     echo "Installing semgrep via pipx..."
+
     # Ensure pipx path is registered
-    pipx ensurepath >/dev/null 2>&1
+    SHELL_CONFIG_FILES=("$HOME/.zshrc" "$HOME/.bashrc")
+    LINE='export PATH="$PATH:$HOME/.local/bin"'
+
+    for FILE in "${SHELL_CONFIG_FILES[@]}"; do
+      if [ -f "$FILE" ]; then
+        if ! grep -qF "$LINE" "$FILE"; then
+	  echo "$LINE" >> "$FILE"
+	  echo "[+] Local bin path added to $FILE"
+        else
+	  echo "[!] Local bin path already in $FILE"
+        fi
+      fi
+    done
+
     pipx install semgrep
   else
     echo "Semgrep is already installed via pipx."
@@ -4193,10 +4211,9 @@ All interactive functions use the =devcontainer-= prefix:
 #+begin_src emacs-lisp
 (use-package devcontainer
   :config
-  ;; Configure devcontainer to use the local CLI from nodejs_tools
-  (let ((devcontainer-cli-path (expand-file-name "nodejs_tools/node_modules/.bin/devcontainer"
-                                                  user-emacs-directory)))
-    (when (file-exists-p devcontainer-cli-path)
+  ;; Utilize the Dev Containers CLI from our PATH
+  (let ((devcontainer-cli-path (executable-find "devcontainer")))
+    (when devcontainer-cli-path
       (add-to-list 'exec-path (file-name-directory devcontainer-cli-path))))
 
   (devcontainer-mode 1)
@@ -4243,7 +4260,7 @@ Falls back to VS Code settings if a shell is not found."
   ;; Optimization: Skip customizations on remote files to prevent TRAMP freeze
   (defun my/devcontainer-skip-remote-customization-advice (orig-fun &rest args)
     "Skip `devcontainer--read-and-apply-customizations' for remote files."
-    (unless (file-remote-p default-directory)
+    (unless (file-remote-p (or (buffer-file-name) default-directory))
       (apply orig-fun args)))
 
   (advice-add 'devcontainer--read-and-apply-customizations :around #'my/devcontainer-skip-remote-customization-advice)
