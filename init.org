@@ -1520,7 +1520,7 @@ overlays.
   (blamer-overlay-priority 1) ;; Low priority: make sure Copilot/ECA overlays win
   :custom-face
   (blamer-face ((t :foreground "#5c6370"
-                   :background nil
+                   :background unspecified
                    :height 85)))
   :config
   (global-blamer-mode 1))
@@ -2927,7 +2927,16 @@ code completion, go-to-definition, diagnostics, and more.
   ;; Configure LSP to work with TRAMP/devcontainer
   ;; When using TRAMP to access files inside devcontainer, LSP should use
   ;; the container's environment and paths
-  (lsp-use-plists t)  ; Use plists for better TRAMP compatibility
+  ;;
+  ;; lsp-use-plists: set to t for production.
+  ;; - t (plists): Improves performance for TRAMP/remote LSP. Some language servers and
+  ;;   LSP client code paths work more reliably when using plists rather than hash-tables
+  ;;   for representing data, especially over slower or unstable remote connections.
+  ;; - nil / unset (hash-tables): dockerfile-ls initializes, but you get "Unknown request
+  ;;   method: nil" (incoming server requests use string keys, code expects :method), and
+  ;;   semgrep-ls can crash (Jsonrpc: json conversion failed: Id.t) due to id format.
+  ;;   Possible readon: dockerfile-ls requires plists.
+  (lsp-use-plists t)
 
   :config
   ;; When using TRAMP with devcontainer, LSP servers run inside the container.
@@ -3013,6 +3022,18 @@ so we also set lsp-eslint-enable to nil for extra reliability."
           (remhash 'eslint lsp-clients)
           (message "LSP: Removed pre-existing auto-registered remote 'eslint' client"))))
 
+    ;; Silence "Unknown notification: window/workDoneProgress/create" (semgrep-ls and
+    ;; others send it as a notification; lsp-mode only handles the request form).
+    (puthash "window/workDoneProgress/create" #'ignore lsp--default-notification-handlers)
+
+    (defun my/lsp-recompile-for-plists ()
+      "Recompile lsp-mode with LSP_USE_PLISTS=1 so diagnostics work with plists.
+Run once if you see wrong-type-argument hash-table-p when flycheck runs LSP diagnostics."
+      (interactive)
+      (setenv "LSP_USE_PLISTS" "1")
+      (byte-recompile-directory (file-name-directory (locate-library "lsp-mode")) 0 t)
+      (message "Recompiled. Restart Emacs for changes to take effect."))
+
     (defun my/lsp-inspect-remote-clients ()
       "Inspect active LSP clients and their processes for the current remote buffer."
       (interactive)
@@ -3051,6 +3072,28 @@ so we also set lsp-eslint-enable to nil for extra reliability."
                       :environment-fn (lambda ()
                                         '(("NODE_NO_WARNINGS" . "1"))))))
 )
+#+end_src
+
+By default, =lsp-mode= uses hash tables to handle the serialization of JSON-RPC
+messages from language servers. However, some language servers do not handle
+this default implementation correctly and will fail, often attempting to
+endlessly search for hash-table structures that aren't being parsed as expected.
+Even when you enable =lsp-use-plists= in your standard configuration, the
+package may still initialize or compile using its default hash-table
+architecture. Setting the =LSP_USE_PLISTS= environment variable acts as a global
+override, forcing `lsp-mode` to use property lists (`plists`) instead of the
+default hash tables from the very start. The variable is needed when compiling
+LSP to make sure it has the proper support, and later when running it.
+Therefore, we do it in our `early-init.el` to ensure it takes effect before any
+LSP code is loaded or compiled.
+
+Snippet de código
+#+begin_src emacs-lisp :tangle early-init.el
+;; Force lsp-mode to use plists instead of the default hash tables.
+;; This is required for some language servers that fail when they encounter
+;; hash tables. This must be set before lsp-mode loads or compiles to
+;; ensure it does not default to the hash-table implementation.
+(setenv "LSP_USE_PLISTS" "1")
 #+end_src
 
 
