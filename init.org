@@ -3495,6 +3495,7 @@ have Java 17+ installed and available in your `PATH`.
 
 #+begin_src emacs-lisp
 (use-package lsp-java
+  :after java-ts-mode
 ;; (add-to-list 'load-path "/home/saulo/java-agent-loader/")
 ;; (load "/home/saulo/java-agent-loader/java-agent-loader.el")
 ;; (require 'java-agent-loader)java
