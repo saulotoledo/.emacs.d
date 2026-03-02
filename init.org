@@ -93,6 +93,7 @@
         - [[#general-web-development-html-css][General Web development (HTML, CSS)]]
         - [[#shell-and-other-required-tools][Shell and other required tools]]
         - [[#yaml-json-and-typescript][YAML, JSON and TypeScript]]
+        - [[#xml][XML]]
         - [[#markdown][Markdown]]
     - [[#editorconfig][EditorConfig]]
     - [[#plantuml][PlantUML]]
@@ -4055,6 +4056,50 @@ automatically:
 
           :https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.30.3-standalone-strict/all.json
           ["*-k8s.yaml" "*-k8s.yml" "**/k8s/*.ya*ml"])))
+#+end_src
+
+
+*** XML
+
+=nxml-mode= is the classic Emacs XML mode and is not a tree-sitter (-ts-) major
+mode. That means buffers visiting XML with =nxml-mode= do not automatically get
+a tree-sitter parser attached. Tree-sitter features require either a
+treesit-backed major mode (which does not exist for XML at the moment) or tools
+that explicitly use the installed grammar regardless of major mode.
+
+The snippet below enables code folding in =nxml-mode= by configuring the built-in =hs-minor-mode= (Hide/Show minor
+mode) for XML syntax. By default, =hs-minor-mode=` does not support XML or SGML
+out of the box. This adaptation lets you fold and unfold XML sections, making it
+easier to work with large, deeply nested XML files.
+
+The configuration works by adding XML-specific patterns to the
+=hs-special-modes-alist=, which tells =hs-minor-mode= how to recognize the start
+and end of foldable blocks in XML. It also sets up a hook so that whenever you
+enter =nxml-mode=, =hs-minor-mode= is automatically enabled. Furthermore, it
+customizes the key binding `C-<tab>` to toggle code folding—but if
+=treesit-fold= is not currently active, to prevent conflicts.
+
+This solution was adapted from the approach discussed on Emacs Stack Exchange:
+https://emacs.stackexchange.com/questions/2884/the-old-how-to-fold-xml-question
+
+#+begin_src emacs-lisp
+(require 'sgml-mode)
+
+(add-to-list 'hs-special-modes-alist
+              '(nxml-mode
+                "<!--\\|<[^/>]*[^/]>"
+                "-->\\|</[^/>]*[^/]>"
+                "<!--"
+                sgml-skip-tag-forward
+                nil))
+
+(add-hook 'nxml-mode-hook
+          (lambda ()
+            (hs-minor-mode 1)
+            ;; Bind C-<tab> to hs toggle only when noxml-fold or treesit-fold
+            ;; are not active to avoid conflicts with those handlers.
+            (unless (bound-and-true-p treesit-fold-mode)
+              (local-set-key (kbd "C-<tab>") #'hs-toggle-hiding))))
 #+end_src
 
 
