@@ -69,6 +69,7 @@
         - [[#encrypted-api-keys-for-the-ai-providers][Encrypted API Keys for the AI providers]]
         - [[#eca-editor-code-assistant][ECA (Editor Code Assistant)]]
         - [[#eca-config-installation-with-default-model-override][ECA Config Installation with Default Model Override]]
+        - [[#eca-over-tramp][ECA over TRAMP]]
         - [[#eca-chat-management-auto-save-and-index][ECA Chat Management (Auto-save and Index)]]
         - [[#github-copilot][GitHub Copilot]]
         - [[#github-copilot-chat][GitHub Copilot Chat]]
@@ -2515,6 +2516,32 @@ Optional _ARG is ignored (for compatibility with advice)."
      (my/eca-setup-tokens)
      (my/eca-install-config)
      (eca))))
+#+end_src
+
+
+*** ECA over TRAMP
+
+I found a problem where the package suffers from a "paradox": it intends to be
+helpful but constantly probes files as if they were local, effectively "DDOSing"
+your high-latency TRAMP/Docker connection and causing those persistent freezes.
+I solved it with a TRAMP-aware protective wrapper using advice-add, which acts
+as a filter to intercept and guard the function calls; this ensures the heavy
+cursor-tracking logic only executes on local buffers while safely disabling it
+for remote connections, keeping your Docker sessions stable and responsive.
+
+This might limit how ECA works. I will revisit this solution in the future.
+
+#+begin_src emacs-lisp
+(defun my/eca-chat-track-cursor-safeguard (orig-fun &rest args)
+  "Wrap the package's tracking function to prevent remote TRAMP spamming."
+  (if (file-remote-p default-directory)
+      ;; SAFETY: If remote, skip the heavy probe to prevent freezing
+      nil
+    ;; NORMAL: If local, run the original function as normal
+    (apply orig-fun args)))
+
+;; Attach the guard to the package function
+(advice-add 'eca-chat--track-cursor :around #'my/eca-chat-track-cursor-safeguard)
 #+end_src
 
 
