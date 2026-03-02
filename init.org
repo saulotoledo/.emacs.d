@@ -25,6 +25,7 @@
 - [[#emacs-hacks][Emacs hacks]]
     - [[#faster-startup][Faster startup]]
     - [[#resize-issue-on-certain-terminals][Resize issue on certain terminals]]
+    - [[#tramp-configuration][TRAMP configuration]]
 - [[#packages-initial-setup][Packages initial setup]]
 - [[#theme-and-ui][Theme and UI]]
     - [[#themes][Themes]]
@@ -939,6 +940,42 @@ display is non-graphical, so it is safe for GUI Emacs too."
 #+end_src
 
 
+** TRAMP configuration
+
+TRAMP (Transparent Remote Access, Multiple Protocol) is a built-in Emacs library
+that lets you edit files on remote systems-like servers or Docker containers as
+if they were on your local machine. It handles the underlying connections (via
+SSH, Docker, etc.) automatically, letting you open and edit remote files
+directly without needing to manually sync or download them.
+
+Emacs is designed with the assumption that your filesystem is local and
+instantaneous, but when you introduce TRAMP and Docker, every directory probe
+becomes a network-bound request that can easily overwhelm your connection. There
+might be crashes resulting of this "startup storm," where aggressive LSP clients
+flood the network with filesystem checks before the TRAMP handshake is even
+complete, triggering race conditions and file-missing errors within your custom
+project context logic.  By applying "remote-safe" restrictions, we shift our
+environment from an eager, "probe-everything-now" model to an on-demand,
+lazy-loading architecture; this synchronizes Emacs' demands with the realities
+of network latency.
+
+#+begin_src emacs-lisp
+(defun my/lsp-remote-safety-hook ()
+  "Apply restrictive LSP settings only when working on TRAMP/remote buffers."
+  (when (tramp-tramp-file-p default-directory)
+    ;; Kill the heavy watchers that cause TRAMP file-missing errors
+    (setq-local lsp-enable-file-watchers nil)
+
+    ;; Stop LSP from trying to guess the root, which causes directory probes
+    (setq-local lsp-auto-guess-root nil)
+
+    (message "LSP: Applied remote-safe settings to %s" (buffer-name))))
+
+;; Trigger this whenever a buffer enters lsp-mode
+(add-hook 'lsp-mode-hook #'my/lsp-remote-safety-hook)
+#+end_src
+
+
 * Packages initial setup
 
 Starting with Emacs 29, [[https://github.com/jwiegley/use-package][use-package]] is bundled with Emacs as an
@@ -1251,13 +1288,30 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
 
   (defun my/treemacs-set-root-to-current-folder ()
     "Set the root of Treemacs to the folder of the current file or default directory."
-    (interactive)
+
     (let ((folder (or (file-name-directory (or (buffer-file-name) default-directory))
                       default-directory)))
+      (when (not folder)
+        (user-error "No folder found for current buffer"))
+      ;; If this is a TRAMP path and a matching local path exists, prefer the
+      ;; local path to avoid adding host:/docker:... entries when the intent
+      ;; was to add the local project root.  Otherwise keep the TRAMP path so
+      ;; remote projects still work when intended.
+      (when (and (fboundp 'tramp-dissect-file-name)
+                 (file-remote-p folder))
+        (condition-case _err
+            (let* ((tfn (tramp-dissect-file-name folder))
+                   (local (when tfn (tramp-file-name-localname tfn))))
+              (when (and local (file-exists-p local))
+                (setq folder (file-name-as-directory (expand-file-name local)))))
+          (error nil)))
+
+      (when (and (file-remote-p folder)
+                 (not (file-readable-p folder)))
+        (message "Warning: remote path %s appears unreadable — ensure TRAMP connection is initialized" folder))
+
       (treemacs-select-window)
-      (treemacs-do-add-project-to-workspace folder (file-name-nondirectory (directory-file-name folder)))
-      (treemacs-root-up)
-      (treemacs-root-down)))
+      (treemacs-do-add-project-to-workspace folder (file-name-nondirectory (directory-file-name folder)))))
 
   (defun my/update-treemacs-faces-except (excluded-faces)
     "Update all Treemacs-related faces, excluding specified faces."
@@ -2603,33 +2657,38 @@ Useful if the index gets out of sync or files are manually deleted."
 
 ;; Navigation commands
 (defun my/eca-chat-mark-buffer (&optional proj-context)
-  "Make buffer read-only, mark as ECA chat buffer, and optionally set project context."
+  "Mark buffer as ECA and read-only, safely set project context."
   (read-only-mode 1)
   (setq-local my/eca-chat-buffer t)
   (when proj-context
     (setq-local my/original-project-context
-                ;; --- SAFETY FILTER: TRAMP STABILITY ---
-                ;; This is the critical gatekeeper. If we save a raw 'project'
-                ;; object (a Lisp list containing metadata) into this variable,
-                ;; it becomes persistent state.
-                ;;
-                ;; Later, when 'project-current' reads this value, TRAMP will
-                ;; attempt to perform file-system operations (like 'ls', 'stat',
-                ;; or 'test -d') on the stringified version of that list
-                ;; (e.g., "/home/saulo/.cache/emacs/((\"‘/workspace’\") 1 ...)").
-                ;;
-                ;; TRAMP will dutifully try to send this garbage path to your
-                ;; Docker container, which will fail because the path is not
-                ;; a real directory. This results in the 'File is missing'
-                ;; errors and 'tramp_exit_status 1' crashes you experienced.
-                ;;
-                ;; We force extraction here to ensure that only a valid path
-                ;; string ever enters our state variables.
-                (cond
-                 ((stringp proj-context) proj-context)
-                 ((and (listp proj-context) (fboundp 'project-root))
-                  (project-root proj-context))
-                 (t proj-context)))))
+      ;; --- SAFETY FILTER: TRAMP STABILITY ---
+      ;; Broken paths  like '/docker:node@4e8...:/home/user/.cache/emacs/(("‘/workspace’") 1 ... )')
+      ;; started to appear because the project context was somehow serialized as
+      ;; a Lisp list (containing project metadata like the root, status, and
+      ;; buffer objects) rather than a simple file path string.
+      ;;
+      ;; Emacs then treated this serialized object as a valid POSIX file path. When TRAMP
+      ;; (the remote file handler) received this mangled path, it attempted to perform
+      ;; file operations (like 'stat' or 'test -d') on it within the Docker container.
+      ;; Since this is not a real directory, it triggered the "File is missing" errors
+      ;; and recursive TRAMP crash loops, freezing Emacs.
+      ;;
+      ;; We force extraction here to ensure that only a pure, valid path string
+      ;; ever enters our state variables.
+      (let ((root (cond
+                    ((stringp proj-context) proj-context)
+                    ((and (listp proj-context) (fboundp 'project-root))
+                     (condition-case nil
+                         (project-root proj-context)
+                       (error nil)))))) ;; Silently catch errors if project-root fails
+
+        ;; FINAL SAFETY CHECK: Only allow the value if it exists as a directory.
+        ;; If 'root' is not a valid directory string, we return nil to
+        ;; discard the corrupted data entirely.
+        (if (and (stringp root) (file-directory-p root))
+            root
+          nil)))))
 
 (defun my/eca-chat-open-index ()
   "Open the ECA chats index file."
@@ -2685,21 +2744,49 @@ Preserves the current project context when opening linked files.
 
 (advice-add 'org-open-at-point :around #'my/eca-chat-follow-link-no-project)
 
-;; Advice to return original project context for ECA chat buffers
-(defun my/eca-chat-restore-project-context (orig-fun &rest args)
-  "Return the original project context for ECA chat buffers.
-This allows project.el commands to work from chat buffers while treating
-the project where the chat was opened from as the current project.
+;; Recursion guard: This variable prevents the function from calling itself
+;; while it is already trying to resolve a context. Without this, TRAMP
+;; handshakes (which trigger filesystem probes) can cause an infinite loop.
+(defvar my/eca-chat-in-progress nil
+  "Flag to prevent recursive calls during project context resolution.")
 
-- ORIG-FUN: The original `project-current' function.
-- ARGS: Arguments passed to `project-current' (ignored)."
-  (if (and (boundp 'my/eca-chat-buffer) my/eca-chat-buffer)
-      ;; Return the stored original project if available
-      (if (and (boundp 'my/original-project-context) my/original-project-context)
-          my/original-project-context
-        ;; No stored context - return nil (no project) rather than detecting eca-chats
-        nil)
-    (apply orig-fun args)))
+(defun my/eca-chat-restore-project-context (orig-fun &rest args)
+  "Return the original project context for ECA chat buffers, with local filtering.
+
+This function acts as a 'Firewall'. It intercepts calls to 'project-current'.
+If an ECA chat buffer is trapped in a bad state, it cleans the directory
+locally before allowing the original 'project-current' function to execute.
+
+This avoids infinite recursion by not calling filesystem primitives like
+'file-directory-p' through an advice wrapper.
+
+- ORIG-FUN is the original function passed by advice.
+- ARGS: Arguments passed to the original function."
+
+  (let ((context (and (boundp 'my/eca-chat-buffer)
+                      my/eca-chat-buffer
+                      (boundp 'my/original-project-context)
+                      my/original-project-context)))
+
+    ;; 1. CHECK CONTEXT LOCALLY:
+    ;; We only check the variable content. We avoid calling complex
+    ;; filesystem checks here to prevent triggering TRAMP or recursion.
+    (if (and (stringp context)
+             (not (string-match-p "[()\[\]]" context)))
+        context
+
+      ;; 2. ENVIRONMENT HEALING:
+      ;; If the context variable is garbage (corrupted), we reset the
+      ;; buffer's 'default-directory' to a safe local path (~/).
+      ;; This prevents 'project-current' from trying to scan a
+      ;; broken/malformed path.
+      (when (and (stringp default-directory)
+                 (string-match-p "cache/emacs" default-directory))
+        (setq-local default-directory (expand-file-name "~/")))
+
+      ;; 3. EXECUTE ORIGINAL:
+      ;; Now it is safe to let Emacs run the standard project discovery.
+      (apply orig-fun args))))
 
 (advice-add 'project-current :around #'my/eca-chat-restore-project-context)
 
@@ -2940,6 +3027,7 @@ code completion, go-to-definition, diagnostics, and more.
   :init
   ;; Needed for TRAMP performance
   (setq lsp-auto-register-remote-clients t)
+  (setq lsp-auto-require-clients nil) ; Do not load unnecessary clients
 
   :bind
   (:map lsp-mode-map ("M-RET" . lsp-execute-code-action))
@@ -3698,7 +3786,7 @@ Then, we can configure Emacs:
   (setq lsp-kotlin-debug-adapter-path (or (executable-find "kotlin-debug-adapter") ""))
   (with-eval-after-load 'dap-mode
     (my/kotlin-register-debug-templates))
-  :hook ((kotlin-mode . lsp)
+  :hook ((kotlin-mode . lsp-deferred)
          (kotlin-mode . yas-minor-mode)))
 #+end_src
 
@@ -3778,7 +3866,7 @@ treesit (=*-ts-mode=):
            (project-tsls (expand-file-name "node_modules/.bin/typescript-language-server" project-root))
            (fallback-tsls (executable-find "typescript-language-server")))
       (setq lsp-typescript-server-path (if (file-exists-p project-tsls) project-tsls fallback-tsls))))
-  :hook ((typescript-ts-mode . lsp)
+  :hook ((typescript-ts-mode . lsp-deferred)
           (typescript-ts-mode . yas-minor-mode)))
 
 ;; Associate tsx and ts files with the correct modes
@@ -3966,7 +4054,7 @@ install_required_tools
 (use-package sh-mode
   :ensure nil
   :mode ("\\.sh\\'" . sh-mode)
-  :hook ((sh-mode . lsp)
+  :hook ((sh-mode . lsp-deferred)
          (sh-mode . company-mode)
          (sh-mode . flycheck-mode)))
 
