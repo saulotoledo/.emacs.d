@@ -108,6 +108,7 @@
 - [[#other-user-functions][Other user functions]]
     - [[#autosave-hooks][Autosave hooks]]
     - [[#yarn-integration][Yarn integration]]
+- [[#tramp-debugging][TRAMP debugging]]
 - [[#configuration-end-markers-lisp-integrity][Configuration End Markers (Lisp Integrity)]]
 
 * About
@@ -1245,17 +1246,14 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
   (declare-function treemacs-select-window "treemacs")
 
   (defun my/treemacs-set-root-to-current-folder ()
-    "Set the root of Treemacs to the folder of the current file or default directory.
-Skips TRAMP paths as treemacs cannot reliably read remote paths."
+    "Set the root of Treemacs to the folder of the current file or default directory."
     (interactive)
     (let ((folder (or (file-name-directory (or (buffer-file-name) default-directory))
                       default-directory)))
-      ;; Skip TRAMP paths - treemacs cannot reliably read remote paths
-      (unless (file-remote-p folder)
-        (treemacs-select-window)
-        (treemacs-do-add-project-to-workspace folder (file-name-nondirectory (directory-file-name folder)))
-        (treemacs-root-up)
-        (treemacs-root-down))))
+      (treemacs-select-window)
+      (treemacs-do-add-project-to-workspace folder (file-name-nondirectory (directory-file-name folder)))
+      (treemacs-root-up)
+      (treemacs-root-down)))
 
   (defun my/update-treemacs-faces-except (excluded-faces)
     "Update all Treemacs-related faces, excluding specified faces."
@@ -2605,7 +2603,29 @@ Useful if the index gets out of sync or files are manually deleted."
   (read-only-mode 1)
   (setq-local my/eca-chat-buffer t)
   (when proj-context
-    (setq-local my/original-project-context proj-context)))
+    (setq-local my/original-project-context
+                ;; --- SAFETY FILTER: TRAMP STABILITY ---
+                ;; This is the critical gatekeeper. If we save a raw 'project'
+                ;; object (a Lisp list containing metadata) into this variable,
+                ;; it becomes persistent state.
+                ;;
+                ;; Later, when 'project-current' reads this value, TRAMP will
+                ;; attempt to perform file-system operations (like 'ls', 'stat',
+                ;; or 'test -d') on the stringified version of that list
+                ;; (e.g., "/home/saulo/.cache/emacs/((\"‘/workspace’\") 1 ...)").
+                ;;
+                ;; TRAMP will dutifully try to send this garbage path to your
+                ;; Docker container, which will fail because the path is not
+                ;; a real directory. This results in the 'File is missing'
+                ;; errors and 'tramp_exit_status 1' crashes you experienced.
+                ;;
+                ;; We force extraction here to ensure that only a valid path
+                ;; string ever enters our state variables.
+                (cond
+                 ((stringp proj-context) proj-context)
+                 ((and (listp proj-context) (fboundp 'project-root))
+                  (project-root proj-context))
+                 (t proj-context)))))
 
 (defun my/eca-chat-open-index ()
   "Open the ECA chats index file."
@@ -4435,6 +4455,29 @@ key.
 
 ;; To load local variables, run:
 ;; M-: hack-dir-local-variables
+#+end_src
+
+
+* TRAMP debugging
+
+If you experience slowdowns, lockups, or unexpected behavior when using TRAMP
+(Transparent Remote Access, Multiple Protocols), the problem may be caused by
+custom functions, third-party packages, or complex configurations interacting
+with remote files.
+
+Enabling verbose TRAMP logging can help you pinpoint the source of these issues.
+With high verbosity, all TRAMP operations and protocol dialogs will be recorded
+in detail. Review the output in the *tramp/debug* buffer to identify problematic
+commands, bottlenecks, or failing operations.
+
+Notes:
+- Logging is disabled by default to avoid performance overhead.
+- Only enable when actively debugging TRAMP issues.
+- Remember to disable (or lower) verbosity after troubleshooting.
+
+#+begin_src emacs-lisp :tangle early-init.el
+;; Uncomment to enable verbose TRAMP debugging:
+;; (setq tramp-verbose 10)
 #+end_src
 
 
