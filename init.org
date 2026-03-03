@@ -98,6 +98,7 @@
         - [[#yaml-json-and-typescript][YAML, JSON and TypeScript]]
         - [[#xml][XML]]
         - [[#markdown][Markdown]]
+        - [[#makefile][Makefile]]
     - [[#editorconfig][EditorConfig]]
     - [[#plantuml][PlantUML]]
         - [[#installation][Installation]]
@@ -4269,6 +4270,29 @@ Adding support for editing Markdown files with `markdown-mode`.
 (use-package markdown-mode
   :defer t
   :hook (markdown-mode . (lambda () (setq fill-column 72))))
+#+end_src
+
+
+*** Makefile
+
+Makefiles are scripts used by the =make= tool to automate software builds. They
+have specific requirements: all recipe lines must be indented with a tab
+character, not spaces, for =make= to work correctly. This section provides Emacs
+settings to enforce tab indentation in Makefiles and tips for handling these
+unique editing constraints efficiently.
+
+*IMPORTANT:* EditorConfig might override this setting! If your =.editorconfig=
+file explicitly sets ~indent_style = space~ for Makefiles, it will force spaces
+even if you configure Emacs to use tabs. To guarantee tab indentation, ensure
+your `.editorconfig` uses `indent_style = tab` for `[Makefile]` or remove
+conflicting settings.
+
+#+begin_src emacs-lisp
+(add-hook 'makefile-mode-hook
+          (lambda () (setq indent-tabs-mode t)))
+
+(add-hook 'makefile-gmake-mode-hook
+          (lambda () (setq indent-tabs-mode t)))
 #+end_src
 
 
