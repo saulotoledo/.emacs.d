@@ -70,6 +70,7 @@
         - [[#eca-editor-code-assistant][ECA (Editor Code Assistant)]]
         - [[#eca-config-installation-with-default-model-override][ECA Config Installation with Default Model Override]]
         - [[#eca-over-tramp][ECA over TRAMP]]
+        - [[#eca-chat-copilot-autocompletion][ECA Chat Copilot autocompletion]]
         - [[#eca-chat-management-auto-save-and-index][ECA Chat Management (Auto-save and Index)]]
         - [[#github-copilot][GitHub Copilot]]
         - [[#github-copilot-chat][GitHub Copilot Chat]]
@@ -2542,6 +2543,27 @@ This might limit how ECA works. I will revisit this solution in the future.
 
 ;; Attach the guard to the package function
 (advice-add 'eca-chat--track-cursor :around #'my/eca-chat-track-cursor-safeguard)
+#+end_src
+
+
+*** ECA Chat Copilot autocompletion
+
+This section configures key integration between Copilot's autocompletion and the
+ECA Chat (Editor Code Assistant) within Emacs. It ensures that when both Copilot
+and ECA Chat are active, pressing ~Tab~ will accept Copilot completions when
+available, otherwise, it will fall back to ECA Chat's behavior.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'eca-chat
+  (advice-add 'eca-chat--key-pressed-tab :around
+              (lambda (orig-fun &rest args)
+                (if (and (featurep 'copilot)
+                         (boundp 'copilot-mode)
+                         copilot-mode
+                         (fboundp 'copilot-accept-completion)
+                         (copilot-accept-completion))
+                    t  ;; Copilot took the Tab, suppress ECA logic
+                  (apply orig-fun args)))))
 #+end_src
 
 
