@@ -4022,6 +4022,7 @@ In addition to `shellsheck`, we also need:
   environments.
 - =semgrep= - Installed via =pipx=, it is used to scan code for security
   vulnerabilities and enforce coding standards with customizable rules.
+- =autotools-language-server= - Installed via =pipx=, provides IDE features for Autotools (Autoconf/Automake) scripts (such as completion, diagnostics, and navigation) via the Language Server Protocol (LSP). This enables LSP-mode support for `configure.ac`, `Makefile.am`, and other Autotools files in Emacs.
 
 #+begin_src sh :tangle setup.sh
 install_required_tools() {
@@ -4049,29 +4050,37 @@ install_required_tools() {
     export PATH="$PATH:$HOME/.local/bin"
   fi
 
-  # 3. Install pipx-managed tools (Semgrep)
+  # 3. Install pipx-managed tools (Semgrep, Autotools Language Server)
   echo -e "\033[1;32m\n[ Checking Isolated Dependencies (pipx) ]\033[0m"
+
+  # Ensure pipx path is registered (shared for all pipx tools)
+  SHELL_CONFIG_FILES=("$HOME/.zshrc" "$HOME/.bashrc")
+  LINE='export PATH="$PATH:$HOME/.local/bin"'
+  for FILE in "${SHELL_CONFIG_FILES[@]}"; do
+    if [ -f "$FILE" ]; then
+      if ! grep -qF "$LINE" "$FILE"; then
+        echo "$LINE" >> "$FILE"
+        echo "[+] Local bin path added to $FILE"
+      else
+        echo "[!] Local bin path already in $FILE"
+      fi
+    fi
+  done
+
+  # Install semgrep
   if ! command -v semgrep >/dev/null 2>&1; then
     echo "Installing semgrep via pipx..."
-
-    # Ensure pipx path is registered
-    SHELL_CONFIG_FILES=("$HOME/.zshrc" "$HOME/.bashrc")
-    LINE='export PATH="$PATH:$HOME/.local/bin"'
-
-    for FILE in "${SHELL_CONFIG_FILES[@]}"; do
-      if [ -f "$FILE" ]; then
-        if ! grep -qF "$LINE" "$FILE"; then
-	  echo "$LINE" >> "$FILE"
-	  echo "[+] Local bin path added to $FILE"
-        else
-	  echo "[!] Local bin path already in $FILE"
-        fi
-      fi
-    done
-
     pipx install semgrep
   else
     echo "Semgrep is already installed via pipx."
+  fi
+
+  # Install autotools-language-server
+  if ! command -v autotools-language-server >/dev/null 2>&1; then
+    echo "Installing autotools-language-server via pipx..."
+    pipx install autotools-language-server
+  else
+    echo "autotools-language-server is already installed via pipx."
   fi
 }
 
