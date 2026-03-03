@@ -3262,6 +3262,7 @@ The helper below, copied from https://github.com/themkat/.emacs.d/blob/master/in
 
 #+begin_src emacs-lisp
 (use-package lsp-ui
+  :pin "MELPA Unstable"
   :after lsp-mode
 
   ;; :commands ensures lsp-ui is loaded only when lsp-ui-mode is called
@@ -3284,6 +3285,7 @@ errors, references, and more.
 
 #+begin_src emacs-lisp
 (use-package lsp-treemacs
+  :pin "MELPA Unstable"
   :after lsp-mode
   :config
   (lsp-treemacs-sync-mode 1))
@@ -3640,6 +3642,7 @@ have Java 17+ installed and available in your `PATH`.
 
 #+begin_src emacs-lisp
 (use-package lsp-java
+  :pin "MELPA Unstable"
   :after java-ts-mode
 ;; (add-to-list 'load-path "/home/saulo/java-agent-loader/")
 ;; (load "/home/saulo/java-agent-loader/java-agent-loader.el")
