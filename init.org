@@ -3513,16 +3513,12 @@ but that works with treesit (native on Emacs 29+) instead of tree-sitter (extern
 package).
 
 #+begin_src emacs-lisp
-(when (fboundp 'package-vc-install)
-  (unless (my/package-vc-installed-p 'cognitive-complexity)
-    (package-vc-install 'cognitive-complexity "https://github.com/emacs-vs/cognitive-complexity"))
-
-  (use-package cognitive-complexity
-    :ensure nil
-    :hook ((prog-mode . cognitive-complexity-mode))
-    :custom
-    (cognitive-complexity-complexity-threshold 15)
-    (cognitive-complexity-maintainability-threshold 50)))
+(use-package cognitive-complexity
+  :pin "JCS-ELPA"
+  :hook ((prog-mode . cognitive-complexity-mode))
+  :custom
+  (cognitive-complexity-complexity-threshold 15)
+  (cognitive-complexity-maintainability-threshold 50))
 #+end_src
 
 
