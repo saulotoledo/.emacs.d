@@ -4623,15 +4623,15 @@ Added keybindings using Alt Gr and the numeric keyboard.
 (use-package windmove
   :ensure nil
   :bind (:map custom-bindings-map
-              ("C-c <left>" . windmove-left)
-              ("C-c <down>" . windmove-down)
-              ("C-c <up>" . windmove-up)
-              ("C-c <right>" . windmove-right)
+              ("M-<left>" . windmove-left)
+              ("M-<down>" . windmove-down)
+              ("M-<up>" . windmove-up)
+              ("M-<right>" . windmove-right)
 
-              ("C-S-c <left>" . windmove-swap-states-left)
-              ("C-S-c <down>" . windmove-swap-states-down)
-              ("C-S-c <up>" . windmove-swap-states-up)
-              ("C-S-c <right>" . windmove-swap-states-right)))
+              ("M-S-<left>" . windmove-swap-states-left)
+              ("M-S-<down>" . windmove-swap-states-down)
+              ("M-S-<up>" . windmove-swap-states-up)
+              ("M-S-<right>" . windmove-swap-states-right)))
 #+end_src
 
 
