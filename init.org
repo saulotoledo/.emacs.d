@@ -21,6 +21,7 @@
     - [[#interactive-do-settings][Interactive DO settings]]
     - [[#custom-key-bindings][Custom key bindings]]
     - [[#focus-mode][Focus mode]]
+    - [[#smart-tweaks][Smart tweaks]]
     - [[#other-configurations][Other configurations]]
 - [[#emacs-hacks][Emacs hacks]]
     - [[#faster-startup][Faster startup]]
@@ -757,6 +758,43 @@ helping you concentrate on the task at hand.
   :defer t
   :config
   (focus-mode 1))
+#+end_src
+
+
+** Smart tweaks
+
+The following navigation tweaks turn =C-a=/=HOME= and =C-e=/=END= into smart
+toggles, prioritizing your actual code content over absolute line boundaries.
+
+- =C-a=/=HOME= (Beginning) - The first press stops at the first non-whitespace
+  character (the indentation level). A second press moves you to the absolute
+  start of the line (column 0).
+- =C-e=/=END= (End): - The first press stops at the end of your text content. A
+  second press moves you to the absolute physical end of the line, which is
+  particularly useful if your text wraps.
+
+#+begin_src emacs-lisp
+(defun smart-beginning-of-line ()
+  "Move between the first non-whitespace character and beginning of line."
+  (interactive)
+  (let ((old-pos (point)))
+    (back-to-indentation)
+    (when (= old-pos (point))
+      (beginning-of-line))))
+
+(defun smart-end-of-line ()
+  "Move between after the last non-whitespace character and end of line."
+  (interactive)
+  (let ((eol (save-excursion (end-of-line) (point)))
+        (eot (save-excursion (end-of-line) (skip-syntax-backward " \t") (point))))
+    (if (= (point) eot)
+        (goto-char eol)
+      (goto-char eot))))
+
+(global-set-key (kbd "C-a") #'smart-beginning-of-line)
+(global-set-key (kbd "<home>") #'smart-beginning-of-line)
+(global-set-key (kbd "C-e") #'smart-end-of-line)
+(global-set-key (kbd "<end>") #'smart-end-of-line)
 #+end_src
 
 
