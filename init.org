@@ -1395,14 +1395,15 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
   ;; Refresh Treemacs when opening a new file: a tentative to fix issues when
   ;; using =C-x p k= to close all buffers in the open project.
   (declare-function treemacs-refresh "treemacs")
-  (defun my/treemacs-refresh-on-file-open ()
-    "Refresh Treemacs when a file is opened. Skip for remote paths."
+  (defun my/treemacs-refresh-after-file-or-dired ()
+    "Refresh Treemacs after opening a file or reading Dired, but only for local files/projects.
+Skips remote (TRAMP) paths to avoid lockups. Can be hooked to both `find-file-hook` and `dired-after-readin-hook`."
     (when (and (treemacs-get-local-window)
-               buffer-file-name
                (not (file-remote-p (or (buffer-file-name) default-directory))))
       (ignore-errors (treemacs-refresh))))
 
-  (add-hook 'find-file-hook #'my/treemacs-refresh-on-file-open)
+  (add-hook 'find-file-hook #'my/treemacs-refresh-after-file-or-dired)
+  (add-hook 'dired-after-readin-hook #'my/treemacs-refresh-after-file-or-dired)
 
   ;; Start Treemacs
   (treemacs))
@@ -4570,9 +4571,9 @@ Skips TRAMP paths as treemacs cannot reliably read remote paths."
   (add-to-list 'project-vc-ignores "#*")
   (add-to-list 'project-vc-ignores ".#*")
 
-  (add-hook 'project-switch-functions #'my/treemacs-sync-with-project)
+  (add-hook 'emacs-startup-hook #'my/treemacs-sync-with-project)
   (add-hook 'find-file-hook #'my/treemacs-sync-with-project)
-  (add-hook 'emacs-startup-hook #'my/treemacs-sync-with-project))
+  (add-hook 'project-switch-functions #'my/treemacs-sync-with-project))
 #+end_src
 
 
