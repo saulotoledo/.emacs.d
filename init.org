@@ -42,6 +42,7 @@
     - [[#maximize-frame-at-startup][Maximize frame at startup]]
 - [[#version-control][Version control]]
     - [[#magit-a-powerful-git-interface-for-emacs][Magit: a powerful Git interface for Emacs]]
+    - [[#forge][Forge]]
     - [[#blamerel][Blamer.el]]
     - [[#ansi-color-support-in-the-magit-process-buffer][ANSI color support in the magit process buffer]]
         - [[#option-1-official-built-in-solution-with-delay][Option 1: Official built-in solution (with delay)]]
@@ -1608,6 +1609,20 @@ In the Magit status buffer:
   ;; magit-status is explicitly called. This can improve startup performance.
   :commands magit-status
   :bind (:map custom-bindings-map ("C-c m" . magit-status)))
+#+end_src
+
+
+** Forge
+
+Forge is an extension for Magit that provides integration with Git hosting
+services like GitHub, GitLab, and Bitbucket. It allows you to manage pull
+requests, issues, and other repository features directly from Emacs.
+
+#+begin_src emacs-lisp
+(use-package forge
+  :pin "MELPA Unstable"
+  :after magit
+  :config)
 #+end_src
 
 
