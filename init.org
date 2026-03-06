@@ -3192,6 +3192,14 @@ code completion, go-to-definition, diagnostics, and more.
   (connection-local-set-profiles
    '(:application tramp) 'remote-lsp-disable-eslint)
 
+  ;; Some languages do not have LSP servers, so disable the
+  ;; "No LSP clients" warning for those modes
+  (defun my/local-disable-lsp-warning-for-known-languages ()
+    (when (derived-mode-p 'emacs-lisp-mode)
+      (setq-local lsp-warn-no-matched-clients nil)))
+
+  (add-hook 'emacs-lisp-mode-hook #'my/local-disable-lsp-warning-for-known-languages)
+
   (defun my-lsp-tramp-optimize-clients ()
     "Disable specific LSP clients when working over TRAMP.
 The built-in ESLint client ID is 'eslint'. When lsp-auto-register-remote-clients
@@ -4343,6 +4351,13 @@ conflicting settings.
 
 (add-hook 'makefile-gmake-mode-hook
           (lambda () (setq indent-tabs-mode t)))
+#+end_src
+
+We also need to configure LSP to support it properly:
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'lsp-mode
+  (add-to-list 'lsp-language-id-configuration '(makefile-gmake-mode . "makefile")))
 #+end_src
 
 
