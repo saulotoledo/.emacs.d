@@ -3744,6 +3744,7 @@ have Java 17+ installed and available in your `PATH`.
 
   :bind
   (:map java-ts-mode-map
+        ("C-M-:" . lsp-find-implementation)
         ("M-RET" . lsp-java-organize-imports))
 
   :config
