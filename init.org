@@ -3995,12 +3995,8 @@ Major mode for editing JavaScript:
 (use-package js
   :ensure nil
   :defer t
-  :mode "\\.jsx?\\'")
-
-(add-to-list 'auto-mode-alist '("\\.cs\\'" . js-ts-mode))
-(add-to-list 'auto-mode-alist '("\\.mjs\\'" . js-ts-mode))
-(add-to-list 'auto-mode-alist '("\\.js\\'" . js-ts-mode))
-(add-to-list 'auto-mode-alist '("\\.jsx\\'" . tsx-ts-mode))
+  :mode (("\\.[cm]?js\\'" . js-ts-mode)
+         ("\\.jsx\\'" . tsx-ts-mode)))
 #+end_src
 
 
