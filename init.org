@@ -102,6 +102,7 @@
         - [[#xml][XML]]
         - [[#markdown][Markdown]]
     - [[#editorconfig][EditorConfig]]
+    - [[#dotenv][Dotenv]]
     - [[#plantuml][PlantUML]]
         - [[#installation][Installation]]
         - [[#configuration][Configuration]]
@@ -3509,6 +3510,8 @@ code completion, go-to-definition, diagnostics, and more.
   (connection-local-set-profiles
    '(:application tramp) 'remote-lsp-disable-eslint)
 
+  (add-to-list 'lsp-language-id-configuration '(dotenv-mode . "none"))
+
   ;; Some languages do not have LSP servers, so disable the
   ;; "No LSP clients" warning for those modes
   (defun my/local-disable-lsp-warning-for-known-languages ()
@@ -4746,6 +4749,30 @@ the language's Emacs mode and some external formatter/prettifier).
   (add-to-list 'editorconfig-indentation-alist '(js-json-mode js-indent-level))
 
   (editorconfig-mode 1))
+#+end_src
+
+
+** Dotenv
+
+Dotenv is a module that loads environment variables from a =.env= file into
+=process.env=, allowing you to keep configuration secrets decoupled from your
+codebase. To accommodate different deployment stages, we can extend this
+practice using environment-specific files such as =.env.development=,
+=.env.test=, or =.env.production=.
+
+#+begin_src emacs-lisp
+(use-package dotenv-mode
+  :mode (("\\.env\\(?:\\..*\\)?\\'" . dotenv-mode)))
+
+'dotenv-mode
+(add-hook 'dotenv-mode-hook
+          (lambda ()
+            (lsp-mode -1)
+            (font-lock-add-keywords nil
+                                    '(("\\(^\\|\\s-\\)\\([A-Z0-9_]+\\)\\s-*="
+                                       (2 font-lock-variable-name-face))
+                                      ("\\(?:=\\)\\s-*\\([^#\n]+\\)"
+                                       (1 font-lock-string-face))))))
 #+end_src
 
 
