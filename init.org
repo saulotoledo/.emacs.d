@@ -876,6 +876,7 @@ servers, and build tools.
 
 #+begin_src emacs-lisp
 (use-package exec-path-from-shell
+  :ensure t ; Needed because "use-package-always-ensure" is not yet configured at this point
   :config
   ;; Sync environment variables only when running in a graphical interface
   (when (memq window-system '(mac ns x))
