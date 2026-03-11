@@ -1133,14 +1133,27 @@ intended to be overridden by ~editorconfig-mode~, if in use.
 
 #+begin_src emacs-lisp
 (defun my/default-indentation ()
-  "Apply my preferred default indentation settings.
+  "Apply my preferred 2-space indentation settings across modes.
 These settings are intended to be overridden by `editorconfig-mode'."
   ;; **CRITICAL CHECK:** Org mode uses a tab width of 8 by default.
   ;; Changing that leads to an error:
   (unless (eq major-mode 'org-mode)
     (setq
+     ;; Global basics
      tab-width 2
-     indent-tabs-mode nil)))
+     indent-tabs-mode nil
+     standard-indent 2
+
+     ;; Language-specific offsets
+     sh-basic-offset 2
+     sh-indentation 2
+     c-basic-offset 2
+     js-indent-level 2
+     typescript-indent-level 2
+     css-indent-offset 2
+     python-indent-offset 2
+     nxml-child-indent 2
+     coffee-tab-width 2)))
 
 (dolist (hook '(conf-unix-mode-hook
                 markdown-mode-hook
