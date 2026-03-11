@@ -878,6 +878,8 @@ servers, and build tools.
 (use-package exec-path-from-shell
   :ensure t ; Needed because "use-package-always-ensure" is not yet configured at this point
   :config
+  ;; 1. Disable the "interactive" flag (-i) which causes most hangs on Linux
+  (setq exec-path-from-shell-arguments '("-l"))
   ;; Sync environment variables only when running in a graphical interface
   (when (memq window-system '(mac ns x))
     (exec-path-from-shell-initialize)))
