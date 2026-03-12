@@ -298,44 +298,71 @@ execute_installers() {
   echo ""
 }
 
-# Set minimum Node.js version. It can be changed later if required by any tool:
-REQUIRED_NODE_VERSION="20.19.2"
+NVM_VERSION="v0.40.4"
+NODE_TARGET_VERSION="22.22.1"
 TOOLS_DIR="$HOME/.emacs.d/nodejs_tools"
 
-check_node_version() {
-  if ! command -v node >/dev/null 2>&1; then
-    log_error "Node.js is not installed. Please install it before running this script."
-    exit 1
-  fi
-
-  CURRENT_NODE_VERSION=$(node -v | sed 's/v//')
-
-  # Version comparison logic: checks if current version is less than required version
-  if [ ! "$(printf '%s\n' "$REQUIRED_NODE_VERSION" "$CURRENT_NODE_VERSION" | sort -V | head -n1)" = "$REQUIRED_NODE_VERSION" ]; then
-    log_error "You have Node.js version $CURRENT_NODE_VERSION, but we require at least version $REQUIRED_NODE_VERSION to proceed."
-    log_warn "Please update Node.js before proceeding."
-    exit 1
-  fi
-
-  log_success "Node.js $CURRENT_NODE_VERSION meets the requirement ($REQUIRED_NODE_VERSION)."
+load_nvm() {
+  export NVM_DIR="$HOME/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 }
 
+is_installed_nvm() {
+  [ -d "$HOME/.nvm" ]
+}
+
+install_nvm() {
+  if ! is_installed_nvm; then
+    log_installing "Installing NVM (Node Version Manager)"
+    curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash
+    load_nvm
+    log_success "NVM installed and primed."
+  else
+    load_nvm
+    log_info "NVM already active."
+  fi
+}
+
+ensure_nvm_available() {
+  if ! command -v nvm >/dev/null 2>&1; then
+    install_nvm
+  fi
+  command -v nvm >/dev/null 2>&1
+}
+
+ARE_NODEJS_TOOLS_INSTALLED=false
 install_nodejs_tools() {
   log_installing "Installing Node.js tools used by Emacs packages..."
-  check_node_version
 
-  if [ ! -d "$TOOLS_DIR" ]; then
-    log_error "Directory $TOOLS_DIR not found. Skipping npm install."
-    return 1
+  if [[ "$ARE_NODEJS_TOOLS_INSTALLED" == "false" ]]; then
+    ensure_nvm_available || { log_error "NVM bootstrap failed"; return 1; }
+
+    log_sub "Ensuring Node.js $NODE_TARGET_VERSION is available"
+    nvm install "$NODE_TARGET_VERSION" >/dev/null
+
+    if [ ! -d "$TOOLS_DIR" ]; then
+      log_error "Directory $TOOLS_DIR not found. Skipping npm install."
+      return 1
+    fi
+
+    cd "$TOOLS_DIR" || exit 1
+
+    # Use 'nvm exec' to ensure npm install uses our high-version Node
+    # without flipping the user's global system 'node' default.
+    log_sub "Updating node_modules using Node $(nvm version "$NODE_TARGET_VERSION")"
+    nvm exec "$NODE_TARGET_VERSION" npm install
+
+    ARE_NODEJS_TOOLS_INSTALLED=true
+    log_success "Node.js tools isolated successfully in $TOOLS_DIR"
+  else
+    log_success "Node.js tools already installed in $TOOLS_DIR"
   fi
-
-  cd "$TOOLS_DIR" || exit 1
-  npm install
 }
 
 uninstall_nodejs_tools() {
   log_uninstalling "Uninstalling Node.js tools used by Emacs packages..."
   [ -d "$TOOLS_DIR/node_modules" ] && rm -Rf "$TOOLS_DIR/node_modules"
+  ARE_NODEJS_TOOLS_INSTALLED=false
   log_success "Sucessfully removed '$TOOLS_DIR/node_modules'"
 }
 
@@ -442,8 +469,6 @@ uninstall_semgrep() {
 register_action "Install Semgrep" "semgrep"
 
 is_installed_copilot() {
-  REQUIRED_NODE_VERSION="22.0.0" # Minimum requirement for Copilot
-  check_node_version
   [ -f "$TOOLS_DIR/node_modules/.bin/copilot-language-server" ] || command -v copilot-language-server >/dev/null 2>&1
 }
 
@@ -458,6 +483,22 @@ uninstall_copilot() {
 }
 
 register_action "Install GitHub Copilot" "copilot"
+
+is_installed_prettier() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/typescript-language-server" ] || command -v typescript-language-server >/dev/null 2>&1
+}
+
+install_prettier() {
+  install_nodejs_tools
+}
+
+uninstall_prettier() {
+  log_uninstalling "Uninstalling Prettier (via Node.js tools)..."
+  log_info "Current limitation: all local Node.js tools will be removed in this step"
+  uninstall_nodejs_tools
+}
+
+register_action "Install Prettier" "prettier"
 
 IS_SDKMAN_INITIALIZED=false
 
@@ -600,10 +641,25 @@ uninstall_kotlin() {
 
 register_action "Install Kotlin" "kotlin"
 
+is_installed_typescript_language_server() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/typescript-language-server" ] || command -v typescript-language-server >/dev/null 2>&1
+}
+
+install_typescript_language_server() {
+  install_nodejs_tools
+}
+
+uninstall_typescript_language_server() {
+  log_uninstalling "Uninstalling TypeScript Language Server (via Node.js tools)..."
+  log_info "Current limitation: all local Node.js tools will be removed in this step"
+  uninstall_nodejs_tools
+}
+
+register_action "Install TypeScript Language Server" "typescript-language-server"
+
 LSP_BASH_LANGUAGE_SERVER_PATH="$HOME/.emacs.d/.cache/lsp/npm/bash-language-server"
 
 is_installed_bash_language_server() {
-    echo "$TOOLS_DIR/node_modules/.bin/bash-language-server"
   [ -f "$TOOLS_DIR/node_modules/.bin/bash-language-server" ] || command -v bash-language-server >/dev/null 2>&1
 }
 
