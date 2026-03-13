@@ -2355,6 +2355,7 @@ We can also call =rg-dwim= or =rg= and give any path.
   :config
   (rg-enable-default-bindings)
   (rg-enable-menu)
+  (setq wgrep-auto-save-buffer t) ; Save wgrep buffers automatically after editing
 
   (defun my/counsel-rg-project-prompt ()
     "Prompt for directory, default to project root if available."
@@ -5392,6 +5393,7 @@ if [[ "$FORCE_REINSTALL" == "true" ]]; then
 fi
 execute_installers
 #+end_src
+
 
 ** Configuration End Markers (Lisp Integrity)
 
