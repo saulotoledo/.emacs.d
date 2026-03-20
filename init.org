@@ -52,12 +52,11 @@
     - [[#try-a-new-package-without-installing-it][Try a new package without installing it]]
     - [[#snippets][Snippets]]
     - [[#undo-tree][Undo tree]]
-    - [[#multiple-cursors][Multiple cursors]]
     - [[#scrollbar-on-the-terminal][Scrollbar on the terminal]]
     - [[#move-text][Move Text]]
     - [[#expanding-ripgrep][Expanding ripgrep]]
     - [[#terminal][Terminal]]
-    - [[#multiple-cursors-1][Multiple cursors]]
+    - [[#multiple-cursors][Multiple cursors]]
     - [[#improved-help][Improved help]]
 - [[#org-mode-packages][Org-mode packages]]
     - [[#managing-the-table-of-contents][Managing the table of contents]]
@@ -2261,20 +2260,6 @@ package is loaded.")
   (global-undo-tree-mode)
   :custom
   (undo-tree-history-directory-alist '(("." . "~/.emacs.d/undo-tree"))))
-#+end_src
-
-
-** Multiple cursors
-
-Multiple Cursors lets you edit many places at once: mark the next or
-previous occurrence and type to edit them all simultaneously. Below are
-a couple of convenient keybindings.
-
-#+begin_src emacs-lisp
-(use-package multiple-cursors
-  :bind
-  ("C->" . mc/mark-next-like-this)
-  ("C-<" . mc/mark-previous-like-this))
 #+end_src
 
 
