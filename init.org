@@ -2541,27 +2541,61 @@ values, ensuring the plain-text secret never appears in the main buffer.
   "List of keywords that trigger cloaking.")
 
 (defun my/get-cloak-regex (sep)
-  "Regex for cloak-mode. SEP is the separator between key and value.
-Only the value is hidden."
+  "Regex for cloak-mode. SEP is the separator between key and value."
   (let ((kw (regexp-opt my/cloak-keywords)))
     (concat "^[ \t]*[^" sep "\n]*" kw "[^" sep "\n]*"
             sep "[ \t]*[\"']?\\(.*?\\)[\"']?$")))
 
 (defconst my/cloak-regex-dot-env (my/get-cloak-regex "="))
 (defconst my/cloak-regex-yaml (my/get-cloak-regex ":"))
+(defconst my/cloak-regex-whole-line "^\\(.+\\)$")
+
+(defun my/cloak-passwd-file-p ()
+  "Return t if the filename has \"passwd\" or \"password\" and only 1 non-blank line."
+  (let ((filename (buffer-file-name)))
+    (and filename
+         (string-match-p "passw\\(d\\|ord\\)" filename)
+         (save-excursion
+           (save-match-data
+             (goto-char (point-min))
+             (if (re-search-forward "[^ \t\n]" nil t)
+                 (progn
+                   (forward-line 1)
+                   (not (re-search-forward "[^ \t\n]" nil t)))
+               t))))))
+
+(define-derived-mode my/passwd-mode fundamental-mode "Passwd"
+  "Major mode for single-line password files to hide their content.")
+
+(add-to-list 'magic-mode-alist (cons #'my/cloak-passwd-file-p #'my/passwd-mode))
 
 (use-package cloak-mode
   :config
   (setq cloak-mode-patterns
-        `((dotenv-mode . ,my/cloak-regex-dot-env)
-          (yaml-mode   . ,my/cloak-regex-yaml)
-          (json-mode   . ,my/cloak-regex-yaml)))
+        `((my/passwd-mode . ,my/cloak-regex-whole-line)
+          (dotenv-mode    . ,my/cloak-regex-dot-env)
+          (yaml-mode      . ,my/cloak-regex-yaml)
+          (json-mode      . ,my/cloak-regex-yaml)))
+
+  ;; This function ensures cloak-mode is actually turned ON
+  (defun my/cloak-ensure-on ()
+    "Force cloak-mode on if the filename matches our secret criteria."
+    (when (my/cloak-passwd-file-p)
+      (cloak-mode 1)))
+
+  ;; Hook into both file opening and mode changes to catch files from terminal
+  (add-hook 'find-file-hook 'my/cloak-ensure-on)
+  (add-hook 'after-change-major-mode-hook 'my/cloak-ensure-on)
+  ;; Hook into mode changes to ensure cloak-mode activates for password files
+  (add-hook 'my/passwd-mode-hook 'my/cloak-ensure-on)
 
   (defun my/cloak-edit ()
-    "Edit the secret value at point via the minibuffer and refresh the cloak."
+    "Edit the secret value at point.
+Works for both key-value pairs and naked secrets."
     (interactive)
-    (let* ((sep (if (derived-mode-p 'yaml-mode 'json-mode) ":" "="))
-           (regex (my/get-cloak-regex sep)))
+    (let* ((is-pass-file (my/cloak-passwd-file-p))
+           (sep (if (derived-mode-p 'yaml-mode 'json-mode) ":" "="))
+           (regex (if is-pass-file my/cloak-regex-whole-line (my/get-cloak-regex sep))))
       (save-excursion
         (beginning-of-line)
         (if (re-search-forward regex (line-end-position) t)
@@ -2573,11 +2607,10 @@ Only the value is hidden."
                 (delete-region beg end)
                 (goto-char beg)
                 (insert new-val))
-              ;; FORCE REFRESH: Toggle mode off and on to re-mask the new text
               (when cloak-mode
                 (cloak-mode -1)
                 (cloak-mode 1))
-              (message "Secret updated and re-cloaked."))
+              (message "Secret updated."))
           (message "No secret found on this line.")))))
 
   (global-set-key (kbd "s-c") 'cloak-mode)
