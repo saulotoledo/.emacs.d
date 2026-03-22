@@ -58,6 +58,7 @@
     - [[#terminal][Terminal]]
     - [[#multiple-cursors][Multiple cursors]]
     - [[#improved-help][Improved help]]
+    - [[#hiding-secrets][Hiding secrets]]
 - [[#org-mode-packages][Org-mode packages]]
     - [[#managing-the-table-of-contents][Managing the table of contents]]
     - [[#nice-bullets][Nice bullets]]
@@ -2493,6 +2494,72 @@ a couple of convenient keybindings.
   ([remap describe-command] . helpful-command)
   ([remap describe-variable] . counsel-describe-variable)
   ([remap describe-key] . helpful-key))
+#+end_src
+
+
+** Hiding secrets
+
+Below we introduce the configuration for cloak-mode, a security-focused minor
+mode that masks sensitive data (like passwords and API tokens) with asterisks to
+prevent accidental exposure during screen shares or demonstrations. By
+leveraging custom regular expressions tailored for .env, json and yaml files,
+the package automatically detects and hides values following specific keywords.
+
+**Keybindings:**
+| Command         | Shortcut | Description                                   |
+|-----------------+----------+-----------------------------------------------|
+| =cloak-mode=    | ~s-c~    | Toggle masking on/off for the entire buffer.  |
+| =my/cloak-edit= | ~M-s-e~  | Edit the secret at point via a safe prompt.   |
+
+*Note:* The edit command (~M-s-e~) uses a secure minibuffer prompt to update
+values, ensuring the plain-text secret never appears in the main buffer.
+
+#+begin_src emacs-lisp
+(defvar my/cloak-keywords '("KEY" "PASSWD" "PASS" "PASSWORD" "SECRET" "TOKEN" "AUTH")
+  "List of keywords that trigger cloaking.")
+
+(defun my/get-cloak-regex (sep)
+  "Shortened regex for cloak-mode. Group 1 is the hidden value."
+  (let ((kw (regexp-opt my/cloak-keywords)))
+    (concat "^[ \t]*[^" sep "\n]*" kw "[^" sep "\n]*"
+            sep "[ \t]*[\"']?\\(.*?\\)[\"']?$")))
+
+(defconst my/cloak-regex-dot-env (my/get-cloak-regex "="))
+(defconst my/cloak-regex-yaml (my/get-cloak-regex ":"))
+
+(use-package cloak-mode
+  :config
+  (setq cloak-mode-patterns
+        `((dotenv-mode . ,my/cloak-regex-dot-env)
+          (yaml-mode   . ,my/cloak-regex-yaml)
+          (json-mode   . ,my/cloak-regex-yaml)))
+
+  (defun my/cloak-edit ()
+    "Edit the secret value at point via the minibuffer and refresh the cloak."
+    (interactive)
+    (let* ((sep (if (derived-mode-p 'yaml-mode 'json-mode) ":" "="))
+           (regex (my/get-cloak-regex sep)))
+      (save-excursion
+        (beginning-of-line)
+        (if (re-search-forward regex (line-end-position) t)
+            (let* ((old-val (match-string 1))
+                   (beg (match-beginning 1))
+                   (end (match-end 1))
+                   (new-val (read-string "New Secret Value: " old-val)))
+              (let ((inhibit-read-only t))
+                (delete-region beg end)
+                (goto-char beg)
+                (insert new-val))
+              ;; FORCE REFRESH: Toggle mode off and on to re-mask the new text
+              (when cloak-mode
+                (cloak-mode -1)
+                (cloak-mode 1))
+              (message "Secret updated and re-cloaked."))
+          (message "No secret found on this line.")))))
+
+  (global-set-key (kbd "s-c") 'cloak-mode)
+  (global-set-key (kbd "M-s-c") 'my/cloak-edit)
+  (global-cloak-mode 1))
 #+end_src
 
 
