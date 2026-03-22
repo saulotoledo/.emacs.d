@@ -188,10 +188,10 @@ For the early init file:
 ** Key bindings
 
 I am following [[https://github.com/larstvei/dot-emacs/blob/main/init.org][the dot-emacs repository]] again on maintaining a
-=custom-bindings-map= that holds all my custom bindings. This
+~custom-bindings-map~ that holds all my custom bindings. This
 is based on [[http://stackoverflow.com/questions/683425/globally-override-key-binding-in-emacs][this StackOverflow post]].
-This map can be activated by toggling a simple =minor-mode= that just
-activates the map, preventing other =major-modes= from overridding
+This map can be activated by toggling a simple ~minor-mode~ that just
+activates the map, preventing other ~major-modes~ from overridding
 these bindings.
 
 #+begin_src emacs-lisp
@@ -211,9 +211,9 @@ these bindings.
 ** Meta settings
 
 We generate the =init.el= file from the source blocks in the
-=init.org=. We can use =org-babel-tangle= to do this. However, to make
+=init.org=. We can use ~org-babel-tangle~ to do this. However, to make
 this process automatic after saving this file, we reuse the function
-below and attach it to the =after-save-hook=. This solution is copied
+below and attach it to the ~after-save-hook~. This solution is copied
 from [[https://github.com/larstvei/dot-emacs/blob/main/init.org][the dot-emacs repository]].
 
 #+begin_src emacs-lisp
@@ -238,16 +238,16 @@ tangled, and the tangled file is compiled."
 #+end_src
 
 The Emacs Customize system utilizes the value of the variable
-=custom-file= to write its customization forms. If the value of this
+~custom-file~ to write its customization forms. If the value of this
 variable is not defined, it will write the settings to the value of
-=user-init-file=, which is our =init.el= at the moment. To prevent
-this from happening, we define the value of =custom-file= below:
+~user-init-file~, which is our =init.el= at the moment. To prevent
+this from happening, we define the value of ~custom-file~ below:
 
 #+begin_src emacs-lisp :tangle early-init.el
 (setq custom-file (expand-file-name "custom.el" user-emacs-directory))
 #+end_src
 
-Below we will load the value of =custom-file=, but we also create a
+Below we will load the value of ~custom-file~, but we also create a
 =local.el= file for local settings. This is useful for configurations
 that do not need to be pushed to the git repository and that are local
 to the environment in use.
@@ -266,13 +266,13 @@ to the environment in use.
 #+end_src
 
 Modern Emacs versions (typically 27+) support direct package installation
-from Version Control (VC) using `package-vc-install`.
+from Version Control (VC) using ~package-vc-install~.
 
-The `when (fboundp ...)` below guard ensures this code only runs if the
-`package-vc` extension is available, maintaining compatibility with older
+The ~when (fboundp ...)~ below guard ensures this code only runs if the
+~package-vc~ extension is available, maintaining compatibility with older
 or minimal Emacs setups.
 
-A critical limitation: The native 'package-installed-p' often fails to
+A critical limitation: The native ~package-installed-p~ often fails to
 recognize packages installed via VC. This custom function checks the file
 system directory directly to reliably confirm their presence.
 
@@ -307,7 +307,7 @@ Ideally, all tools in the script should be installed or configured for you to
 have a proper environment in place, but the script allows you to select the
 tools you want to install.
 
-The current version of the script requires `bash` to run: `bash setup.sh`.
+The current version of the script requires =bash= to run: =bash setup.sh=.
 
 #+begin_src sh :tangle setup.sh
 #!/bin/bash
@@ -791,7 +791,7 @@ execute_installers() {
 }
 #+end_src
 
-Multiple tools we use to support our development flow are based on ~Node.js~.
+Multiple tools we use to support our development flow are based on =Node.js=.
 They are all installed together by the functions below.
 
 #+begin_src sh :tangle setup.sh
@@ -875,7 +875,7 @@ fi
 
 ** Storing Secrets
 
-We use the the Emacs built-in =auth-source= package to securely retrieve API keys from
+We use the the Emacs built-in ~auth-source~ package to securely retrieve API keys from
 encrypted storage. For several cases, we set them as environment variables for later
 usage.
 
@@ -927,7 +927,7 @@ machine api.mistral.ai login apikey password YOUR_MISTRAL_API_KEY
    - Simply open =~/.authinfo.gpg= in Emacs: =C-x C-f ~/.authinfo.gpg=
    - Emacs will prompt for your GPG passphrase (if set) and decrypt the file
    - After editing, save with =C-x C-s= and Emacs will automatically re-encrypt
-   - The =epa-file= package (built into Emacs) handles this automatically
+   - The ~epa-file~ package (built into Emacs) handles this automatically
 
 To automate this process, you can run our setup script:
 
@@ -1005,8 +1005,8 @@ register_action "Setup encrypted authinfo" "list-of-secrets" "secrets"
 
 ** Emacs socket and server settings
 
-When running Emacs as a daemon using `emacs --daemon`, the `(server-start)` command is
-triggered implicitly, allowing the fast client, `emacsclient`, to connect. For remote
+When running Emacs as a daemon using =emacs --daemon=, the ~(server-start)~ command is
+triggered implicitly, allowing the fast client, =emacsclient=, to connect. For remote
 or containerized environments (like Docker), the default local file socket often
 creates challenges with network exposure and file permissions. We must configure a
 reliable server connection method.
@@ -1035,11 +1035,11 @@ port forwarding or an SSH tunnel.
 *** Option 2: File Socket Directory (For Simpler SSH Forwarding)
 
 Using a dedicated socket file location is often simpler for secure connections over
-SSH, especially when using tools like `ssh -L`. This method is preferred because it
+SSH, especially when using tools like =ssh -L=. This method is preferred because it
 bypasses the common challenge of file permission issues associated with the default
 socket location (usually in the user's home directory), which might be inaccessible
-to the `sshd` process or other services. We address this directly by moving the
-socket to the universally accessible `/tmp` directory, which centralizes its location
+to the =sshd= process or other services. We address this directly by moving the
+socket to the universally accessible =/tmp= directory, which centralizes its location
 and ensures accessibility. Ultimately, given its ease of use for remote access, we
 opted for this file socket approach in our configuration:
 
@@ -1164,13 +1164,13 @@ IDO (Interactively DO things) replaces many minibuffer prompts with a
 compact interactive matcher that narrows candidates as you type. These
 options tune its behavior:
 
-- ~ido-enable-flex-matching~: allow substring and flexible matching
+- ~ido-enable-flex-matching~ - allow substring and flexible matching
 (not only prefix matches). Type parts of a name in any order and IDO
 will still find it.
-- ~ido-everywhere~: use IDO's interface for most buffer/file
+- ~ido-everywhere~ - use IDO's interface for most buffer/file
 minibuffer prompts (where sensible), giving a consistent
 completion experience across commands.
-- ~(ido-mode 1)~: enable IDO globally.
+- ~(ido-mode 1)~ - enable IDO globally.
 
 IDO is built into Emacs, lightweight, and improves the speed of file
 and buffer selection without external dependencies.
@@ -1300,7 +1300,7 @@ The following variables are global:
 #+end_src
 
 Other variables are buffer-local by default, but we can set their
-default values using =setq-default=:
+default values using ~setq-default~ as follows:
 
 #+begin_src emacs-lisp
 (setq-default split-width-threshold 160           ; Split verticly by default
@@ -1493,7 +1493,7 @@ older Emacs versions.
 In addition to that, the GPG key used to sign the GNU ELPA archives
 might be expired and requires update, leading to signature errors
 when installing packages in some systems. One easy way to keep this
-key updated is through the package =gnu-elpa-keyring-update=, which
+key updated is through the package ~gnu-elpa-keyring-update~, which
 is installed below.
 
 #+begin_src emacs-lisp
@@ -1732,8 +1732,8 @@ Then we configure Treemacs itself.
 If you need to shrink or enlarge the treemacs window later with the keyboard,
 you can use:
 
-- =C-x {=: Shrink the window horizontally.
-- =C-x }=: Enlarge the window horizontally.
+- =C-x {= - Shrink the window horizontally.
+- =C-x }= - Enlarge the window horizontally.
 
 Treemacs has also several useful shortcuts. A few examples:
 
@@ -1900,7 +1900,7 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
   (declare-function treemacs-refresh "treemacs")
   (defun my/treemacs-refresh-after-file-or-dired ()
     "Refresh Treemacs after opening a file or reading Dired, but only for local files/projects.
-Skips remote (TRAMP) paths to avoid lockups. Can be hooked to both `find-file-hook` and `dired-after-readin-hook`."
+Skips remote (TRAMP) paths to avoid lockups. Can be hooked to both `find-file-hook' and `dired-after-readin-hook'."
     (when (and (treemacs-get-local-window)
                (not (file-remote-p (or (buffer-file-name) default-directory))))
       (ignore-errors (treemacs-refresh))))
@@ -1959,19 +1959,19 @@ Other useful shortcuts for the extension are:
 *** Ivy, Counsel, and Ivy-rich
 
 Ivy, Counsel, and Swiper provide minibuffer completion—they enhance the
-interactive prompts at the bottom of Emacs for commands like `M-x`, `find-file`,
+interactive prompts at the bottom of Emacs for commands like =M-x=, ~find-file~,
 and search. Ivy is the core completion framework. Counsel adds Ivy-powered
-versions of common commands (like `M-x`, `find-file`, `rg`). Swiper integrates
+versions of common commands (like =M-x=, ~find-file~, ~rg~). Swiper integrates
 search with Ivy for better navigation. Together, they replace IDO and Helm for a
 faster, cleaner experience.
 
-`ivy-mode` enables Ivy's UI for all compatible prompts. `counsel-mode` remaps
+~ivy-mode~ enables Ivy's UI for all compatible prompts. ~counsel-mode~ remaps
 standard Emacs commands to their enhanced Counsel versions. Use both for the
 best experience.
 
-`ivy-switch-buffer` (from Ivy) is a fast, simple buffer switcher. `counsel-ibuffer`
+~ivy-switch-buffer~ (from Ivy) is a fast, simple buffer switcher. ~counsel-ibuffer~
 (from Counsel) is a more powerful buffer manager with groups and metadata. Bind
-either to `C-x b` depending on whether you want a quick switcher or a full buffer
+either to =C-x b= depending on whether you want a quick switcher or a full buffer
 manager.
 
 Ivy-rich enhances Ivy's completion menus by adding extra information to each
@@ -2062,9 +2062,9 @@ Magit is a powerful Git interface for Emacs, providing an intuitive
 way to manage Git repositories directly from the editor.
 
 In the Magit status buffer:
-- press `!` to open a command prompt where you can run any git command
+- press =!= to open a command prompt where you can run any git command
   directly.
-- press `$` to open a buffer named *magit-process: <repository-path>*,
+- press =$= to open a buffer named *magit-process: <repository-path>*,
   where you can see the commands ran by Magit.
 
 #+begin_src emacs-lisp
@@ -2122,7 +2122,7 @@ overlays.
 ** ANSI color support in the magit process buffer
 
 When running Git commands through Magit (e.g., hooks, pre-commit scripts), the output
-is displayed in the *magit-process* buffer (accessible by pressing `$` in the Magit
+is displayed in the *magit-process* buffer (accessible by pressing =$= in the Magit
 status buffer). This buffer shows the raw output from Git commands. However, by
 default, ANSI color codes in the output are not interpreted, so the output appears
 with raw escape sequences instead of colored text.
@@ -2131,7 +2131,7 @@ There are two approaches to enable ANSI color support in the Magit process buffe
 
 *** Option 1: Official built-in solution (with delay)
 
-The official way to enable ANSI colors is to set `magit-process-finish-apply-ansi-colors`.
+The official way to enable ANSI colors is to set ~magit-process-finish-apply-ansi-colors~.
 However, this only applies colors after the Git command has finished executing. For
 slow processes (like long-running hooks), you'll see the raw escape sequences until the
 command completes, which can be distracting.
@@ -2192,13 +2192,13 @@ Below we integrate Treemacs with Magit to show Git status in the Treemacs sideba
 #+end_src
 
 Next, we introduce a utility function and associated hooks to automatically enable
-`smerge-mode` when a file contains merge conflict markers. This is particularly useful
+~smerge-mode~ when a file contains merge conflict markers. This is particularly useful
 for developers working with version control systems like Git, as it streamlines the
 process of resolving merge conflicts.
 
 We can navigate between conflict markers using the following keybindings:
-- =C-c ^ n=: Jump to the next conflict marker.
-- =C-c ^ p=: Jump to the previous conflict marker.
+- =C-c ^ n= - Jump to the next conflict marker.
+- =C-c ^ p= - Jump to the previous conflict marker.
 
 #+begin_src emacs-lisp
 (defun maybe-enable-smerge-mode ()
@@ -2226,7 +2226,7 @@ We can navigate between conflict markers using the following keybindings:
 ** Snippets
 
 Yasnippet provides snippet expansion (type a short trigger and press TAB) and
-`yasnippet-snippets` supplies a large collection of ready-to-use snippets
+~yasnippet-snippets~ supplies a large collection of ready-to-use snippets
 for many languages; the two packages below will enable snippets in relevant modes.
 
 #+begin_src emacs-lisp
@@ -2284,8 +2284,8 @@ It is a nice package, but it has a known bug reported at [[https://github.com/em
 )
 #+end_example
 
-Another suggestion is to use `smart-mode-line`, but that cannot be active together
-with `doom-modeline`, so we comment it out for now.
+Another suggestion is to use ~smart-mode-line~, but that cannot be active together
+with ~doom-modeline~, so we comment it out for now.
 
 #+begin_example emacs-lisp
 ;; Smart Mode Line for a clean, informative modeline (works in GUI and terminal)
@@ -2298,8 +2298,8 @@ with `doom-modeline`, so we comment it out for now.
 #+end_example
 
 As the packages above did not work as expected, I found another package that
-seems to work nicely: `mlscroll`. It adds a scrollbar to the mode line, showing
-the current position in the buffer. It needs `which-func` (builtin) to work properly.
+seems to work nicely: ~mlscroll~. It adds a scrollbar to the mode line, showing
+the current position in the buffer. It needs ~which-func~ (builtin) to work properly.
 It is not a full scrollbar, but at least it gives an indication of the position
 in the buffer.
 
@@ -2332,7 +2332,7 @@ For moving lines up and down, we use the
 
 ** Expanding ripgrep
 
-Here we use the `rg` package to integrate ripgrep with Emacs.
+Here we use the ~rg~ package to integrate ripgrep with Emacs.
 With it, we can search for a string in a directory using =M-x rg= and a directory.
 We can also call =rg-dwim= or =rg= and give any path.
 
@@ -2508,10 +2508,10 @@ the package automatically detects and hides values following specific keywords.
 **Keybindings:**
 | Command         | Shortcut | Description                                   |
 |-----------------+----------+-----------------------------------------------|
-| =cloak-mode=    | ~s-c~    | Toggle masking on/off for the entire buffer.  |
-| =my/cloak-edit= | ~M-s-e~  | Edit the secret at point via a safe prompt.   |
+| ~cloak-mode~    | =s-c=    | Toggle masking on/off for the entire buffer.  |
+| ~my/cloak-edit~ | =M-s-e=  | Edit the secret at point via a safe prompt.   |
 
-*Note:* The edit command (~M-s-e~) uses a secure minibuffer prompt to update
+*Note:* The edit command (=M-s-e=) uses a secure minibuffer prompt to update
 values, ensuring the plain-text secret never appears in the main buffer.
 
 #+begin_src emacs-lisp
@@ -2567,8 +2567,8 @@ values, ensuring the plain-text secret never appears in the main buffer.
 
 ** Managing the table of contents
 
-The `toc-org` package automatically generates and maintains a table of contents
-for Org files. Simply add a heading with the `:TOC:` tag and `toc-org` will
+The ~toc-org~ package automatically generates and maintains a table of contents
+for Org files. Simply add a heading with the =:TOC:= tag and ~toc-org~ will
 populate it with links to all other headings when you save the file.
 
 #+begin_src emacs-lisp
@@ -2609,7 +2609,7 @@ export by default.
      (clojure . t))))
 #+end_src
 
-Default to use whatever interpreter is set by =python-shell-interpreter=.
+Default to use whatever interpreter is set by ~python-shell-interpreter~.
 
 #+begin_src emacs-lisp
 ;; Babel Functions for Python
@@ -2627,8 +2627,8 @@ Starting at version 9.2 of Org mode, typing =<s= to get a source block (and
 similar) has been moved to the Org Tempo library. The idea is that users start
 to use =C-c C-,= instead. I added it below anyways.
 
-Note: `org-tempo` is built into Org mode (not a separate package), so we use
-`:ensure nil` to prevent `use-package` from trying to install it.
+Note: ~org-tempo~ is built into Org mode (not a separate package), so we use
+~:ensure nil~ to prevent ~use-package~ from trying to install it.
 
 #+begin_src emacs-lisp
 (use-package org-tempo
@@ -2691,8 +2691,8 @@ suggestions that appear *while you type* in your code buffers (not in the
 minibuffer). This is different from Ivy/Counsel which handle minibuffer
 prompts when Emacs asks you for input.
 
-Prefer `completion-at-point-functions` (CAPF) as a single, canonical source:
-it lets language servers (LSP/eglot), built-in `treesit` capf providers, and
+Prefer ~completion-at-point-functions~ (CAPF) as a single, canonical source:
+it lets language servers (LSP/eglot), built-in ~treesit~ capf providers, and
 other backends expose candidates through Emacs' standard API so Company
 becomes a thin, reliable UI on top of those sources. Using CAPF reduces
 backend duplication, simplifies ordering, and improves snippet/expand
@@ -2793,26 +2793,26 @@ intelligent suggestions, code completion, and interactive chat interfaces.
 This section covers the configuration of encrypted API keys for the AI providers
 (see next section). Here's how it works (functions are defined later in this file):
 
-1. =my/get-token-from-auth-source= function:
+1. ~my/get-token-from-auth-source~ function:
    - Searches auth-source for a credential entry matching the given host
    - Looks for user ="apikey"= (common convention for API keys)
    - Requires both =:user= and =:secret= to be present
    - Returns the secret (API key) as a string, or signals an error if not found
 
-2. =my/eca-setup-tokens= function:
+2. ~my/eca-setup-tokens~ function:
    - Iterates over a list of providers, each mapping:
      - Environment variable name (e.g., ="ANTHROPIC_API_KEY"=)
      - Hostname (e.g., ="api.anthropic.com"=)
    - For each provider:
-     - Calls =my/get-token-from-auth-source= with the hostname
-     - If found, sets the environment variable using =setenv=
+     - Calls ~my/get-token-from-auth-source~ with the hostname
+     - If found, sets the environment variable using ~setenv~
      - Handles errors gracefully (missing keys don't crash the setup)
 
 3. Deferred execution with idle timer:
-   - Uses =run-with-idle-timer= with 0 delay to run after Emacs is idle
+   - Uses ~run-with-idle-timer~ with 0 delay to run after Emacs is idle
    - Why: auth-source backends (gpg-agent, pass, keychain) initialize lazily
      and may rely on async processes
-   - During early startup, =auth-source-search= can return =nil= because:
+   - During early startup, ~auth-source-search~ can return ~nil~ because:
      - The command loop isn't running yet
      - Async processes haven't completed
      - Backends may not be initialized
@@ -2826,7 +2826,7 @@ The flow is as follows:
 1. Emacs starts up
 2. ECA package (see next section) loads (after auth-source)
 3. Idle timer waits for first idle moment
-4. =my/eca-setup-tokens= runs:
+4. ~my/eca-setup-tokens~ runs:
    - For each provider (Anthropic, OpenAI, etc.)
    - Searches =~/.authinfo.gpg= for entry matching host and extracts the API key
    - Sets it as environment variable
@@ -2879,14 +2879,14 @@ Returns nil if auth-source is not ready or key is missing."
 
 *** ECA Config Installation with Default Model Override
 
-The =my/eca-install-config= function syncs =eca-config.json= from your Emacs
+The ~my/eca-install-config~ function syncs =eca-config.json= from your Emacs
 directory to =~/.config/eca/config.json=. It supports overriding the
 =defaultModel= setting via a local variable:
 
 1. **Default model in config**: The =eca-config.json= file has =defaultModel=
    set to a copilot model by default.
 
-2. **Local override variable**: You can set =my/eca-default-model= in =local.el=
+2. **Local override variable**: You can set ~my/eca-default-model~ in =local.el=
    to override the default model for your machine:
 
 #+begin_example
@@ -2903,9 +2903,9 @@ directory to =~/.config/eca/config.json=. It supports overriding the
 (setq my/eca-default-model "mistral/devstral-2512")
 #+end_example
 
-3. **Replacement process**: When =my/eca-install-config= runs:
+3. **Replacement process**: When ~my/eca-install-config~ runs:
    - It reads the source =eca-config.json= file
-   - If =my/eca-default-model= is set, it replaces the =defaultModel= value
+   - If ~my/eca-default-model~ is set, it replaces the =defaultModel= value
      in the JSON content before comparing or copying
    - The replacement happens =before= comparing with the existing target file,
      so the comparison uses the processed content
@@ -3460,7 +3460,7 @@ you type.
 
 **Installation Requirements:**
 
-1. ~Node.js~ and the =copilot-language-server=
+1. =Node.js= and the =copilot-language-server=
 
 #+begin_src sh :tangle setup.sh
 is_installed_copilot() {
@@ -3629,7 +3629,7 @@ Defers activation to ensure Copilot server is ready."
 
 GitHub Copilot Chat provides an interactive chat interface with GitHub Copilot,
 similar to what's available in VS Code or IntelliJ. This is a separate package
-from the completion-only `copilot.el`. It enables natural language interactions
+from the completion-only ~copilot.el~. It enables natural language interactions
 with Copilot, allowing you to ask questions, request code explanations, generate
 tests, and more, all within Emacs.
 
@@ -3688,7 +3688,7 @@ together to provide a full-featured development experience:
 
 *** lsp-mode: Core LSP client
 
-`lsp-mode` is the main package that connects Emacs to language servers, enabling
+~lsp-mode~ is the main package that connects Emacs to language servers, enabling
 code completion, go-to-definition, diagnostics, and more.
 
 #+begin_src emacs-lisp
@@ -3869,17 +3869,17 @@ Run once if you see wrong-type-argument hash-table-p when flycheck runs LSP diag
                                         '(("NODE_NO_WARNINGS" . "1")))))))
 #+end_src
 
-By default, =lsp-mode= uses hash tables to handle the serialization of JSON-RPC
+By default, ~lsp-mode~ uses hash tables to handle the serialization of JSON-RPC
 messages from language servers. However, some language servers do not handle
 this default implementation correctly and will fail, often attempting to
 endlessly search for hash-table structures that aren't being parsed as expected.
 Even when you enable =lsp-use-plists= in your standard configuration, the
 package may still initialize or compile using its default hash-table
 architecture. Setting the =LSP_USE_PLISTS= environment variable acts as a global
-override, forcing `lsp-mode` to use property lists (`plists`) instead of the
+override, forcing ~lsp-mode~ to use property lists (~plists~) instead of the
 default hash tables from the very start. The variable is needed when compiling
 LSP to make sure it has the proper support, and later when running it.
-Therefore, we do it in our `early-init.el` to ensure it takes effect before any
+Therefore, we do it in our =early-init.el= to ensure it takes effect before any
 LSP code is loaded or compiled.
 
 Snippet de código
@@ -3894,7 +3894,7 @@ Snippet de código
 
 *** lsp-ui: UI enhancements for LSP
 
-`lsp-ui` adds visual improvements to LSP, such as inline documentation popups, code actions
+~lsp-ui~ adds visual improvements to LSP, such as inline documentation popups, code actions
 in the sideline, and better navigation.
 
 The helper below, copied from https://github.com/themkat/.emacs.d/blob/master/init.org, toggles the documentation popup:
@@ -3933,7 +3933,7 @@ The helper below, copied from https://github.com/themkat/.emacs.d/blob/master/in
 
 *** lsp-treemacs: Project and symbol tree views
 
-`lsp-treemacs` integrates Treemacs with LSP, providing a sidebar for project symbols,
+~lsp-treemacs~ integrates Treemacs with LSP, providing a sidebar for project symbols,
 errors, references, and more.
 
 #+begin_src emacs-lisp
@@ -3947,7 +3947,7 @@ errors, references, and more.
 
 *** dap-mode: Debug Adapter Protocol (debugging)
 
-`dap-mode` adds debugging support to Emacs using the Debug Adapter Protocol. It lets
+~dap-mode~ adds debugging support to Emacs using the Debug Adapter Protocol. It lets
 you set breakpoints, step through code, and inspect variables for many languages.
 
 #+begin_src emacs-lisp
@@ -4022,12 +4022,12 @@ With =org-src-tab-acts-natively= enabled:
 
 The following languages are configured with their respective formatters:
 
-- **Emacs Lisp** (=emacs-lisp-mode=, =lisp-interaction-mode=) → Built-in =lisp-indent=
-- **JavaScript** (=js-mode=, =js-ts-mode=) → Prettier (local installation)
-- **TypeScript** (=typescript-mode=, =typescript-ts-mode=, =tsx-ts-mode=) → Prettier (local installation)
-- **Python** (=python-mode=, =python-ts-mode=) → Prettier with =@prettier/plugin-python=
-- **JSON** (=json-mode=, =json-ts-mode=) → Prettier (local installation)
-- **Web/HTML** (=web-mode=) → Prettier (local installation)
+- **Emacs Lisp** (~emacs-lisp-mode~, ~lisp-interaction-mode~) → Built-in ~lisp-indent~
+- **JavaScript** (~js-mode~, ~js-ts-mode~) → Prettier (local installation)
+- **TypeScript** (~typescript-mode~, ~typescript-ts-mode~, ~tsx-ts-mode~) → Prettier (local installation)
+- **Python** (~python-mode~, ~python-ts-mode~) → Prettier with =@prettier/plugin-python=
+- **JSON** (~json-mode~, ~json-ts-mode~) → Prettier (local installation)
+- **Web/HTML** (~web-mode~) → Prettier (local installation)
 
 Note: Prettier is installed locally in =~/.emacs.d/nodejs_tools/= with the Python plugin.
 
@@ -4098,9 +4098,9 @@ clean and readable across teams and editors.
 In this config, Prettier is used in two ways:
 
 - Via Apheleia for on-save formatting in many modes (see above)
-- Via the `prettier-js` package for on-the-fly formatting in JS/TS buffers
+- Via the ~prettier-js~ package for on-the-fly formatting in JS/TS buffers
 
-The `prettier-js` package runs Prettier as you type or on save, depending on
+The ~prettier-js~ package runs Prettier as you type or on save, depending on
 your settings. It is especially useful for JavaScript and TypeScript projects.
 
 #+begin_src sh :tangle setup.sh
@@ -4151,7 +4151,7 @@ to the source block's language mode, not Org mode.
 
 ** Code metrics
 
-The `cognitive-complexity` package provides real-time code complexity and metrics
+The ~cognitive-complexity~ package provides real-time code complexity and metrics
 overlays in supported programming modes. It can show cyclomatic complexity,
 maintainability index, and other metrics inline, helping you spot complex or
 hard-to-maintain code as you work. It is a port of the known ~codemetrics~ package,
@@ -4174,8 +4174,8 @@ package).
 
 Treesit is a modern incremental parsing library that provides fast,
 accurate syntax trees for programming languages. Originally known
-as `tree-sitter`, it was included into Emacs 29+ as a built-in
-functonality and known as `treesit`, which provides `*-ts-mode`
+as ~tree-sitter~, it was included into Emacs 29+ as a built-in
+functonality and known as ~treesit~, which provides ~*-ts-mode~
 modes with excellent syntax highlighting and structural editing.
 
 Remember to upgrade the versions when possible. New versions might
@@ -4209,7 +4209,7 @@ not be compatible with your current Emacs build.
                '(json "https://github.com/tree-sitter/tree-sitter-json")))
 #+end_src
 
-`treesit-fold` is a syntax-aware folding engine built for the Treesit system
+~treesit-fold~ is a syntax-aware folding engine built for the Treesit system
 in Emacs 29+. Unlike traditional folding that relies on indentation "guessing,"
 it uses a concrete parser to identify the precise boundaries of YAML blocks,
 maps, and lists. This allows for lightning-fast, reliable collapsing of massive
@@ -4310,7 +4310,7 @@ Java. It brings Eclipse-grade analysis—including real-time diagnostics, advanc
 refactoring, and intelligent autocompletion—directly into Emacs, providing full
 IDE capabilities.
 
-**On first use,** =lsp-java= will attempt to download the server automatically
+**On first use,** ~lsp-java~ will attempt to download the server automatically
 if not found, but manual installation is more reliable and allows for custom
 configuration.
 
@@ -4379,11 +4379,11 @@ register_action "Install Java" "java" "jvm"
 #+end_src
 
 
-***** =lsp-java= configuration
+***** ~lsp-java~ configuration
 
-The =lsp-java= package integrates the Java language server, providing rich
+The ~lsp-java~ package integrates the Java language server, providing rich
 editing support for Java projects. We need to configure the path in our Emacs
-configuration (this is set in the =lsp-java= section below).
+configuration (this is set in the ~lsp-java~ section below).
 
 #+begin_src emacs-lisp
 (use-package lsp-java
@@ -4503,7 +4503,7 @@ register_action "Install Kotlin" "kotlin" "jvm"
 #+end_src
 
 
-***** =kotlin-mode= for Emacs
+***** ~kotlin-mode~ for Emacs
 
 Then, we can configure Emacs:
 
@@ -4573,7 +4573,7 @@ register_action "Install TypeScript Language Server" "typescript-language-server
 
 Note that you need to install [[https://nodejs.org/][Node.js]] before proceeding.
 Then, we can configure Emacs. The setup below enables TypeScript mode using
-treesit (=*-ts-mode=):
+treesit (~*-ts-mode~):
 
 #+begin_src emacs-lisp
 (defun my/typescript-register-debug-templates ()
@@ -4649,7 +4649,7 @@ Major mode for editing JavaScript:
 
 *** General Node.js development setup
 
-Node.js REPL integration with `nodejs-repl` package. This provides an interactive
+Node.js REPL integration with ~nodejs-repl~ package. This provides an interactive
 Node.js shell within Emacs, allowing you to run JavaScript code snippets and
 test functions on the fly.
 
@@ -4692,7 +4692,7 @@ We start by adding CSS/SASS inline documentation with eldoc.
 
 Eldoc is a built-in Emacs minor mode that displays function signatures, variable
 documentation, or other context-sensitive help in the minibuffer as you type or
-move the cursor. For CSS and SASS, the `css-eldoc` package integrates with eldoc
+move the cursor. For CSS and SASS, the ~css-eldoc~ package integrates with eldoc
 to show documentation for CSS properties and functions inline, making it much
 easier to remember valid values and arguments without leaving your editor.
 
@@ -4705,7 +4705,7 @@ easier to remember valid values and arguments without leaving your editor.
 
 Then, we setup web-mode for web templates:
 
-`web-mode` is a major mode for editing web templates and component files, such as
+~web-mode~ is a major mode for editing web templates and component files, such as
 HTML, Vue, EJS, Nunjucks, Jinja, Twig, and ERB. It provides syntax highlighting,
 indentation, and structural editing for these formats.
 
@@ -4722,8 +4722,8 @@ indentation, and structural editing for these formats.
 *** Advanced shell development
 
 To enable advanced shell scripting development in Emacs, we enable IDE features
-(completion, go-to-definition, linting) through =lsp-mode=,
-=bash-language-server= and =company-shell= for shell completion.
+(completion, go-to-definition, linting) through ~lsp-mode~,
+~bash-language-server~ and ~company-shell~ for shell completion.
 
 #+begin_src sh :tangle setup.sh
 LSP_BASH_LANGUAGE_SERVER_PATH="$HOME/.emacs.d/.cache/lsp/npm/bash-language-server"
@@ -4806,7 +4806,7 @@ handling these unique editing constraints efficiently.
 *IMPORTANT:* EditorConfig might override this setting! If your =.editorconfig=
 file explicitly sets ~indent_style = space~ for Makefiles, it will force spaces
 even if you configure Emacs to use tabs. To guarantee tab indentation, ensure
-your `.editorconfig` uses `indent_style = tab` for `[Makefile]` or remove
+your =.editorconfig= uses ~indent_style = tab~ for ~[Makefile]~ or remove
 conflicting settings.
 
 #+begin_src emacs-lisp
@@ -4827,11 +4827,11 @@ We also need to configure LSP to support it properly:
 
 **** Autotools (Autoconf/Automake) Support
 
-For projects using the GNU Autotools suite (~configure.ac~, ~Makefile.am~), we
+For projects using the GNU Autotools suite (=configure.ac=, =Makefile.am=), we
 use the ~autotools-language-server~. This provides navigation, diagnostics, and
 autocompletion. We install this via pipx to keep your global environment clean.
 
-We install it here via ~pipx~ (a tool to manage Python applications in isolated
+We install it here via =pipx= (a tool to manage Python applications in isolated
 environments) and use it via the Language Server Protocol (LSP).
 
 #+begin_src sh :tangle setup.sh
@@ -4854,7 +4854,7 @@ register_action "Install Autotools Language Server" "autotools-language-server" 
 *** YAML, JSON and TypeScript
 
 YAML and JSON files are used for configuration in many tools and languages.
-The `yaml-ts-mode` package provides syntax highlighting and indentation for
+The ~yaml-ts-mode~ package provides syntax highlighting and indentation for
 YAML files.
 
 We additionally set up the language id configuration for JSON, TypeScript,
@@ -4881,7 +4881,7 @@ TSX, and JavaScript:
     (treesit-install-language-grammar 'yaml)))
 #+end_src
 
-`yaml-pro` provides a specialized toolkit for structural refactoring and advanced
+~yaml-pro~ provides a specialized toolkit for structural refactoring and advanced
 visibility. It allows you to treat YAML nodes as physical objects, enabling you
 to swap entire nested blocks up or down without breaking indentation. Beyond
 movement, it offers "tree convolution" for restructuring hierarchies
@@ -4919,7 +4919,7 @@ transparent and easy to manipulate safely.
     (define-key map (kbd "C-c v t") (lambda () (interactive) (my/yaml-pro-toggle-feature 'yaml-pro-highlight-tags "Tag")))))
 #+end_src
 
-Finally, here are practical schema configurations for `lsp-yaml` in Emacs,
+Finally, here are practical schema configurations for ~lsp-yaml~ in Emacs,
 covering well-known YAML use cases. Other schemas might be detected
 automatically:
 
@@ -4936,23 +4936,23 @@ automatically:
 
 *** XML
 
-=nxml-mode= is the classic Emacs XML mode and is not a tree-sitter (-ts-) major
-mode. That means buffers visiting XML with =nxml-mode= do not automatically get
+~nxml-mode~ is the classic Emacs XML mode and is not a tree-sitter (-ts-) major
+mode. That means buffers visiting XML with ~nxml-mode~ do not automatically get
 a tree-sitter parser attached. Tree-sitter features require either a
 treesit-backed major mode (which does not exist for XML at the moment) or tools
 that explicitly use the installed grammar regardless of major mode.
 
-The snippet below enables code folding in =nxml-mode= by configuring the built-in =hs-minor-mode= (Hide/Show minor
-mode) for XML syntax. By default, =hs-minor-mode=` does not support XML or SGML
+The snippet below enables code folding in ~nxml-mode~ by configuring the built-in ~hs-minor-mode~ (Hide/Show minor
+mode) for XML syntax. By default, ~hs-minor-mode~ does not support XML or SGML
 out of the box. This adaptation lets you fold and unfold XML sections, making it
 easier to work with large, deeply nested XML files.
 
 The configuration works by adding XML-specific patterns to the
-=hs-special-modes-alist=, which tells =hs-minor-mode= how to recognize the start
+=hs-special-modes-alist=, which tells ~hs-minor-mode~ how to recognize the start
 and end of foldable blocks in XML. It also sets up a hook so that whenever you
-enter =nxml-mode=, =hs-minor-mode= is automatically enabled. Furthermore, it
-customizes the key binding `C-<tab>` to toggle code folding—but if
-=treesit-fold= is not currently active, to prevent conflicts.
+enter ~nxml-mode~, ~hs-minor-mode~ is automatically enabled. Furthermore, it
+customizes the key binding =C-<tab>= to toggle code folding—but if
+~treesit-fold~ is not currently active, to prevent conflicts.
 
 This solution was adapted from the approach discussed on Emacs Stack Exchange:
 https://emacs.stackexchange.com/questions/2884/the-old-how-to-fold-xml-question
@@ -4980,7 +4980,7 @@ https://emacs.stackexchange.com/questions/2884/the-old-how-to-fold-xml-question
 
 *** Markdown
 
-Adding support for editing Markdown files with `markdown-mode`.
+Adding support for editing Markdown files with ~markdown-mode~.
 
 #+begin_src emacs-lisp
 (use-package markdown-mode
@@ -5109,10 +5109,10 @@ register_action "Install PlantUML" "plantuml" "standalone"
 
 *** Dockerfile and docker-compose
 
-Dockerfile support is provided by the `dockerfile-mode` package, which enables
+Dockerfile support is provided by the ~dockerfile-mode~ package, which enables
 syntax highlighting and editing for Dockerfiles. For Docker Compose YAML files,
-we do not use the available `docker-compose-mode` because it cannot be used
-together with the `yaml-ts-mode` (they are both major modes).
+we do not use the available ~docker-compose-mode~ because it cannot be used
+together with the ~yaml-ts-mode~ (they are both major modes).
 
 #+begin_src emacs-lisp
 (use-package dockerfile-mode
@@ -5128,40 +5128,40 @@ Docker containers, ensuring consistent development environments across different
 machines.
 
 The package provides commands to build, launch, stop, and manage devcontainer,
-and automatically forwards `compile` commands into the devcontainer so builds
+and automatically forwards =compile= commands into the devcontainer so builds
 and tests run inside the container environment.
 
 **** Prerequisites:
 
 To prepare our environment, we need the following:
 
-- [[https://github.com/devcontainers/cli][devcontainers/cli]]: The official command-line interface for the Dev Containers
++ [[https://github.com/devcontainers/cli][devcontainers/cli]]: The official command-line interface for the Dev Containers
   specification. It allows you to build, run, and manage development container
-  environments defined by a `devcontainer.json` file independently of the IDE
+  environments defined by a =devcontainer.json= file independently of the IDE
   extension. It is already added to the =nodejs_tools= in this folder, but it
   requires you to run =npm install=.
 
-- ~Container Runtime~: Have a functioning installation of either Docker or Podman.
++ =Container Runtime= - Have a functioning installation of either Docker or Podman.
 
-- ~Docker Compose~: Required only if your Dev Containers configuration relies on it.
++ =Docker Compose= - Required only if your Dev Containers configuration relies on it.
 
 
 **** Configuration:
 
 The devcontainer.el package is configured as follows:
 
-- ~Global Mode~ : The =devcontainer-mode= is enabled globally to automatically
+- =Global Mode= - The ~devcontainer-mode~ is enabled globally to automatically
   intercept and forward compilation commands to the active container.
-- ~Backend Engine~ : The =devcontainer-container-engine= can be toggled between
-  ='docker= (default) or ='podman=, depending on your environment.
-- ~Host Execution~ : Programs listed in =devcontainer-execute-outside-container=
+- =Backend Engine= - The ~devcontainer-container-engine~ can be toggled between
+  ~'docker~ (default) or ~'podman~, depending on your environment.
+- =Host Execution= - Programs listed in ~devcontainer-execute-outside-container~
   (e.g., =grep=) run directly on the host to avoid container latency and improve
   performance.
-- ~CLI Integration~ : The package automatically detects and utilizes the local
+- =CLI Integration= - The package automatically detects and utilizes the local
   Dev Containers CLI from =nodejs_tools/=, ensuring portability without requiring
   global Node.js installations.
 
-When =devcontainer-mode= is active, all `compile` commands are automatically forwarded
+When ~devcontainer-mode~ is active, all =compile= commands are automatically forwarded
 into the devcontainer. Your local working directory is typically mounted into the
 container, so you edit files normally, but builds and tests run inside the container.
 
@@ -5170,11 +5170,11 @@ Alternatively, you can use TRAMP to edit files directly inside the container usi
 
 All interactive functions use the =devcontainer-= prefix:
 
-- =M-x devcontainer-up= - Start the devcontainer for the current project
-- =M-x devcontainer-restart= - Stop and restart the devcontainer
-- =M-x devcontainer-rebuild-and-restart= - Rebuild and restart (useful after Dockerfile changes)
-- =M-x devcontainer-execute-command= - Execute an arbitrary command inside the container
-- =M-x devcontainer-term= - Launch a terminal inside the container
++ =M-x devcontainer-up= - Start the devcontainer for the current project
++ =M-x devcontainer-restart= - Stop and restart the devcontainer
++ =M-x devcontainer-rebuild-and-restart= - Rebuild and restart (useful after Dockerfile changes)
++ =M-x devcontainer-execute-command= - Execute an arbitrary command inside the container
++ =M-x devcontainer-term= - Launch a terminal inside the container
 
 #+begin_src emacs-lisp
 (use-package devcontainer
@@ -5261,7 +5261,7 @@ container should have Node.js and language server extensions installed.
 
 * Project management
 
-Project management in Emacs is handled by the built-in `project` package, which provides
+Project management in Emacs is handled by the built-in ~project~ package, which provides
 a unified interface for working with projects. To enhance the project management experience,
 we can integrate Magit, a popular Git interface for Emacs, into the project switch commands
 
@@ -5383,7 +5383,7 @@ key.
   "List of functions to run before saving a file.")
 
 (defun my/run-save-hooks ()
-  "Run all functions in `my/save-hooks`."
+  "Run all functions in `my/save-hooks'."
   (run-hooks 'my/save-hooks))
 
 (add-hook 'before-save-hook #'my/run-save-hooks)
