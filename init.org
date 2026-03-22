@@ -1188,6 +1188,7 @@ completing read commands using IDO.
   ;; "defer" is needed to prevent errors during initialization in some systems
   :defer t
   :config
+  (declare-function ido-ubiquitous-mode "ido-completing-read+")
   (ido-ubiquitous-mode 1))
 #+end_src
 
@@ -1209,6 +1210,7 @@ helping you concentrate on the task at hand.
   ;; "defer" is needed to prevent errors during initialization in some systems
   :defer t
   :config
+  (declare-function focus-mode "focus")
   (focus-mode 1))
 #+end_src
 
@@ -1317,6 +1319,16 @@ even if a mode overrides them later. Note that these settings are
 intended to be overridden by ~editorconfig-mode~, if in use.
 
 #+begin_src emacs-lisp
+(defvar sh-basic-offset)
+(defvar sh-indentation)
+(defvar c-basic-offset)
+(defvar js-indent-level)
+(defvar typescript-indent-level)
+(defvar css-indent-offset)
+(defvar python-indent-offset)
+(defvar nxml-child-indent)
+(defvar coffee-tab-width)
+
 (defun my/default-indentation ()
   "Apply my preferred 2-space indentation settings across modes.
 These settings are intended to be overridden by `editorconfig-mode'."
@@ -1468,6 +1480,7 @@ of network latency.
 #+begin_src emacs-lisp
 (defun my/lsp-remote-safety-hook ()
   "Apply restrictive LSP settings only when working on TRAMP/remote buffers."
+  (declare-function tramp-tramp-file-p "tramp")
   (when (tramp-tramp-file-p default-directory)
     ;; Kill the heavy watchers that cause TRAMP file-missing errors
     (setq-local lsp-enable-file-watchers nil)
@@ -1807,7 +1820,9 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
                  (file-remote-p folder))
         (condition-case _err
             (let* ((tfn (tramp-dissect-file-name folder))
-                   (local (when tfn (tramp-file-name-localname tfn))))
+                   (local (when tfn
+                            (declare-function tramp-file-name-localname "tramp")
+                            (tramp-file-name-localname tfn))))
               (when (and local (file-exists-p local))
                 (setq folder (file-name-as-directory (expand-file-name local)))))
           (error nil)))
@@ -1899,14 +1914,15 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
   ;; using =C-x p k= to close all buffers in the open project.
   (declare-function treemacs-refresh "treemacs")
   (defun my/treemacs-refresh-after-file-or-dired ()
-    "Refresh Treemacs after opening a file or reading Dired, but only for local files/projects.
-Skips remote (TRAMP) paths to avoid lockups. Can be hooked to both `find-file-hook' and `dired-after-readin-hook'."
+    "Refresh Treemacs after opening a file or reading Dired.
+Runs only for local files/projects. Skips remote (TRAMP) paths to avoid
+lockups. Can be hooked to both `find-file-hook' and `dired-after-readin-hook'."
     (when (and (treemacs-get-local-window)
                (not (file-remote-p (or (buffer-file-name) default-directory))))
       (ignore-errors (treemacs-refresh))))
 
-  (add-hook 'find-file-hook #'my/treemacs-refresh-after-file-or-dired)
-  (add-hook 'dired-after-readin-hook #'my/treemacs-refresh-after-file-or-dired)
+  (add-hook 'find-file-hook 'my/treemacs-refresh-after-file-or-dired)
+  (add-hook 'dired-after-readin-hook 'my/treemacs-refresh-after-file-or-dired)
 
   ;; Start Treemacs
   (treemacs))
@@ -2343,6 +2359,7 @@ We can also call =rg-dwim= or =rg= and give any path.
   (rg-enable-menu)
   (setq wgrep-auto-save-buffer t) ; Save wgrep buffers automatically after editing
 
+  (declare-function project-roots "project")
   (defun my/counsel-rg-project-prompt ()
     "Prompt for directory, default to project root if available."
     (interactive)
@@ -2360,12 +2377,17 @@ We can also call =rg-dwim= or =rg= and give any path.
            (dir (read-directory-name "Search directory: " proj-root nil t)))
       (counsel-rg nil dir)))
 
+  (declare-function transient-quit-all "transient")
+  (declare-function my/counsel-rg-project-prompt nil)
   (defun my/rg-abort-to-counsel ()
     "Abort the current transient menu and launch counsel-rg."
     (interactive)
     (transient-quit-all)
     (my/counsel-rg-project-prompt))
 
+  (declare-function transient-suffix-object "transient")
+  (declare-function transient-lisp-variable "transient")
+  (declare-function rg-menu-transient-insert "rg")
   (transient-define-infix my/search-case-strategy ()
     :class 'transient-lisp-variable
     :variable 'rg-ignore-case
@@ -2519,7 +2541,8 @@ values, ensuring the plain-text secret never appears in the main buffer.
   "List of keywords that trigger cloaking.")
 
 (defun my/get-cloak-regex (sep)
-  "Shortened regex for cloak-mode. Group 1 is the hidden value."
+  "Regex for cloak-mode. SEP is the separator between key and value.
+Only the value is hidden."
   (let ((kw (regexp-opt my/cloak-keywords)))
     (concat "^[ \t]*[^" sep "\n]*" kw "[^" sep "\n]*"
             sep "[ \t]*[\"']?\\(.*?\\)[\"']?$")))
@@ -3137,7 +3160,8 @@ This might limit how ECA works. I will revisit this solution in the future.
 
 #+begin_src emacs-lisp
 (defun my/eca-chat-track-cursor-safeguard (orig-fun &rest args)
-  "Wrap the package's tracking function to prevent remote TRAMP spamming."
+  "Wrap the package's tracking function to prevent remote TRAMP spamming.
+Applies ORIG-FUN with ARGS."
   (if (file-remote-p default-directory)
       ;; SAFETY: If remote, skip the heavy probe to prevent freezing
       nil
@@ -3309,7 +3333,8 @@ Useful if the index gets out of sync or files are manually deleted."
 
 ;; Navigation commands
 (defun my/eca-chat-mark-buffer (&optional proj-context)
-  "Mark buffer as ECA and read-only, safely set project context."
+  "Mark buffer as ECA and read-only, safely set project context.
+Uses PROJ-CONTEXT."
   (read-only-mode 1)
   (setq-local my/eca-chat-buffer t)
   (when proj-context
@@ -3405,12 +3430,12 @@ Preserves the current project context when opening linked files.
 (defun my/eca-chat-restore-project-context (orig-fun &rest args)
   "Return the original project context for ECA chat buffers, with local filtering.
 
-This function acts as a 'Firewall'. It intercepts calls to 'project-current'.
+This function acts as a firewall: it intercepts calls to `project-current'.
 If an ECA chat buffer is trapped in a bad state, it cleans the directory
-locally before allowing the original 'project-current' function to execute.
+locally before allowing the original `project-current' function to execute.
 
 This avoids infinite recursion by not calling filesystem primitives like
-'file-directory-p' through an advice wrapper.
+`file-directory-p' through an advice wrapper.
 
 - ORIG-FUN is the original function passed by advice.
 - ARGS: Arguments passed to the original function."
@@ -4902,6 +4927,12 @@ transparent and easy to manipulate safely.
     (message "YAML %s highlighting: %s" name (if (symbol-value var) "Enabled" "Disabled")))
 
   :config
+  (defvar yaml-pro-set-colors)
+  (declare-function yaml-pro-move-up "yaml-pro")
+  (declare-function yaml-pro-move-down "yaml-pro")
+  (declare-function yaml-pro-up-level "yaml-pro")
+  (declare-function yaml-pro-down-level "yaml-pro")
+  (declare-function yaml-pro-convolute-tree "yaml-pro")
   (setq yaml-pro-set-colors t)
 
   (let ((map custom-bindings-map))
@@ -4925,6 +4956,7 @@ automatically:
 
 #+begin_src emacs-lisp
 (with-eval-after-load 'lsp-yaml
+  (defvar lsp-yaml-schemas)
   (setq lsp-yaml-schemas
         '(:https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json
           ["**/docker-compose*.ya*ml"]
@@ -4974,6 +5006,7 @@ https://emacs.stackexchange.com/questions/2884/the-old-how-to-fold-xml-question
             ;; Bind C-<tab> to hs toggle only when noxml-fold or treesit-fold
             ;; are not active to avoid conflicts with those handlers.
             (unless (bound-and-true-p treesit-fold-mode)
+              (declare-function hs-toggle-hiding "hideshow")
               (local-set-key (kbd "C-<tab>") #'hs-toggle-hiding))))
 #+end_src
 
@@ -5023,6 +5056,7 @@ practice using environment-specific files such as =.env.development=,
 'dotenv-mode
 (add-hook 'dotenv-mode-hook
           (lambda ()
+            (declare-function lsp-mode "lsp-mode")
             (lsp-mode -1)
             (font-lock-add-keywords nil
                                     '(("\\(^\\|\\s-\\)\\([A-Z0-9_]+\\)\\s-*="
@@ -5194,6 +5228,7 @@ All interactive functions use the =devcontainer-= prefix:
   ;; Optional: Hook to open dired inside container after startup
   (add-hook 'devcontainer-post-startup-hook 'devcontainer-tramp-dired)
 
+  (declare-function devcontainer--read-devcontainer-json "devcontainer")
   (defun my/get-devcontainer-shell ()
     "Searches for a shell preference in devcontainer.json.
 Falls back to VS Code settings if a shell is not found."
@@ -5210,8 +5245,10 @@ Falls back to VS Code settings if a shell is not found."
                (gethash "terminal.integrated.defaultProfile.linux" settings)))))
       (error nil)))
 
+  (declare-function my/get-devcontainer-shell nil)
   (defun my/vterm-use-devcontainer-shell-advice (orig-fun &rest args)
-    "Advice for `vterm' to use `devcontainer-term-shell' when in a container."
+    "Advice for `vterm' to use `devcontainer-term-shell' when in a container.
+Applies ORIG-FUN with ARGS."
     (let ((vterm-shell (if (and (bound-and-true-p devcontainer-mode)
                                 (tramp-tramp-file-p default-directory)
                                 (let ((method (tramp-file-name-method (tramp-dissect-file-name default-directory))))
@@ -5223,16 +5260,16 @@ Falls back to VS Code settings if a shell is not found."
       (apply orig-fun args)))
 
   (with-eval-after-load 'vterm
-    (advice-add 'vterm :around #'my/vterm-use-devcontainer-shell-advice))
+    (advice-add 'vterm :around 'my/vterm-use-devcontainer-shell-advice))
 
   ;; Optimization: Skip customizations on remote files to prevent TRAMP freeze
   (defun my/devcontainer-skip-remote-customization-advice (orig-fun &rest args)
-    "Skip `devcontainer--read-and-apply-customizations' for remote files."
+    "Skip `devcontainer--read-and-apply-customizations' for remote files.
+Applies ORIG-FUN with ARGS."
     (unless (file-remote-p (or (buffer-file-name) default-directory))
       (apply orig-fun args)))
 
-  (advice-add 'devcontainer--read-and-apply-customizations :around #'my/devcontainer-skip-remote-customization-advice)
-  )
+  (advice-add 'devcontainer--read-and-apply-customizations :around 'my/devcontainer-skip-remote-customization-advice))
 #+end_src
 
 
