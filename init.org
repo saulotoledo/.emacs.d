@@ -2296,7 +2296,12 @@ overlays.
                    :background unspecified
                    :height 85)))
   :config
-  (global-blamer-mode 1))
+  (defun my/toggle-blamer ()
+    "Toggle global-blamer-mode on and off."
+    (interactive)
+    (global-blamer-mode 'toggle))
+
+  (define-key custom-bindings-map (kbd "C-c b") 'my/toggle-blamer))
 #+end_src
 
 
