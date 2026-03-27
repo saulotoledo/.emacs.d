@@ -1602,20 +1602,27 @@ and a safe frame-size reapply as a fallback.
 
 This is intentionally conservative (ignore-errors) and only runs when
 display is non-graphical, so it is safe for GUI Emacs too."
-  (ignore-errors
-    (redisplay)
-    (when (not (display-graphic-p))
-      (run-with-idle-timer 0.03 nil (lambda () (redisplay)))
-      (run-with-idle-timer 0.07 nil (lambda () (redisplay) (ignore-errors (recenter 0))))
-      (run-with-idle-timer 0.15 nil
-                           (lambda ()
-                             (redisplay)
-                             (ignore-errors (recenter 0))
-                             (when (and (not (display-graphic-p)) (fboundp 'set-frame-size))
-                               (let ((fw (frame-width)) (fh (frame-height)))
-                                 (condition-case _err
-                                     (set-frame-size (selected-frame) fw fh)
-                                   (error nil)))))))))
+  (interactive)
+  (let ((dap-active (and (fboundp 'dap--cur-session) (dap--cur-session))))
+    (if dap-active
+        ;; If DAP is active, we print a message and EXIT immediately.
+        ;; This prevents it from running unnecessary timers when debugging
+        ;; when using DAP.
+        (message "[DEBUG] Skipping tty-resize-fix because DAP is active.")
+
+      ;; Otherwise, proceed with the original logic
+      (ignore-errors
+        (when (not (display-graphic-p))
+          (redisplay)
+          (run-with-idle-timer 0.03 nil (lambda () (redisplay)))
+          (run-with-idle-timer 0.07 nil (lambda () (redisplay) (ignore-errors (recenter 0))))
+          (run-with-idle-timer 0.15 nil
+                               (lambda ()
+                                 (redisplay)
+                                 (ignore-errors (recenter 0))
+                                 (when (fboundp 'set-frame-size)
+                                   (let ((fw (frame-width)) (fh (frame-height)))
+                                     (set-frame-size (selected-frame) fw fh))))))))))
 
 (add-hook 'window-size-change-functions #'my/tty-resize-fix)
 (add-hook 'frame-size-change-functions #'my/tty-resize-fix)
@@ -4182,7 +4189,82 @@ you set breakpoints, step through code, and inspect variables for many languages
 (use-package dap-mode
   :after lsp-mode
   :init
-  (dap-auto-configure-mode))
+  (dap-auto-configure-mode)
+  :bind
+  (("<f6>" . dap-next)
+   ("<f7>" . dap-step-in)
+   ("<f8>" . dap-step-out)
+   ("<f9>" . dap-breakpoint-toggle))
+  :config
+  ;; dap-continue needs a debug session running, so we need to configure
+  ;; dap-debug, and this depends on the language being handled. For now
+  ;; I assigned it conditionally below, but this does not work if a session
+  ;; was not started before somehow. I plan to use <f5> to a smart function
+  ;; that first compiles the project, then run dap-continue for the next
+  ;; triggers. But this has to be done for each language we need this in.
+  ;; place. I will probably refactor this behavior to be more automatic later.
+  (unless (local-key-binding (kbd "<f5>"))
+    (local-set-key (kbd "<f5>") 'dap-continue))
+
+  ;; The following set of configs are needed to prevent Emacs UI freezes
+  ;; or running expensive operations when dap-mode is actively debugging.
+  (with-eval-after-load 'treemacs
+    ;; Below we skip Treemacs-based UI for DAP to prevent freezes.
+    ;;
+    ;; SCENARIO: Even in Graphical Emacs, "Terminal" issues can occur because
+    ;; Emacs communicates with GDB/DAP via hidden pseudo-terminals (ptys).
+    ;; DAP-UI's aggressive 0.2s idle timers trigger `lsp-treemacs-generic-update`,
+    ;; creating a "Redraw Storm."
+    ;;
+    ;; THE PROBLEM: Emacs is single-threaded. It spends so much CPU calculating
+    ;; complex Treemacs tree nodes (the "UI logic") that it becomes "deaf" to
+    ;; your keyboard/mouse input, effectively freezing the entire Frame.
+    ;;
+    ;; INVESTIGATION: If Emacs locks up, use `M-x toggle-debug-on-quit`.
+    ;; Pressing `C-g` during the freeze will interrupt the loop and show the
+    ;; "Timer Thief" (usually `dap-ui-locals--refresh` or `treemacs-update-node`).
+    ;;
+    ;; THE FIX: We advise the refresh functions to "mute" the Treemacs-specific
+    ;; update logic. This ensures the UI stays responsive during debug sessions.
+    (defun my/dap-ui-no-treemacs-refresh (orig-fun &rest args)
+      "Inhibit the Treemacs-based UI for DAP and use the native faster one."
+      (cl-letf (((symbol-function 'lsp-treemacs-generic-update) (lambda (&rest _) nil)))
+        (apply orig-fun args)))
+
+    (advice-add 'dap-ui-locals--refresh :around #'my/dap-ui-no-treemacs-refresh)
+    (advice-add 'dap-ui-breakpoints--refresh :around #'my/dap-ui-no-treemacs-refresh))
+
+  ;; A few other improvements that might be useful in the future. For now I've
+  ;; disabled them because they are not freezing Emacs, but they seem to work.
+  ;;
+  ;; (with-eval-after-load 'lsp-mode
+  ;;     (defun my/lsp-deferred-guard (orig-fun &rest args)
+  ;;       "Skip `lsp-deferred' if a DAP session is currently active.
+  ;; This prevents the 'startup storm' of timers when DAP opens multiple windows."
+  ;;       (if (and (fboundp 'dap--cur-session) (dap--cur-session))
+  ;;           (message "[DEBUG] Skipping lsp-deferred: DAP session is active.")
+  ;;         (apply orig-fun args)))
+  ;;
+  ;;     (advice-add 'lsp-deferred :around #'my/lsp-deferred-guard))
+  ;;
+  ;;   (defun my/dap-debug-quiet (orig-fun &rest args)
+  ;;     "Run `dap-debug' with lsp-autoconfigure and window hooks inhibited.
+  ;; It inhibit expensive hooks while DAP is spinning up windows."
+  ;;     (let ((lsp-auto-configure nil)
+  ;;           ;; Prevent lsp-mode from reacting to each new debugger window
+  ;;           (window-configuration-change-hook nil))
+  ;;       (apply orig-fun args)))
+  ;;
+  ;;   (advice-add 'dap-debug :around #'my/dap-debug-quiet)
+  ;; (defun my/lsp-ui-mode-guard (orig-fun &rest args)
+  ;;   "Inhibit `lsp-ui-mode' and its components if a DAP session is active."
+  ;;   (if (and (fboundp 'dap--cur-session) (dap--cur-session))
+  ;;       (message "[DEBUG] Inhibiting lsp-ui-mode: DAP session is active.")
+  ;;     (apply orig-fun args)))
+  ;;
+  ;; (advice-add 'lsp-ui-mode :around #'my/lsp-ui-mode-guard)
+  ;; (advice-add 'lsp-ui-doc-mode :around #'my/lsp-ui-mode-guard)
+  )
 #+end_src
 
 
@@ -5030,7 +5112,6 @@ This setup provides a modern shell scripting experience in Emacs with LSP featur
 
 **** Makefile Configuration
 
-
 Makefiles are scripts used by the =make= tool to automate software builds. They
 have specific requirements: all recipe lines must be indented with a tab
 character by default, not spaces, for =make= to work correctly. This section
@@ -5056,6 +5137,50 @@ We also need to configure LSP to support it properly:
 #+begin_src emacs-lisp
 (with-eval-after-load 'lsp-mode
   (add-to-list 'lsp-language-id-configuration '(makefile-gmake-mode . "makefile")))
+#+end_src
+
+Finally, we add a "smart compile" to Emacs based on Makefile when they are
+available:
+
+#+begin_src emacs-lisp
+(defun my/smart-compile (&optional debug-p)
+  "Build the project using a Makefile if found, otherwise prompt for a command.
+If DEBUG-P is non-nil (e.g., via C-u or a specific keybinding), it attempts
+to run 'make compile-for-debug'. If that target doesn't exist, it warns the user
+and falls back to an interactive prompt.
+Without DEBUG-P, it runs 'make -k' automatically if a Makefile exists."
+  (interactive "P")
+  (let* ((prj (project-current))
+         (root (if prj (project-root prj) default-directory))
+         (m-file-dir (locate-dominating-file default-directory "Makefile"))
+         (has-makefile (and m-file-dir (file-in-directory-p m-file-dir root))))
+    (cond
+     ;; Valid Makefile + Debug requested + Debug target exists
+     ((and debug-p has-makefile
+           (let ((default-directory m-file-dir))
+             (zerop (shell-command "make -qp | grep -q '^compile-for-debug:'"))))
+      (let ((default-directory m-file-dir))
+        (compile "make -k compile-for-debug")))
+
+     ;; Debug requested but target is missing (Show message then prompt)
+     ((and debug-p has-makefile)
+      (message "No 'compile-for-debug' target found in Makefile. Asking what to do...")
+      (sit-for 1.0)
+      (call-interactively 'compile))
+
+     ;; Standard build (No debug-p) with a Makefile
+     ((and (not debug-p) has-makefile)
+      (let ((default-directory m-file-dir))
+        (compile "make -k")))
+
+     ;; Fallback (No Makefile or other cases)
+     (t (call-interactively 'compile)))))
+
+(add-hook 'prog-mode-hook
+          (lambda ()
+            (local-set-key (kbd "M-<f4>") 'compile)
+            (local-set-key (kbd "C-<f4>") (lambda () (interactive) (my/smart-compile t)))
+            (local-set-key (kbd "<f4>") 'my/smart-compile)))
 #+end_src
 
 
