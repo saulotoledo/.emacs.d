@@ -338,6 +338,8 @@ MENU_INDICES=()
 MENU_SELECTED_INDICES=()
 INSTALLED_ITEMS=()
 
+declare -A SYSTEM_PACKAGES_MAP
+
 # --- Installer Group Titles (Order defines UI sequence) ---
 INSTALLER_GROUPS=(
   "secrets|Security & Credentials"
@@ -408,6 +410,12 @@ run_task() {
     echo -ne "  ${UNCHECK_COLOR}→${NC} ${label}... "
     local tmp_log
     tmp_log=$(mktemp)
+
+    if [[ "$cmd" == *"sudo"* ]] && ! sudo -n true 2>/dev/null; then
+      # Move cursor to the next line for the password prompt
+      # and do not break the UI:
+      echo ""
+    fi
 
     if eval "$cmd" > "$tmp_log" 2>&1; then
       echo -e "${CHECK_COLOR}[OK]${NC}"
@@ -510,6 +518,30 @@ get_group_title() {
   echo "$search_key"
 }
 
+get_os_family() {
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "mac"
+    return 0
+  fi
+
+  if [[ -f /etc/os-release ]]; then
+    local os_id
+    os_id=$(grep -i '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"' | tr -d "'" | tr '[:upper:]' '[:lower:]')
+
+    case "$os_id" in
+      "fedora"|"rhel"|"centos") echo "fedora" ;;
+      "ubuntu"|"debian"|"pop"|"mint") echo "debian-ubuntu" ;;
+      "alpine") echo "alpine" ;;
+      ,*) echo "$os_id" ;;
+    esac
+    return 0
+  fi
+
+  echo "unknown"
+}
+
+OS_FAMILY=$(get_os_family)
+
 # --- Interactive Menu ---
 menu_select_actions() {
   declare -n _indices=$1
@@ -520,97 +552,91 @@ menu_select_actions() {
   for i in "${!_indices[@]}"; do selected[i]=0; done
 
   tput civis
+  stty -echo -icanon isig
   clear
-  trap "tput cnorm; exit" INT TERM
+  trap "stty echo icanon; tput cnorm; exit" INT TERM EXIT
 
   while true; do
     tput cup 0 0
+    local frame=""
     print_titled_header "Select the actions to perform"
 
     for i in "${!_indices[@]}"; do
       local idx=${_indices[$i]}
       IFS='|' read -r name _ _ _ _ <<< "${TOOLS[$idx]}"
-
       local pointer="  "
       local bracket="[ ]"
-
-      # Visual styling for the current cursor position
-      if [[ $i -eq $cursor ]]; then
-        pointer="${TITLE_COLOR}> ${NC}"
-        # We can add a subtle bold or color to the line itself
-        echo -ne "${pointer}"
-      else
-        echo -ne "  "
-      fi
-
+      [[ $i -eq $cursor ]] && pointer="${TITLE_COLOR}> ${NC}"
       [[ ${selected[$i]} -eq 1 ]] && bracket="${CHECK_COLOR}[✓]${NC}"
 
       if [[ $i -eq $cursor ]]; then
-        echo -e "${bracket} ${TITLE_COLOR}${name}${NC}$(tput el)"
+        frame+="  ${pointer}${bracket} ${TITLE_COLOR}${name}${NC}$(tput el)\n"
       else
-        echo -e "${bracket} ${name}$(tput el)"
+        frame+="    ${bracket} ${name}$(tput el)\n"
       fi
     done
 
-    # --- Legend ---
-    echo -e "${TITLE_COLOR}────────────────────────────────────────────────────${NC}"
-    # Using printf for exact alignment
-    printf " %b↑/↓/n/p%b Navigate  %bSPACE%b Toggle  %bENTER%b Run  %bA%b Abort\n" \
-        "${KEY_COLOR}" "${NC}" \
-        "${KEY_COLOR}" "${NC}" \
-        "${CHECK_COLOR}" "${NC}" \
-        "${ERR_COLOR}" "${NC}"
-    echo -e "${TITLE_COLOR}────────────────────────────────────────────────────${NC}"
-    tput ed # Clear everything below the legend to prevent ghosting
+    frame+="${TITLE_COLOR}────────────────────────────────────────────────────${NC}\n"
+    frame+=" $(printf "%b↑/↓/n/p%b Navigate  %bSPACE%b Toggle  %bENTER%b Run  %bA%b Abort" "${KEY_COLOR}" "${NC}" "${KEY_COLOR}" "${NC}" "${CHECK_COLOR}" "${NC}" "${ERR_COLOR}" "${NC}")\n"
+    frame+="${TITLE_COLOR}────────────────────────────────────────────────────${NC}\n"
+    frame+="$(tput ed)"
 
-    # Use -d '' to prevent 'read' from stopping at a newline character
-    # and IFS= to preserve the literal character
-    IFS= read -rsn1 -d '' key
+    echo -ne "$frame"
 
-    # Handle Escape Sequences (Arrows)
-    if [[ $key == $'\e' ]]; then
-      read -rsn2 -t 0.05 next_chars
-      case "$next_chars" in
-        "[A") key="UP" ;;
-        "[B") key="DOWN" ;;
-      esac
-    fi
+    # Input gatekeeper: wait for the first interaction
+    local key
+    if ! IFS= read -rsn1 key; then break; fi
 
+    # Then we process the immediate key
     case "$key" in
-      "p"|"UP")
-        if [[ $cursor -eq 0 ]]; then
-          cursor=$((num_items - 1))
-        else
-          ((cursor--))
-        fi
+      $'\e')
+        read -rsn2 -t 0.01 seq
+        [[ "$seq" == "[A" ]] && ((cursor = (cursor - 1 + num_items) % num_items))
+        [[ "$seq" == "[B" ]] && ((cursor = (cursor + 1) % num_items))
         ;;
-      "n"|"DOWN")
-        if [[ $cursor -eq $((num_items - 1)) ]]; then
-          cursor=0
-        else
-          ((cursor++))
-        fi
-        ;;
-
-      # Toggle (Space)
-      " ")
-        ((selected[cursor] ^= 1))
-        ;;
-
+      " ") ((selected[cursor] ^= 1)) ;;
+      "p") ((cursor = (cursor - 1 + num_items) % num_items)) ;;
+      "n") ((cursor = (cursor + 1) % num_items)) ;;
       # The "Triple-Catch" for Enter:
       # 1. $'\x0a' (Line Feed)
       # 2. $'\x0d' (Carriage Return)
       # 3. "" (Empty string - often how read -n1 returns a newline)
-      $'\x0a'|$'\x0d'|"")
-        break
-        ;;
-
-      "a"|"A")
-        tput cnorm; clear; log_error "Setup aborted."; exit 1
-        ;;
+      $'\x0a'|$'\x0d'|"") break ;;
+      "a"|"A") stty echo icanon; tput cnorm; clear; exit 1 ;;
     esac
+
+    # Below we drain the buffer and jump to the last key
+    # We attempt to read a large chunk (100 chars) that accumulated
+    # while the script was redrawing. This might happen when keeping
+    # the key pressed and the keyboard sends repeated keys fast:
+    local extra=""
+    if IFS= read -rsn100 -t 0.01 extra; then
+      # If the chunk contains arrow sequences, find the LAST one
+      # and move the cursor there immediately.
+      if [[ "$extra" == *$'\e[A'* ]]; then
+        ((cursor = (cursor - 1 + num_items) % num_items))
+      elif [[ "$extra" == *$'\e[B'* ]]; then
+        ((cursor = (cursor + 1) % num_items))
+      fi
+
+      # Clear any toggles (spaces) that were in the burst
+      local space_count=$(echo "$extra" | tr -cd ' ' | wc -c)
+      if (( space_count > 0 )); then
+         # This part is tricky; usually we don't want to "burst" toggle
+         # but we can toggle the current cursor if spaces were found.
+         ((selected[cursor] ^= (space_count % 2)))
+      fi
+
+      # Immediately drop everything else in the hardware buffer.
+      # This stops the "sliding" effect when pressing and holding the key.
+      stty flush ioproc >/dev/null 2>&1
+    fi
+
+    # Giving the terminal some time to breath
+    sleep 0.01
   done
 
+  stty echo icanon
   tput cnorm
   clear
 
@@ -656,24 +682,145 @@ run_menu() {
   menu_select_actions MENU_INDICES
 }
 
-install_system_packages() {
-  local friendly_name="$1"
-  shift
-  local packages=("$@")
+get_safe_key() {
+  echo "$1" | xargs | tr '[:upper:]' '[:lower:]' | sed 's/+/p/g' | tr '-' '_'
+}
 
-  local cmd=""
-  if [ -f /etc/debian_version ]; then
-    cmd="sudo DEBIAN_FRONTEND=noninteractive apt update && sudo apt install -y ${packages[*]}"
-    local os_label="Debian/Ubuntu"
-  elif [ -f /etc/fedora-release ] || command -v dnf >/dev/null 2>&1; then
-    cmd="sudo dnf install -y ${packages[*]}"
-    local os_label="Fedora/RHEL"
-  else
-    log_error "OS not supported for auto-installation. Please install $friendly_name manually."
+register_system_package() {
+  local friendly_name="$1"
+  local internal_key
+  internal_key=$(get_safe_key "$friendly_name")
+
+  shift
+
+  SYSTEM_PACKAGES_MAP["$internal_key"]+="${SYSTEM_PACKAGES_MAP["$internal_key"]:+ }$*"
+}
+
+get_registered_package_name() {
+  local friendly_name="$1"
+  local internal_key
+  internal_key=$(get_safe_key "$friendly_name")
+  local all_mappings="${SYSTEM_PACKAGES_MAP["$internal_key"]}"
+
+  [[ -z "$all_mappings" ]] && return 1
+
+  for mapping in $all_mappings; do
+    if [[ "$mapping" == "$OS_FAMILY:"* ]]; then
+      echo "${mapping#*:}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+print_system_packages_map() {
+  echo -e "${TITLE_COLOR}Current System Package Mappings:${NC}"
+  echo "────────────────────────────────────────────────────"
+
+  # Check if the map is empty first
+  if [[ ${#SYSTEM_PACKAGES_MAP[@]} -eq 0 ]]; then
+    echo "  (Map is empty. Ensure 'declare -A SYSTEM_PACKAGES_MAP' is at the top.)"
     return 1
   fi
 
-  run_task "System: Installing $friendly_name ($os_label)" "$cmd"
+  # Iterate through all keys in the associative array
+  for key in "${!SYSTEM_PACKAGES_MAP[@]}"; do
+    printf "  ${KEY_COLOR}%-20s${NC} | %s\n" "$key" "${SYSTEM_PACKAGES_MAP[$key]}"
+  done
+
+  echo "────────────────────────────────────────────────────"
+}
+
+is_system_package_installed() {
+  local friendly_name="$1"
+  local pkg_name
+
+  # Let the helper handle the safe_key conversion and mapping
+  pkg_name=$(get_registered_package_name "$friendly_name")
+  [[ -z "$pkg_name" ]] && return 1
+
+  case "$OS_FAMILY" in
+    "fedora")
+      rpm -q "$pkg_name" >/dev/null 2>&1 || \
+      rpm -q --whatprovides "$pkg_name" >/dev/null 2>&1
+      ;;
+    "debian-ubuntu")
+      dpkg-query -W -f='${Status}' "$pkg_name" 2>/dev/null | grep -q "ok installed"
+      ;;
+    "mac"|"linuxbrew")
+      brew list "$pkg_name" >/dev/null 2>&1
+      ;;
+    "alpine")
+      apk info -e "$pkg_name" >/dev/null 2>&1
+      ;;
+    ,*)
+      return 1
+      ;;
+  esac
+}
+
+install_system_packages() {
+  local friendly_name="$1"
+  local os_label=""
+  local cmd_prefix=""
+  local distro_key=""
+
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    distro_key="mac"
+    os_label="macOS (Homebrew)"
+    cmd_prefix="brew install"
+  elif [ -f /etc/debian_version ]; then
+    distro_key="debian-ubuntu"
+    os_label="Debian/Ubuntu"
+    cmd_prefix="sudo DEBIAN_FRONTEND=noninteractive apt update && sudo apt install -y"
+  elif [ -f /etc/fedora-release ] || command -v dnf >/dev/null 2>&1; then
+    distro_key="fedora"
+    os_label="Fedora/RHEL"
+    cmd_prefix="sudo dnf install -y"
+  elif [ -f /etc/alpine-release ] || command -v apk >/dev/null 2>&1; then
+    distro_key="alpine"
+    os_label="Alpine"
+    cmd_prefix="sudo apk add"
+  elif command -v brew >/dev/null 2>&1; then
+    # This handles Homebrew on Linux if no other match was found
+    distro_key="linuxbrew"
+    os_label="Linux (Homebrew)"
+    cmd_prefix="brew install"
+  else
+    log_error "OS not supported for auto-installation."
+    return 1
+  fi
+
+  local pkg_to_install
+  pkg_to_install=$(get_registered_package_name "$friendly_name")
+
+  if [ -z "$pkg_to_install" ]; then
+    log_error "Package '$friendly_name' not found in setup for $os_label."
+    return 1
+  fi
+
+  if [ -z "$pkg_to_install" ]; then
+    log_error "Package '$friendly_name' not found in setup for $os_label."
+    return 1
+  fi
+
+  local final_cmd="$cmd_prefix $pkg_to_install"
+
+  if [[ "$FORCE_REINSTALL" == "true" ]]; then
+    case "$distro_key" in
+      debian-ubuntu)
+        final_cmd="$cmd_prefix --reinstall $pkg_to_install"
+        ;;
+      fedora|mac|linuxbrew)
+        final_cmd="${cmd_prefix/install/reinstall} $pkg_to_install"
+        ;;
+      alpine)
+        final_cmd="$cmd_prefix --force-reinstall $pkg_to_install"
+        ;;
+    esac
+  fi
+
+  run_task "System: Installing $friendly_name ($os_label)" "$final_cmd"
 }
 
 register_shell_path() {
@@ -697,9 +844,16 @@ register_shell_path() {
   fi
 }
 
+register_system_package "pipx" \
+                        "alpine:pipx" \
+                        "fedora:pipx" \
+                        "linuxbrew:pipx" \
+                        "mac:pipx" \
+                        "debian-ubuntu:pipx"
+
 install_pipx() {
   if ! command -v pipx >/dev/null 2>&1; then
-    install_system_packages "pipx" "pipx"
+    install_system_packages "pipx"
 
     run_task "Configuring pipx path" "export PATH=\"\$PATH:\$HOME/.local/bin\""
     # shellcheck disable=SC2016
@@ -743,6 +897,8 @@ install_via_pipx() {
 }
 
 execute_uninstallers() {
+  [[ ${#MENU_SELECTED_INDICES[@]} -eq 0 ]] && return 0
+
   print_titled_header "Starting Cleanup Phase"
   LAST_GROUP_PRINTED=""
 
@@ -764,6 +920,8 @@ execute_uninstallers() {
 }
 
 execute_installers() {
+  [[ ${#MENU_SELECTED_INDICES[@]} -eq 0 ]] && return 0
+
   print_titled_header "Starting Installation Phase"
   LAST_GROUP_PRINTED=""
 
@@ -4809,21 +4967,27 @@ We also install =shellcheck= a static analysis tool that automatically scans
 your shell scripts to identify syntax errors, common pitfalls, and subtle logic
 bugs.
 
-#+begin_src sh : tangle setup.sh
+#+begin_src sh :tangle setup.sh
 is_installed_shellcheck() {
   command -v shellcheck >/dev/null 2>&1
 }
 
+register_system_package "ShellCheck" \
+                        "alpine:shellcheck" \
+                        "fedora:shellcheck" \
+                        "linuxbrew:shellcheck" \
+                        "mac:shellcheck" \
+                        "debian-ubuntu:shellcheck"
+
 install_shellcheck() {
-  install_system_packages "ShellCheck" "shellcheck"
+  install_system_packages "ShellCheck"
 }
 
 uninstall_shellcheck() {
-  log_uninstalling "Uninstalling ShellCheck..."
-  log_info "ShellCheck is a system package and will not be uninstalled automatically"
+  log_skip "ShellCheck" "ShellCheck is a system package and will not be uninstalled automatically"
 }
 
-register_action "Install ShellCheck" "shellcheck"
+register_action "Install ShellCheck" "shellcheck" "standalone"
 #+end_src
 
 Finally, we setup the Emacs packages:
@@ -5508,6 +5672,9 @@ executions of the required functions below:
 # --- Runtime Logic ---
 sort_tools_by_group
 build_menu_lists
+if [[ "$VERBOSE" == "true" ]]; then
+  print_system_packages_map
+fi
 display_installed_tools
 run_menu
 if [[ "$FORCE_REINSTALL" == "true" ]]; then
