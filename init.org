@@ -1354,7 +1354,14 @@ completing read commands using IDO.
 ** Custom key bindings
 
 #+begin_src emacs-lisp
-(global-set-key (kbd "<f5>") 'revert-buffer) ;; Reload the current buffer from its backing file (F5).
+(defun reload-init-file ()
+  "Reload the Emacs configuration file."
+  (interactive)
+  (load-file user-init-file)
+  (message "Emacs configuration reloaded!"))
+
+(global-set-key (kbd "C-c M-r") 'reload-init-file)
+(global-set-key (kbd "C-c r") 'revert-buffer) ;; Reload the current buffer from its backing file.
 #+end_src
 
 
@@ -2006,8 +2013,8 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
 
   :config
   (my/set-treemacs-width-pixels 300)
-  (global-set-key (kbd "C-<f6>") #'my/treemacs-toggle)
-  (global-set-key (kbd "<f6>") #'treemacs-select-window)
+  (global-set-key (kbd "C-c t") #'my/treemacs-toggle)
+  (global-set-key (kbd "C-c 0") #'treemacs-select-window)
   (treemacs-load-theme "all-the-icons")
   (setq treemacs-indent-guide-mode t
         treemacs-project-follow-mode t
