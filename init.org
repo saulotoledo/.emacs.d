@@ -91,6 +91,7 @@
     - [[#code-metrics][Code metrics]]
     - [[#programming-languages-and-modes][Programming, languages and modes]]
         - [[#general-setup-with-treesit][General setup with treesit]]
+        - [[#c][C++]]
         - [[#python][Python]]
         - [[#jvm-based-languages-java--kotlin][JVM-based languages (Java & Kotlin)]]
         - [[#typescript][TypeScript]]
@@ -3994,6 +3995,10 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-use-plists t)
 
   :config
+  (setq lsp-idle-delay 0.5
+        lsp-enable-symbol-highlighting t
+        lsp-signature-auto-activate t)
+
   ;; When using TRAMP with devcontainer, LSP servers run inside the container.
   ;; The container should have Node.js and language server extensions installed.
   ;; LSP-mode automatically handles TRAMP, but ESLint extension must be installed in the container.
@@ -4193,6 +4198,8 @@ The helper below, copied from https://github.com/themkat/.emacs.d/blob/master/in
   (lsp-ui-doc-enable t)
   (lsp-ui-doc-position 'at-point)
   (lsp-ui-sideline-enable t)
+  (lsp-ui-sideline-show-hover t)
+  (lsp-ui-peek-always-show t)
   (lsp-ui-sideline-show-code-actions t)
   :bind
   (:map lsp-mode-map ("M-s M-d" . lsp-ui-show-doc-helper)))
@@ -4659,6 +4666,248 @@ navigate complex hierarchies with the same ease as an Org-mode document.
   (keymap-global-set "C-<tab>" #'treesit-fold-toggle)
   (keymap-global-set "C-c v f" #'treesit-fold-toggle)
   (keymap-global-set "C-c v F" #'my/treesit-fold-toggle-all))
+#+end_src
+
+
+*** C++
+
+We must start with some system packages. We update our setup script to handle
+those below:
+
+#+begin_src sh :tangle setup.sh
+CPP_MIN_DEV_PACAKGES=(
+  "gcc-c++" "gdb" "cmake" "make" "clang-tools-extra" "bear"
+  "openssl-devel" "libxcrypt-devel" "ncurses-devel"
+  "zlib-devel" "sqlite-devel" "readline-devel" "libffi-devel"
+)
+
+is_installed_cpp_dev_bundle() {
+  for package in "${CPP_MIN_DEV_PACAKGES[@]}"; do
+    if ! is_system_package_installed "$package"; then
+      echo "$package is missing"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# Compiler & Build Tools
+register_system_package "bear" \
+                        "alpine:bear" \
+                        "fedora:bear" \
+                        "linuxbrew:bear" \
+                        "mac:bear" \
+                        "debian-ubuntu:bear"
+
+register_system_package "clang-tools-extra" \
+                        "alpine:clang-extra-tools" \
+                        "fedora:clang-tools-extra" \
+                        "linuxbrew:llvm" \
+                        "mac:llvm" \
+                        "debian-ubuntu:clangd"
+
+register_system_package "cmake" \
+                        "alpine:cmake" \
+                        "fedora:cmake" \
+                        "linuxbrew:cmake" \
+                        "mac:cmake" \
+                        "debian-ubuntu:cmake"
+
+register_system_package "gcc-c++" \
+                        "alpine:g++" \
+                        "fedora:gcc-c++" \
+                        "linuxbrew:gcc" \
+                        "mac:gcc" \
+                        "debian-ubuntu:g++"
+
+# Note: gdb on Mac might require extra configuration for "signing"
+# the binary to allow it to control other processes
+register_system_package "gdb" \
+                        "alpine:gdb" \
+                        "fedora:gdb" \
+                        "linuxbrew:gdb" \
+                        "mac:gdb" \
+                        "debian-ubuntu:gdb"
+
+register_system_package "make" \
+                        "alpine:make" \
+                        "fedora:make" \
+                        "linuxbrew:make" \
+                        "mac:make" \
+                        "debian-ubuntu:make"
+
+# Libraries & Headers
+register_system_package "libffi-devel" \
+                        "alpine:libffi-dev" \
+                        "fedora:libffi-devel" \
+                        "linuxbrew:libffi" \
+                        "mac:libffi" \
+                        "debian-ubuntu:libffi-dev"
+
+register_system_package "libxcrypt-devel" \
+                        "alpine:libxcrypt-dev" \
+                        "fedora:libxcrypt-devel" \
+                        "linuxbrew:libxcrypt" \
+                        "mac:libxcrypt" \
+                        "debian-ubuntu:libxcrypt-dev"
+
+register_system_package "ncurses-devel" \
+                        "alpine:ncurses-dev" \
+                        "fedora:ncurses-devel" \
+                        "linuxbrew:ncurses" \
+                        "mac:ncurses" \
+                        "debian-ubuntu:libncurses-dev"
+
+register_system_package "openssl-devel" \
+                        "alpine:openssl-dev" \
+                        "fedora:openssl-devel" \
+                        "linuxbrew:openssl" \
+                        "mac:openssl" \
+                        "debian-ubuntu:libssl-dev"
+
+register_system_package "readline-devel" \
+                        "alpine:readline-dev" \
+                        "fedora:readline-devel" \
+                        "linuxbrew:readline" \
+                        "mac:readline" \
+                        "debian-ubuntu:libreadline-dev"
+
+register_system_package "sqlite-devel" \
+                        "alpine:sqlite-dev" \
+                        "fedora:sqlite-devel" \
+                        "linuxbrew:sqlite" \
+                        "mac:sqlite" \
+                        "debian-ubuntu:libsqlite3-dev"
+
+register_system_package "zlib-devel" \
+                        "alpine:zlib-dev" \
+                        "fedora:zlib-devel" \
+                        "linuxbrew:zlib" \
+                        "mac:zlib" \
+                        "debian-ubuntu:zlib1g-dev"
+
+install_cpp_dev_bundle() {
+  log_info "Starting C++ Development environment setup..."
+
+  for package in "${CPP_MIN_DEV_PACAKGES[@]}"; do
+    if ! is_system_package_installed "$package" || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      install_system_packages "$package"
+    else
+      log_skip "$package" "ALREADY INSTALLED"
+    fi
+  done
+}
+
+uninstall_cpp_dev_bundle() {
+  log_skip "C++ dev bundle" "The packages used for C++ development are system packages and will not be uninstalled automatically"
+}
+
+register_action "Install C++ dev tools" "cpp-dev-bundle" "C++"
+#+end_src
+
+And the Emacs setup:
+
+#+begin_src emacs-lisp
+(use-package cc-mode
+  :ensure nil ;; Built-in
+  :hook ((c-mode . lsp-deferred)
+         (c++-mode . lsp-deferred))
+  :config
+  (setq-default c-basic-offset 2)
+  (c-set-offset 'substatement-open 0))
+
+(use-package cmake-ts-mode
+  :mode ("CMakeLists\\.txt\\'" "\\.cmake\\'")
+  :config
+  (setq cmake-ts-mode-indent-offset 2))
+
+(with-eval-after-load 'lsp-mode
+  (defvar lsp-clients-clangd-args nil)
+  (add-to-list 'lsp-enabled-clients 'clangd)
+  (setq lsp-clients-clangd-args
+        '("--header-insertion=never"
+          "--background-index"
+          "--log=error")))
+
+;; Disable Apheleia for C and C++ to let LSP handle it
+(with-eval-after-load 'apheleia
+  (defvar apheleia-mode-alist nil)
+  (dolist (mode '(c-mode c++-mode c-ts-mode c++-ts-mode))
+    (setq apheleia-mode-alist (assq-delete-all mode apheleia-mode-alist))))
+
+(defun my/run-dap-logic (&optional source-buffer)
+  "Find binary based on SOURCE-BUFFER and start DAP."
+  (interactive)
+  (let* (;; Use the provided buffer, or fall back to current if none provided
+         (target-buffer (or source-buffer (current-buffer)))
+         ;; Get the file name from that specific buffer
+         (file-path (buffer-file-name target-buffer))
+         (bin-name (if file-path (file-name-base file-path) ""))
+         (bin-path (concat default-directory bin-name ".out"))
+         ;; Check if the binary actually exists.
+         ;; Performance: Skip synchronous 'file-exists-p' on remote paths to avoid freezes.
+         (final-path (if (and (not (string-empty-p bin-name))
+                              (or (file-remote-p default-directory)
+                                  (file-exists-p bin-path)))
+                         bin-path
+                       (read-file-name "Select binary to debug: " default-directory))))
+    (dap-debug
+     (list :type "gdb"
+           :request "launch"
+           :name "GDB::SmartRun"
+           :target final-path
+           :cwd default-directory
+           :valuesFormatting "prettyPrinters"
+           :gdb-mi-interpreter "console"
+           :gdb-args '("-ex" "set confirm off" "-ex" "set debuginfod enabled off")
+           ))))
+
+;; 1. Declare the variable globally so all functions can see it
+(defvar my/dap-compilation-source-buffer nil
+  "Global storage for the buffer that started a debug compile.")
+
+;; 2. Updated Sentinel with better matching
+(defun my/compilation-sentinel (_buf str)
+  "Triggered when compilation finishes with status STR."
+  (message "Sentinel checking buffer: %s" my/dap-compilation-source-buffer)
+  ;; We use string-match-p to find "finished" anywhere in the status string
+  (if (and (string-match-p "finished" str)
+           my/dap-compilation-source-buffer)
+      (let ((source-buf my/dap-compilation-source-buffer))
+        (setq my/dap-compilation-source-buffer nil) ; Clear it
+        (message "Logic passed! Launching debugger...")
+        (run-with-timer 0.1 nil (lambda () (my/run-dap-logic source-buf))))
+    (message "Logic failed: Status was '%s', Buffer was %s"
+             (string-trim str)
+             my/dap-compilation-source-buffer)))
+
+;; 3. Updated Launcher
+(defun my/dap-cpp-launch ()
+  "The entry point: Remember the buffer, then compile."
+  (interactive)
+  (setq my/dap-compilation-source-buffer (current-buffer))
+  (message "Source buffer saved: %s" (buffer-name my/dap-compilation-source-buffer))
+  (add-hook 'compilation-finish-functions #'my/compilation-sentinel)
+  (my/smart-compile t))
+
+(defun my/dap-cpp-f5-smart-dispatch ()
+  "Smart F5: Continue if debugging, otherwise compile and launch."
+  (interactive)
+  (declare-function dap--cur-session "dap-mode")
+  (declare-function dap--session-running "dap-mode")
+  (let ((session (dap--cur-session)))
+    (if (and session (dap--session-running session))
+        (call-interactively 'dap-continue)
+      (my/dap-cpp-launch))))
+
+(add-hook 'c++-ts-mode-hook
+          (lambda ()
+            (require 'dap-gdb-lldb)
+            (declare-function dap-gdb-lldb-setup "dap-gdb-lldb")
+            (dap-gdb-lldb-setup)
+            ;; We use the dispatcher to handle both launch and continue
+            (local-set-key (kbd "<f5>") 'my/dap-cpp-f5-smart-dispatch)))
 #+end_src
 
 

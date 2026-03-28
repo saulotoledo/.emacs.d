@@ -810,6 +810,136 @@ uninstall_prettier() {
 
 register_action "Install Prettier" "prettier" "node"
 
+CPP_MIN_DEV_PACAKGES=(
+  "gcc-c++" "gdb" "cmake" "make" "clang-tools-extra" "bear"
+  "openssl-devel" "libxcrypt-devel" "ncurses-devel"
+  "zlib-devel" "sqlite-devel" "readline-devel" "libffi-devel"
+)
+
+is_installed_cpp_dev_bundle() {
+  for package in "${CPP_MIN_DEV_PACAKGES[@]}"; do
+    if ! is_system_package_installed "$package"; then
+      echo "$package is missing"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# Compiler & Build Tools
+register_system_package "bear" \
+                        "alpine:bear" \
+                        "fedora:bear" \
+                        "linuxbrew:bear" \
+                        "mac:bear" \
+                        "debian-ubuntu:bear"
+
+register_system_package "clang-tools-extra" \
+                        "alpine:clang-extra-tools" \
+                        "fedora:clang-tools-extra" \
+                        "linuxbrew:llvm" \
+                        "mac:llvm" \
+                        "debian-ubuntu:clangd"
+
+register_system_package "cmake" \
+                        "alpine:cmake" \
+                        "fedora:cmake" \
+                        "linuxbrew:cmake" \
+                        "mac:cmake" \
+                        "debian-ubuntu:cmake"
+
+register_system_package "gcc-c++" \
+                        "alpine:g++" \
+                        "fedora:gcc-c++" \
+                        "linuxbrew:gcc" \
+                        "mac:gcc" \
+                        "debian-ubuntu:g++"
+
+# Note: gdb on Mac might require extra configuration for "signing"
+# the binary to allow it to control other processes
+register_system_package "gdb" \
+                        "alpine:gdb" \
+                        "fedora:gdb" \
+                        "linuxbrew:gdb" \
+                        "mac:gdb" \
+                        "debian-ubuntu:gdb"
+
+register_system_package "make" \
+                        "alpine:make" \
+                        "fedora:make" \
+                        "linuxbrew:make" \
+                        "mac:make" \
+                        "debian-ubuntu:make"
+
+# Libraries & Headers
+register_system_package "libffi-devel" \
+                        "alpine:libffi-dev" \
+                        "fedora:libffi-devel" \
+                        "linuxbrew:libffi" \
+                        "mac:libffi" \
+                        "debian-ubuntu:libffi-dev"
+
+register_system_package "libxcrypt-devel" \
+                        "alpine:libxcrypt-dev" \
+                        "fedora:libxcrypt-devel" \
+                        "linuxbrew:libxcrypt" \
+                        "mac:libxcrypt" \
+                        "debian-ubuntu:libxcrypt-dev"
+
+register_system_package "ncurses-devel" \
+                        "alpine:ncurses-dev" \
+                        "fedora:ncurses-devel" \
+                        "linuxbrew:ncurses" \
+                        "mac:ncurses" \
+                        "debian-ubuntu:libncurses-dev"
+
+register_system_package "openssl-devel" \
+                        "alpine:openssl-dev" \
+                        "fedora:openssl-devel" \
+                        "linuxbrew:openssl" \
+                        "mac:openssl" \
+                        "debian-ubuntu:libssl-dev"
+
+register_system_package "readline-devel" \
+                        "alpine:readline-dev" \
+                        "fedora:readline-devel" \
+                        "linuxbrew:readline" \
+                        "mac:readline" \
+                        "debian-ubuntu:libreadline-dev"
+
+register_system_package "sqlite-devel" \
+                        "alpine:sqlite-dev" \
+                        "fedora:sqlite-devel" \
+                        "linuxbrew:sqlite" \
+                        "mac:sqlite" \
+                        "debian-ubuntu:libsqlite3-dev"
+
+register_system_package "zlib-devel" \
+                        "alpine:zlib-dev" \
+                        "fedora:zlib-devel" \
+                        "linuxbrew:zlib" \
+                        "mac:zlib" \
+                        "debian-ubuntu:zlib1g-dev"
+
+install_cpp_dev_bundle() {
+  log_info "Starting C++ Development environment setup..."
+
+  for package in "${CPP_MIN_DEV_PACAKGES[@]}"; do
+    if ! is_system_package_installed "$package" || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      install_system_packages "$package"
+    else
+      log_skip "$package" "ALREADY INSTALLED"
+    fi
+  done
+}
+
+uninstall_cpp_dev_bundle() {
+  log_skip "C++ dev bundle" "The packages used for C++ development are system packages and will not be uninstalled automatically"
+}
+
+register_action "Install C++ dev tools" "cpp-dev-bundle" "C++"
+
 IS_SDKMAN_INITIALIZED=false
 
 is_installed_sdkman() {
