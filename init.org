@@ -50,6 +50,7 @@
     - [[#other-magit-related-changes][Other magit-related changes]]
 - [[#other-useful-packages][Other useful packages]]
     - [[#try-a-new-package-without-installing-it][Try a new package without installing it]]
+    - [[#restart-emacs-from-within-emacs][Restart Emacs from within Emacs]]
     - [[#snippets][Snippets]]
     - [[#undo-tree][Undo tree]]
     - [[#scrollbar-on-the-terminal][Scrollbar on the terminal]]
@@ -2413,6 +2414,16 @@ We can navigate between conflict markers using the following keybindings:
 
 #+begin_src emacs-lisp
 (use-package try)
+#+end_src
+
+
+** Restart Emacs from within Emacs
+
+The following is a simple package to restart Emacs for within Emacs.
+
+#+begin_src emacs-lisp
+(use-package restart-emacs
+  :bind ("C-c C-M-r" . restart-emacs))
 #+end_src
 
 
