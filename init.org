@@ -3335,6 +3335,24 @@ Optional _ARG is ignored (for compatibility with advice)."
              (message "ECA [-]: Skipping key %s: %s"
                       env-var (error-message-string err))))))))
 
+  (defun my/eca-toggle ()
+    "Toggle ECA.
+If the window is visible, stop the process and kill it.
+Otherwise, start a fresh session."
+      (interactive)
+      (let ((eca-buf (cl-find-if (lambda (b)
+                                   (string-match-p "^<eca-chat" (buffer-name b)))
+                                 (buffer-list))))
+        (if (and eca-buf (get-buffer-window eca-buf))
+            (progn
+              (eca-stop) ;; Kill the process
+              (delete-window (get-buffer-window eca-buf))
+              (dolist (buf (buffer-list))
+                (when (string-match-p "^<eca" (buffer-name buf))
+                  (kill-buffer buf)))
+              (message "ECA Sessions Terminated."))
+          (eca))))
+
   ;; NOTE: auth-source backends (gpg-agent, pass, keychain, etc.) are initialized
   ;; lazily and may rely on async subprocesses and the Emacs event loop.
   ;;
@@ -3363,7 +3381,9 @@ Optional _ARG is ignored (for compatibility with advice)."
          (load-file local-file)))
      (my/eca-setup-tokens)
      (my/eca-install-config)
-     (eca))))
+     ;; Uncomment to enable ECA auto-start with Emacs:
+     ;; (eca)
+     (define-key custom-bindings-map (kbd "C-c e") #'my/eca-toggle))))
 #+end_src
 
 
