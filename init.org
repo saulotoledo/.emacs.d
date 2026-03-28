@@ -4237,33 +4237,88 @@ you set breakpoints, step through code, and inspect variables for many languages
   (unless (local-key-binding (kbd "<f5>"))
     (local-set-key (kbd "<f5>") 'dap-continue))
 
+  (setq dap-auto-configure-features
+        '(sessions locals breakpoints expressions controls tooltip repl))
+
+  ;; REPL optimization: Smart Context Evaluation Loop
+  ;;
+  ;; WHY THIS IS NEEDED: By default, the DAP REPL sends all input with "context: repl".
+  ;; For C++, many GDB adapters interpret this as an Instruction to run a raw GDB/MI
+  ;; command, which returns ugly JSON and can't handle simple math like "a + 1".
+  ;;
+  ;; THE FIX: This advice detects if your input is a command (starts with "-") or
+  ;; an expression. For expressions, it uses "context: hover".
+  ;;
+  ;; BENEFITS:
+  ;; 1. Complex Objects: You can inspect structs, classes, and nested data easily.
+  ;; 2. Dot/Arrow Syntax: Typing "my_obj.field" or "ptr->val" will just work.
+  ;; 3. Clean Output: Instead of JSON tokens, you get the literal value (e.g., "42").
+  (defun my/dap-ui-repl-smart-context (orig-fun session input)
+    "Make the DAP REPL use 'hover' context for expressions, and 'repl' for commands."
+    (let ((context (if (string-prefix-p "-" (string-trim input)) "repl" "hover")))
+      (cl-letf* ((old-dap-make-request (symbol-function 'dap--make-request))
+                 ((symbol-function 'dap--make-request)
+                  (lambda (command arguments)
+                    (if (string= command "evaluate")
+                        (funcall old-dap-make-request command (plist-put arguments :context context))
+                      (funcall old-dap-make-request command arguments)))))
+        (funcall orig-fun session input))))
+
+  (advice-add 'dap-ui-input-sender :around #'my/dap-ui-repl-smart-context)
+
+  ;; UI Stability and Freeze Protection
+  ;;
+  ;; THE PROBLEM: By default, `dap-ui` schedules a refresh every 0.2s using a
+  ;; "Smart Sync" (lsp-treemacs-generic-update). This sync logic tries to diff
+  ;; the old and new variable trees, which is extremely CPU-heavy and freezes
+  ;; the Emacs UI for seconds or more.
+  ;;
+  ;; THE FIX: This override changes the refresh strategy:
+  ;; 1. Stability: Increases the idle timer from 0.2s to 0.5s.
+  ;; 2. Speed: Uses 'render' (Full Redraw) instead of 'generic-update' (Smart Sync).
+  ;;    A full redraw is much faster because it avoids the tree-diffing logic.
+  (defun my/dap-ui-locals--refresh-stable (&rest _)
+    "A version of the locals refresh that uses a safer 1.0s idle timer and FAST rendering."
+    (lsp-treemacs-wcb-unless-killed dap-ui--locals-buffer
+      (when (and (fboundp 'dap-ui--locals-timer) dap-ui--locals-timer)
+        (cancel-timer dap-ui--locals-timer))
+      ;; We use the fast 'render' instead of the slow 'generic-update'
+      (setq-local dap-ui--locals-timer
+                  (run-with-idle-timer 0.5 nil
+                                       (lambda ()
+                                         (lsp-treemacs-render (dap-ui-locals-get-data)
+                                                              " Locals "
+                                                              dap-ui-locals-expand-depth
+                                                              dap-ui--locals-buffer))))))
+
+  (advice-add 'dap-ui-locals--refresh-schedule :override #'my/dap-ui-locals--refresh-stable)
+
   ;; The following set of configs are needed to prevent Emacs UI freezes
   ;; or running expensive operations when dap-mode is actively debugging.
-  (with-eval-after-load 'treemacs
-    ;; Below we skip Treemacs-based UI for DAP to prevent freezes.
-    ;;
-    ;; SCENARIO: Even in Graphical Emacs, "Terminal" issues can occur because
-    ;; Emacs communicates with GDB/DAP via hidden pseudo-terminals (ptys).
-    ;; DAP-UI's aggressive 0.2s idle timers trigger `lsp-treemacs-generic-update`,
-    ;; creating a "Redraw Storm."
-    ;;
-    ;; THE PROBLEM: Emacs is single-threaded. It spends so much CPU calculating
-    ;; complex Treemacs tree nodes (the "UI logic") that it becomes "deaf" to
-    ;; your keyboard/mouse input, effectively freezing the entire Frame.
-    ;;
-    ;; INVESTIGATION: If Emacs locks up, use `M-x toggle-debug-on-quit`.
-    ;; Pressing `C-g` during the freeze will interrupt the loop and show the
-    ;; "Timer Thief" (usually `dap-ui-locals--refresh` or `treemacs-update-node`).
-    ;;
-    ;; THE FIX: We advise the refresh functions to "mute" the Treemacs-specific
-    ;; update logic. This ensures the UI stays responsive during debug sessions.
-    (defun my/dap-ui-no-treemacs-refresh (orig-fun &rest args)
-      "Inhibit the Treemacs-based UI for DAP and use the native faster one."
-      (cl-letf (((symbol-function 'lsp-treemacs-generic-update) (lambda (&rest _) nil)))
-        (apply orig-fun args)))
 
-    (advice-add 'dap-ui-locals--refresh :around #'my/dap-ui-no-treemacs-refresh)
-    (advice-add 'dap-ui-breakpoints--refresh :around #'my/dap-ui-no-treemacs-refresh))
+  ;; Below we skip Treemacs-based UI for DAP to prevent freezes.
+  ;;
+  ;; SCENARIO: Even in Graphical Emacs, "Terminal" issues can occur because
+  ;; Emacs communicates with GDB/DAP via hidden pseudo-terminals (ptys).
+  ;; DAP-UI's aggressive 0.2s idle timers trigger `lsp-treemacs-generic-update`,
+  ;; creating a "Redraw Storm."
+  ;;
+  ;; THE PROBLEM: Emacs is single-threaded. It spends so much CPU calculating
+  ;; complex Treemacs tree nodes (the "UI logic") that it becomes "deaf" to
+  ;; your keyboard/mouse input, effectively freezing the entire Frame.
+  ;;
+  ;; INVESTIGATION: If Emacs locks up, use `M-x toggle-debug-on-quit`.
+  ;; Pressing `C-g` during the freeze will interrupt the loop and show the
+  ;; "Timer Thief" (usually `dap-ui-locals--refresh` or `treemacs-update-node`).
+  ;;
+  ;; THE FIX: We advise the refresh functions to "mute" the Treemacs-specific
+  ;; update logic. This ensures the UI stays responsive during debug sessions.
+  (defun my/dap-ui-no-treemacs-refresh (orig-fun &rest args)
+    "Inhibit the slow tree-sync logic and just do nothing (for secondary windows)."
+    (cl-letf (((symbol-function 'lsp-treemacs-generic-update) (lambda (&rest _) nil)))
+      (apply orig-fun args)))
+
+  (advice-add 'dap-ui-breakpoints--refresh :around #'my/dap-ui-no-treemacs-refresh)
 
   ;; A few other improvements that might be useful in the future. For now I've
   ;; disabled them because they are not freezing Emacs, but they seem to work.
