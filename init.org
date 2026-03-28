@@ -1606,10 +1606,9 @@ display is non-graphical, so it is safe for GUI Emacs too."
   (interactive)
   (let ((dap-active (and (fboundp 'dap--cur-session) (dap--cur-session))))
     (if dap-active
-        ;; If DAP is active, we print a message and EXIT immediately.
-        ;; This prevents it from running unnecessary timers when debugging
-        ;; when using DAP.
-        (message "[DEBUG] Skipping tty-resize-fix because DAP is active.")
+        ;; If DAP is active, EXIT immediately.
+        ;; This prevents it from running unnecessary timers when debugging.
+        nil
 
       ;; Otherwise, proceed with the original logic
       (ignore-errors
@@ -1965,47 +1964,61 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
   ;;         `(variable-pitch
   ;;          ,@(delq 'unspecified (if (listp faces) faces (list faces))))))))
 
-  (declare-function treemacs-get-local-window "treemacs")
+  (defun my/get-current-folder ()
+    "Get the folder of the current buffer, but only for real Files or Dired."
+    (let ((path (or (buffer-file-name)
+                    (and (derived-mode-p 'dired-mode)
+                         (fboundp 'dired-current-directory)
+                         (dired-current-directory)))))
+      (when path
+        (file-name-as-directory (if (file-directory-p path) path (file-name-directory path))))))
+
   (defun my/treemacs-toggle ()
     "Toggle the visibility of the Treemacs window."
     (interactive)
+    (declare-function treemacs-get-local-window "treemacs")
     (if (treemacs-get-local-window)
         (delete-window (treemacs-get-local-window))
       (treemacs)))
 
   (declare-function treemacs-do-add-project-to-workspace "treemacs")
+  (declare-function treemacs-get-local-window "treemacs")
+  (declare-function treemacs-refresh "treemacs")
   (declare-function treemacs-root-down "treemacs")
   (declare-function treemacs-root-up "treemacs")
   (declare-function treemacs-select-window "treemacs")
 
-  (defun my/treemacs-set-root-to-current-folder ()
-    "Set the root of Treemacs to the folder of the current file or default directory."
-
-    (let ((folder (or (file-name-directory (or (buffer-file-name) default-directory))
-                      default-directory)))
-      (when (not folder)
-        (user-error "No folder found for current buffer"))
-      ;; If this is a TRAMP path and a matching local path exists, prefer the
-      ;; local path to avoid adding host:/docker:... entries when the intent
-      ;; was to add the local project root.  Otherwise keep the TRAMP path so
-      ;; remote projects still work when intended.
-      (when (and (fboundp 'tramp-dissect-file-name)
-                 (file-remote-p folder))
-        (condition-case _err
-            (let* ((tfn (tramp-dissect-file-name folder))
-                   (local (when tfn
-                            (declare-function tramp-file-name-localname "tramp")
-                            (tramp-file-name-localname tfn))))
-              (when (and local (file-exists-p local))
-                (setq folder (file-name-as-directory (expand-file-name local)))))
-          (error nil)))
-
-      (when (and (file-remote-p folder)
-                 (not (file-readable-p folder)))
-        (message "Warning: remote path %s appears unreadable — ensure TRAMP connection is initialized" folder))
-
-      (treemacs-select-window)
-      (treemacs-do-add-project-to-workspace folder (file-name-nondirectory (directory-file-name folder)))))
+  (defun my/treemacs-set-root-to-current-folder (&optional target-folder)
+    "Set the root of Treemacs to the folder of the current file or default directory.
+If TARGET-FOLDER is provided, use it directly. Otherwise, try to find the folder
+of the `source' buffer that called Treemacs."
+    (let ((folder (or target-folder
+                      ;; If we are inside the Treemacs sidebar, look at the last visible buffer
+                      ;; that is NOT a treemacs window.
+                      (with-current-buffer (other-buffer (current-buffer) t)
+                        (my/get-current-folder)))))
+      (when (and folder (file-directory-p folder))
+        ;; If this is a TRAMP path and a matching local path exists, prefer the
+        ;; local path to avoid adding host:/docker:... entries when the intent
+        ;; was to add the local project root.  Otherwise keep the TRAMP path so
+        ;; remote projects still work when intended.
+        (when (and (fboundp 'tramp-dissect-file-name)
+                   (file-remote-p folder))
+          (condition-case _err
+              (let* ((tfn (tramp-dissect-file-name folder))
+                     (local (when tfn
+                              (declare-function tramp-file-name-localname "tramp")
+                              (tramp-file-name-localname tfn))))
+                (when (and local (file-exists-p local))
+                  (setq folder (file-name-as-directory (expand-file-name local)))))
+            (error nil)))
+        (when (and (file-remote-p folder)
+                   (not (file-readable-p folder)))
+          (message "Warning: remote path %s appears unreadable" folder))
+        (ignore-errors
+          (treemacs-select-window)
+          (treemacs-do-add-project-to-workspace folder (file-name-nondirectory (directory-file-name folder)))
+          (treemacs-refresh)))))
 
   (defun my/update-treemacs-faces-except (excluded-faces)
     "Update all Treemacs-related faces, excluding specified faces."
@@ -2023,11 +2036,13 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
   (my/set-treemacs-width-pixels 300)
   (global-set-key (kbd "C-c t") #'my/treemacs-toggle)
   (global-set-key (kbd "C-c 0") #'treemacs-select-window)
-  (treemacs-load-theme "all-the-icons")
-  (setq treemacs-indent-guide-mode t
-        treemacs-project-follow-mode t
-        treemacs-filewatch-mode t
-        treemacs-is-never-other-window t
+  ;; These are minor modes — they must be activated as function calls,
+  ;; not set via setq, so their setup hooks are properly installed.
+  (treemacs-indent-guide-mode 1)
+  (treemacs-project-follow-mode 1)
+  (treemacs-filewatch-mode 1)
+
+  (setq treemacs-is-never-other-window t
         treemacs-indent-guide-style 'line
         treemacs-user-mode-line-format 'line
         treemacs-space-between-root-nodes nil
@@ -2081,24 +2096,11 @@ See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-fi
                                      treemacs-hl-line-face
                                      treemacs-window-background-face))
 
-  (my/treemacs-set-root-to-current-folder)
-
-  ;; Refresh Treemacs when opening a new file: a tentative to fix issues when
-  ;; using =C-x p k= to close all buffers in the open project.
-  (declare-function treemacs-refresh "treemacs")
-  (defun my/treemacs-refresh-after-file-or-dired ()
-    "Refresh Treemacs after opening a file or reading Dired.
-Runs only for local files/projects. Skips remote (TRAMP) paths to avoid
-lockups. Can be hooked to both `find-file-hook' and `dired-after-readin-hook'."
-    (when (and (treemacs-get-local-window)
-               (not (file-remote-p (or (buffer-file-name) default-directory))))
-      (ignore-errors (treemacs-refresh))))
-
-  (add-hook 'find-file-hook 'my/treemacs-refresh-after-file-or-dired)
-  (add-hook 'dired-after-readin-hook 'my/treemacs-refresh-after-file-or-dired)
-
-  ;; Start Treemacs
-  (treemacs))
+  ;; Start Treemacs only if it's not already open
+  (unless (treemacs-get-local-window)
+    ;; Uncomment below to start treemacs automatically:
+    ;;(treemacs)
+    ))
 
 ;; Fix for for https://github.com/Alexander-Miller/treemacs/issues/1016
 (with-eval-after-load 'treemacs-all-the-icons
@@ -4205,9 +4207,10 @@ errors, references, and more.
 #+begin_src emacs-lisp
 (use-package lsp-treemacs
   :pin "MELPA Unstable"
-  :after lsp-mode
+  :after (lsp-mode treemacs)
   :config
-  (lsp-treemacs-sync-mode 1))
+  (setq lsp-treemacs-sync-mode nil) ;; Keep off by default
+  (add-hook 'treemacs-mode-hook (lambda () (lsp-treemacs-sync-mode 1)))) ;; Enable only when Treemacs is open
 #+end_src
 
 
@@ -4240,6 +4243,14 @@ you set breakpoints, step through code, and inspect variables for many languages
   (setq dap-auto-configure-features
         '(sessions locals breakpoints expressions controls tooltip repl))
 
+  (declare-function lsp-treemacs-render "lsp-treemacs")
+  (declare-function dap-ui-locals-get-data "dap-ui-locals")
+  (declare-function my/dap-ui-repl-smart-context "init")
+  (declare-function my/dap-ui-locals--refresh-stable "init")
+  (declare-function my/dap-ui-no-treemacs-refresh "init")
+  (defvar dap-ui--locals-buffer nil)
+  (defvar dap-ui--locals-timer nil)
+  (defvar dap-ui-locals-expand-depth nil)
   ;; REPL optimization: Smart Context Evaluation Loop
   ;;
   ;; WHY THIS IS NEEDED: By default, the DAP REPL sends all input with "context: repl".
@@ -4254,7 +4265,7 @@ you set breakpoints, step through code, and inspect variables for many languages
   ;; 2. Dot/Arrow Syntax: Typing "my_obj.field" or "ptr->val" will just work.
   ;; 3. Clean Output: Instead of JSON tokens, you get the literal value (e.g., "42").
   (defun my/dap-ui-repl-smart-context (orig-fun session input)
-    "Make the DAP REPL use 'hover' context for expressions, and 'repl' for commands."
+    "Make the DAP REPL use `hover' context for expressions, and `repl' for commands."
     (let ((context (if (string-prefix-p "-" (string-trim input)) "repl" "hover")))
       (cl-letf* ((old-dap-make-request (symbol-function 'dap--make-request))
                  ((symbol-function 'dap--make-request)
@@ -4278,7 +4289,8 @@ you set breakpoints, step through code, and inspect variables for many languages
   ;; 2. Speed: Uses 'render' (Full Redraw) instead of 'generic-update' (Smart Sync).
   ;;    A full redraw is much faster because it avoids the tree-diffing logic.
   (defun my/dap-ui-locals--refresh-stable (&rest _)
-    "A version of the locals refresh that uses a safer 1.0s idle timer and FAST rendering."
+    "Locals refresh with 0.5s idle timer and FAST rendering.
+Avoids the expensive tree-diffing of lsp-treemacs-generic-update."
     (lsp-treemacs-wcb-unless-killed dap-ui--locals-buffer
       (when (and (fboundp 'dap-ui--locals-timer) dap-ui--locals-timer)
         (cancel-timer dap-ui--locals-timer))
@@ -4319,6 +4331,20 @@ you set breakpoints, step through code, and inspect variables for many languages
       (apply orig-fun args)))
 
   (advice-add 'dap-ui-breakpoints--refresh :around #'my/dap-ui-no-treemacs-refresh)
+
+  ;; Fix for: dap--buffers-w-breakpoints: Wrong type argument: markerp, nil
+  ;;
+  ;; dap--buffers-w-breakpoints crashes when a persisted breakpoint has a nil
+  ;; :marker (e.g., the breakpoint was saved to disk but its file buffer hasn't
+  ;; been visited yet in this session). The original code unconditionally calls
+  ;; (marker-buffer (plist-get ... :marker)) which fails on nil.
+  (defun my/dap--buffers-w-breakpoints-safe ()
+    "Safe version of `dap--buffers-w-breakpoints' that skips nil markers."
+    (delq nil
+          (--map (-some-> (plist-get (car it) :marker) marker-buffer)
+                 (ht-values (dap--get-breakpoints)))))
+
+  (advice-add 'dap--buffers-w-breakpoints :override #'my/dap--buffers-w-breakpoints-safe)
 
   ;; A few other improvements that might be useful in the future. For now I've
   ;; disabled them because they are not freezing Emacs, but they seem to work.
@@ -5231,10 +5257,10 @@ available:
 #+begin_src emacs-lisp
 (defun my/smart-compile (&optional debug-p)
   "Build the project using a Makefile if found, otherwise prompt for a command.
-If DEBUG-P is non-nil (e.g., via C-u or a specific keybinding), it attempts
-to run 'make compile-for-debug'. If that target doesn't exist, it warns the user
-and falls back to an interactive prompt.
-Without DEBUG-P, it runs 'make -k' automatically if a Makefile exists."
+If DEBUG-P is non-nil (e.g., via `\\[universal-argument]' or a specific keybinding),
+it attempts to run `make compile-for-debug'.  If that target doesn't exist, it
+warns the user and falls back to an interactive prompt.
+Without DEBUG-P, it runs `make -k' automatically if a Makefile exists."
   (interactive "P")
   (let* ((prj (project-current))
          (root (if prj (project-root prj) default-directory))
@@ -5729,7 +5755,7 @@ we can integrate Magit, a popular Git interface for Emacs, into the project swit
     "Restrict Treemacs to display only the current project.
 Skips TRAMP paths as treemacs cannot reliably read remote paths."
     (with-eval-after-load 'treemacs
-      (when (project-current)
+      (when (and (project-current) (treemacs-get-local-window))
         (let ((project-root (project-root (project-current))))
           ;; Skip TRAMP paths - treemacs cannot reliably read remote paths
           (unless (file-remote-p project-root)
