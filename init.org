@@ -2722,9 +2722,9 @@ the package automatically detects and hides values following specific keywords.
 | Command         | Shortcut | Description                                   |
 |-----------------+----------+-----------------------------------------------|
 | ~cloak-mode~    | =s-c=    | Toggle masking on/off for the entire buffer.  |
-| ~my/cloak-edit~ | =M-s-e=  | Edit the secret at point via a safe prompt.   |
+| ~my/cloak-edit~ | =M-s-c=  | Edit the secret at point via a safe prompt.   |
 
-*Note:* The edit command (=M-s-e=) uses a secure minibuffer prompt to update
+*Note:* The edit command (=M-s-c=) uses a secure minibuffer prompt to update
 values, ensuring the plain-text secret never appears in the main buffer.
 
 #+begin_src emacs-lisp
