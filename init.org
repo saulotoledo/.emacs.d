@@ -5602,35 +5602,38 @@ available:
 #+begin_src emacs-lisp
 (defun my/smart-compile (&optional debug-p)
   "Build the project using a Makefile if found, otherwise prompt for a command.
-If DEBUG-P is non-nil (e.g., via `\\[universal-argument]' or a specific keybinding),
-it attempts to run `make compile-for-debug'.  If that target doesn't exist, it
-warns the user and falls back to an interactive prompt.
-Without DEBUG-P, it runs `make -k' automatically if a Makefile exists."
+If DEBUG-P is non-nil (e.g., via `\\[universal-argument]'),we validate that
+the Makefile contains the `DEBUG' variable, as well as `clean' and `build'
+targets before attempting a debug build. If any are missing, it alerts the user
+and falls back to a manual prompt. Standard builds (non-debug) proceed with
+`make -k' if a Makefile exists."
   (interactive "P")
-  (let* ((prj (project-current))
-         (root (if prj (project-root prj) default-directory))
-         (m-file-dir (locate-dominating-file default-directory "Makefile"))
-         (has-makefile (and m-file-dir (file-in-directory-p m-file-dir root))))
+  (let* ((m-file-dir (locate-dominating-file default-directory "Makefile"))
+         (m-file (when m-file-dir (expand-file-name "Makefile" m-file-dir)))
+         (has-makefile (and m-file (file-exists-p m-file))))
     (cond
-     ;; Valid Makefile + Debug requested + Debug target exists
-     ((and debug-p has-makefile
-           (let ((default-directory m-file-dir))
-             (zerop (shell-command "make -qp | grep -q '^compile-for-debug:'"))))
-      (let ((default-directory m-file-dir))
-        (compile "make -k compile-for-debug")))
-
-     ;; Debug requested but target is missing (Show message then prompt)
+     ;; Debug requested. Perform the triple-check (Variable + Targets):
      ((and debug-p has-makefile)
-      (message "No 'compile-for-debug' target found in Makefile. Asking what to do...")
-      (sit-for 1.0)
-      (call-interactively 'compile))
-
-     ;; Standard build (No debug-p) with a Makefile
+      (let ((requirements-met
+             (with-temp-buffer
+               (insert-file-contents m-file)
+               (let ((has-var (re-search-forward "^[ \t]*DEBUG[ \t]*[?:]?=" nil t))
+                     (has-clean (progn (goto-char (point-min))
+                                       (re-search-forward "^clean[ \t]*:" nil t)))
+                     (has-build (progn (goto-char (point-min))
+                                       (re-search-forward "^build[ \t]*:" nil t))))
+                 (and has-var has-clean has-build)))))
+        (if requirements-met
+            (let ((default-directory m-file-dir))
+              (compile "make -k clean build DEBUG=1"))
+          (message "One or more of these are missing in Makefile: DEBUG variable, clean target, or build target. Falling back to manual compile...")
+          (sit-for 1.5)
+          (call-interactively 'compile))))
+     ;; Standard build (No prefix arg) with a Makefile:
      ((and (not debug-p) has-makefile)
       (let ((default-directory m-file-dir))
         (compile "make -k")))
-
-     ;; Fallback (No Makefile or other cases)
+     ;; Fallback (No Makefile found or other cases):
      (t (call-interactively 'compile)))))
 
 (add-hook 'prog-mode-hook
