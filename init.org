@@ -2037,6 +2037,10 @@ of the `source' buffer that called Treemacs."
   (my/set-treemacs-width-pixels 300)
   (global-set-key (kbd "C-c t") #'my/treemacs-toggle)
   (global-set-key (kbd "C-c 0") #'treemacs-select-window)
+
+  (declare-function treemacs-indent-guide-mode "treemacs")
+  (declare-function treemacs-filewatch-mode "treemacs")
+
   ;; These are minor modes — they must be activated as function calls,
   ;; not set via setq, so their setup hooks are properly installed.
   (treemacs-indent-guide-mode 1)
@@ -2097,11 +2101,10 @@ of the `source' buffer that called Treemacs."
                                      treemacs-hl-line-face
                                      treemacs-window-background-face))
 
-  ;; Start Treemacs only if it's not already open
-  (unless (treemacs-get-local-window)
-    ;; Uncomment below to start treemacs automatically:
-    ;;(treemacs)
-    ))
+  ;; Uncomment below to start treemacs automatically:
+  ;; (unless (treemacs-get-local-window)
+  ;;   (treemacs))
+  )
 
 ;; Fix for for https://github.com/Alexander-Miller/treemacs/issues/1016
 (with-eval-after-load 'treemacs-all-the-icons
@@ -4298,6 +4301,13 @@ you set breakpoints, step through code, and inspect variables for many languages
   ;; 1. Stability: Increases the idle timer from 0.2s to 0.5s.
   ;; 2. Speed: Uses 'render' (Full Redraw) instead of 'generic-update' (Smart Sync).
   ;;    A full redraw is much faster because it avoids the tree-diffing logic.
+(declare-function lsp-treemacs-wcb-unless-killed "lsp-treemacs")
+(declare-function lsp-treemacs-render "lsp-treemacs")
+(declare-function dap-ui-locals-get-data "dap-ui")
+(declare-function ht-values "ht")
+(declare-function dap--get-breakpoints "dap-mode")
+(declare-function my/dap--buffers-w-breakpoints-safe nil)
+
   (defun my/dap-ui-locals--refresh-stable (&rest _)
     "Locals refresh with 0.5s idle timer and FAST rendering.
 Avoids the expensive tree-diffing of lsp-treemacs-generic-update."
@@ -4824,28 +4834,29 @@ And the Emacs setup:
 (defvar my/cpp-format-style 'bsd
   "The formatting style for C and C++ files.
 Supported values:
-- 'gnu        : GNU Style (brackets indented, next line)
-- 'bsd        : BSD/Allman Style (brackets not indented, next line)
-- 'k&r        : K&R Style (brackets on same line)
-- 'stroustrup : Stroustrup Style (K&R variant)
-- 'linux      : Linux Kernel Style
-- 'google     : Google C++ Style
-- 'llvm       : LLVM Default Style
-- 'microsoft  : Microsoft Style
-- 'webkit     : WebKit Style
-- 'mozilla    : Mozilla Style
-- 'chromium   : Chromium Style
-- 'whitesmith : Whitesmith Style (indented braces)
+- \='gnu        : GNU Style (brackets indented, next line)
+- \='bsd        : BSD/Allman Style (brackets not indented, next line)
+- \='k&r        : K&R Style (brackets on same line)
+- \='stroustrup : Stroustrup Style (K&R variant)
+- \='linux      : Linux Kernel Style
+- \='google     : Google C++ Style
+- \='llvm       : LLVM Default Style
+- \='microsoft  : Microsoft Style
+- \='webkit     : WebKit Style
+- \='mozilla    : Mozilla Style
+- \='chromium   : Chromium Style
+- \='whitesmith : Whitesmith Style (indented braces)
 
 You can override this in local.el by setting it before init.org is loaded
-or using (setq my/cpp-format-style 'bsd) there.")
+or using (setq my/cpp-format-style \='bsd) there.")
 
 (defun my/map-cpp-base-indent-style-for-emacs ()
-  "Map the user-selected style to an Emacs-supported base style.
-Emacs's built-in modes (cc-mode and c-ts-mode) only understand a limited set of
-historical base styles (like 'gnu, 'bsd, 'k&r, 'linux). By grouping modern styles
-into the closest base style, we ensure the editor has a rough fallback to guess
-where to place the cursor while typing interactively."
+  "Map user-selected style to an Emacs-supported base style.
+Emacs built-in modes (`cc-mode' and `c-ts-mode') only understand a
+limited set of historical base styles (like \='gnu, \='bsd, \='k&r,
+\='linux). By grouping modern styles into the closest base
+style, we ensure the editor has a rough fallback to guess where
+to place the cursor while typing interactively."
   (pcase my/cpp-format-style
     ((or 'mozilla 'webkit 'microsoft) 'bsd)
     ((or 'google 'llvm 'chromium) 'gnu)
@@ -4853,6 +4864,7 @@ where to place the cursor while typing interactively."
 
 ;; Common indentation settings (fallback styles for interactive typing)
 ;; These ensure both classic cc-mode and tree-sitter modes use the correct model.
+(defvar c-ts-mode-indent-style nil)
 (setq c-default-style (symbol-name (my/map-cpp-base-indent-style-for-emacs)))
 (setq c-ts-mode-indent-style (my/map-cpp-base-indent-style-for-emacs))
 (setq-default c-basic-offset 2)
@@ -4903,6 +4915,9 @@ Otherwise, use our custom configuration string."
                 ('webkit      "{BasedOnStyle: WebKit, IndentWidth: 2}")
                 ('whitesmith  "{BasedOnStyle: Whitesmith, IndentWidth: 2}")
                 (_            "{BasedOnStyle: LLVM, BreakBeforeBraces: Allman, IndentWidth: 2}"))))))
+
+(defvar apheleia-formatters nil)
+(defvar apheleia-mode-alist nil)
 
 ;; Apheleia is enabled for C and C++ via the clang-format-cpp formatter:
 (with-eval-after-load 'apheleia
