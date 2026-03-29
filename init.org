@@ -3997,7 +3997,10 @@ code completion, go-to-definition, diagnostics, and more.
   :config
   (setq lsp-idle-delay 0.5
         lsp-enable-symbol-highlighting t
-        lsp-signature-auto-activate t)
+        lsp-signature-auto-activate t
+        lsp-enable-on-type-formatting nil
+        lsp-enable-indentation t
+        lsp-format-on-save nil)
 
   ;; When using TRAMP with devcontainer, LSP servers run inside the container.
   ;; The container should have Node.js and language server extensions installed.
@@ -4484,8 +4487,17 @@ appropriate mode in =apheleia-mode-alist=. For example:
   ;; Enable globally - formats on save
   (apheleia-global-mode +1)
 
-  ;; Optimization: Disable for TRAMP buffers to prevent synchronous path resolution hangs.
-  (add-to-list 'apheleia-inhibit-functions (lambda () (file-remote-p (or (buffer-file-name) default-directory))))
+  ;; Smarter TRAMP support: Only inhibit if the required formatter is missing on the remote.
+  ;; This prevents hangs while allowing formatting if the remote has the tool installed.
+  (defun my/apheleia-inhibit-remote-if-no-tool ()
+    (when (file-remote-p (or (buffer-file-name) default-directory))
+      (let* ((formatter (alist-get major-mode apheleia-mode-alist))
+             (cmd (if (listp (alist-get formatter apheleia-formatters))
+                      (car (alist-get formatter apheleia-formatters))
+                    (alist-get formatter apheleia-formatters))))
+        (not (executable-find (or (and (stringp cmd) cmd) "") t)))))
+
+  (add-to-list 'apheleia-inhibit-functions #'my/apheleia-inhibit-remote-if-no-tool)
 
   ;; Add custom formatters - you can extend this list
   (setf (alist-get 'prettier-local apheleia-formatters)
@@ -4809,13 +4821,46 @@ register_action "Install C++ dev tools" "cpp-dev-bundle" "C++"
 And the Emacs setup:
 
 #+begin_src emacs-lisp
+(defvar my/cpp-format-style 'bsd
+  "The formatting style for C and C++ files.
+Supported values:
+- 'gnu        : GNU Style (brackets indented, next line)
+- 'bsd        : BSD/Allman Style (brackets not indented, next line)
+- 'k&r        : K&R Style (brackets on same line)
+- 'stroustrup : Stroustrup Style (K&R variant)
+- 'linux      : Linux Kernel Style
+- 'google     : Google C++ Style
+- 'llvm       : LLVM Default Style
+- 'microsoft  : Microsoft Style
+- 'webkit     : WebKit Style
+- 'mozilla    : Mozilla Style
+- 'chromium   : Chromium Style
+- 'whitesmith : Whitesmith Style (indented braces)
+
+You can override this in local.el by setting it before init.org is loaded
+or using (setq my/cpp-format-style 'bsd) there.")
+
+(defun my/map-cpp-base-indent-style-for-emacs ()
+  "Map the user-selected style to an Emacs-supported base style.
+Emacs's built-in modes (cc-mode and c-ts-mode) only understand a limited set of
+historical base styles (like 'gnu, 'bsd, 'k&r, 'linux). By grouping modern styles
+into the closest base style, we ensure the editor has a rough fallback to guess
+where to place the cursor while typing interactively."
+  (pcase my/cpp-format-style
+    ((or 'mozilla 'webkit 'microsoft) 'bsd)
+    ((or 'google 'llvm 'chromium) 'gnu)
+    (style style)))
+
+;; Common indentation settings (fallback styles for interactive typing)
+;; These ensure both classic cc-mode and tree-sitter modes use the correct model.
+(setq c-default-style (symbol-name (my/map-cpp-base-indent-style-for-emacs)))
+(setq c-ts-mode-indent-style (my/map-cpp-base-indent-style-for-emacs))
+(setq-default c-basic-offset 2)
+
 (use-package cc-mode
   :ensure nil ;; Built-in
   :hook ((c-mode . lsp-deferred)
-         (c++-mode . lsp-deferred))
-  :config
-  (setq-default c-basic-offset 2)
-  (c-set-offset 'substatement-open 0))
+         (c++-mode . lsp-deferred)))
 
 (use-package cmake-ts-mode
   :mode ("CMakeLists\\.txt\\'" "\\.cmake\\'")
@@ -4826,15 +4871,48 @@ And the Emacs setup:
   (defvar lsp-clients-clangd-args nil)
   (add-to-list 'lsp-enabled-clients 'clangd)
   (setq lsp-clients-clangd-args
-        '("--header-insertion=never"
+        `("--header-insertion=never"
           "--background-index"
-          "--log=error")))
+          "--log=error"
+          ,(format "--fallback-style=%s"
+                   (pcase my/cpp-format-style
+                     ('bsd "BSD")
+                     ('google "Google")
+                     ('llvm "LLVM")
+                     (_ "LLVM"))))))
 
-;; Disable Apheleia for C and C++ to let LSP handle it
+(defun my/apheleia-get-cpp-style ()
+  "Determine the best -style argument for clang-format.
+If a local .clang-format exists, use -style=file.
+Otherwise, use our custom configuration string."
+  (let ((config-file (locate-dominating-file (or (buffer-file-name) default-directory)
+                                             ".clang-format")))
+    (if config-file
+        "-style=file"
+      (format "-style=%s"
+              (pcase my/cpp-format-style
+                ('bsd         "{BasedOnStyle: LLVM, BreakBeforeBraces: Allman, IndentWidth: 2}")
+                ('k&r         "{BasedOnStyle: K&R, BreakBeforeBraces: Attach, IndentWidth: 2}")
+                ('stroustrup  "{BasedOnStyle: Stroustrup, IndentWidth: 2}")
+                ('linux       "{BasedOnStyle: Linux, IndentWidth: 2}")
+                ('google      "{BasedOnStyle: Google, IndentWidth: 2}")
+                ('llvm        "{BasedOnStyle: LLVM, IndentWidth: 2}")
+                ('microsoft   "{BasedOnStyle: Microsoft, IndentWidth: 2}")
+                ('mozilla     "{BasedOnStyle: Mozilla, IndentWidth: 2}")
+                ('chromium    "{BasedOnStyle: Chromium, IndentWidth: 2}")
+                ('webkit      "{BasedOnStyle: WebKit, IndentWidth: 2}")
+                ('whitesmith  "{BasedOnStyle: Whitesmith, IndentWidth: 2}")
+                (_            "{BasedOnStyle: LLVM, BreakBeforeBraces: Allman, IndentWidth: 2}"))))))
+
+;; Apheleia is enabled for C and C++ via the clang-format-cpp formatter:
 (with-eval-after-load 'apheleia
-  (defvar apheleia-mode-alist nil)
-  (dolist (mode '(c-mode c++-mode c-ts-mode c++-ts-mode))
-    (setq apheleia-mode-alist (assq-delete-all mode apheleia-mode-alist))))
+  (setf (alist-get 'clang-format-cpp apheleia-formatters)
+        '("clang-format" (my/apheleia-get-cpp-style)))
+
+  (setf (alist-get 'c-mode apheleia-mode-alist) 'clang-format-cpp)
+  (setf (alist-get 'c++-mode apheleia-mode-alist) 'clang-format-cpp)
+  (setf (alist-get 'c-ts-mode apheleia-mode-alist) 'clang-format-cpp)
+  (setf (alist-get 'c++-ts-mode apheleia-mode-alist) 'clang-format-cpp))
 
 (defun my/run-dap-logic (&optional source-buffer)
   "Find binary based on SOURCE-BUFFER and start DAP."
