@@ -4030,6 +4030,26 @@ code completion, go-to-definition, diagnostics, and more.
 
   ;; Performance tuning
   (setq read-process-output-max (* 1024 1024))
+
+  ;; Globally ignore large/irrelevant directories
+  (dolist (dir '("[/\\\\]node_modules\\'"
+                 "[/\\\\]\\.git\\'"
+                 "[/\\\\]\\.emacs\\.d\\'"
+                 "[/\\\\]build\\'"
+                 "[/\\\\]dist\\'"
+                 "[/\\\\]target\\'"   ; Maven/Gradle build output
+                 "[/\\\\]\\.mvn\\'"
+                 "[/\\\\]\\.gradle\\'"
+                 "[/\\\\]out\\'"))
+    (add-to-list 'lsp-file-watch-ignored-directories dir))
+
+  ;; Kill workspaces when their last buffer closes.
+  ;; Default is t, which permanently accumulates every project you ever open
+  ;; into .lsp-session-v1 and re-sends them all to every server on the next
+  ;; startup. nil prunes workspaces (and session entries) as soon as their
+  ;; last buffer closes, so each session only contains what is currently open.
+  (setq lsp-keep-workspace-alive nil)
+
   ;; Add the following to $HOME/.ssh/config to reuse existing connections:
   ;; Host *
   ;;   ControlMaster auto
@@ -4110,14 +4130,6 @@ so we also set lsp-eslint-enable to nil for extra reliability."
     ;; others send it as a notification; lsp-mode only handles the request form).
     (puthash "window/workDoneProgress/create" #'ignore lsp--default-notification-handlers)
 
-    (defun my/lsp-recompile-for-plists ()
-      "Recompile lsp-mode with LSP_USE_PLISTS=1 so diagnostics work with plists.
-Run once if you see wrong-type-argument hash-table-p when flycheck runs LSP diagnostics."
-      (interactive)
-      (setenv "LSP_USE_PLISTS" "1")
-      (byte-recompile-directory (file-name-directory (locate-library "lsp-mode")) 0 t)
-      (message "Recompiled. Restart Emacs for changes to take effect."))
-
     (defun my/lsp-inspect-remote-clients ()
       "Inspect active LSP clients and their processes for the current remote buffer."
       (interactive)
@@ -4170,13 +4182,144 @@ LSP to make sure it has the proper support, and later when running it.
 Therefore, we do it in our =early-init.el= to ensure it takes effect before any
 LSP code is loaded or compiled.
 
-Snippet de código
 #+begin_src emacs-lisp :tangle early-init.el
 ;; Force lsp-mode to use plists instead of the default hash tables.
 ;; This is required for some language servers that fail when they encounter
 ;; hash tables. This must be set before lsp-mode loads or compiles to
 ;; ensure it does not default to the hash-table implementation.
 (setenv "LSP_USE_PLISTS" "1")
+
+(defun my/lsp-recompile-for-plists ()
+  "Recompile lsp-mode with LSP_USE_PLISTS=1 so diagnostics work with plists.
+Run once if you see wrong-type-argument hash-table-p when flycheck runs LSP diagnostics."
+  (interactive)
+  (setenv "LSP_USE_PLISTS" "1")
+  (byte-recompile-directory (file-name-directory (locate-library "lsp-mode")) 0 t)
+  (message "Recompiled. Restart Emacs for changes to take effect."))
+#+end_src
+
+In addition to the settings above, we also do some optimization on LSP for
+simultanoeus projects. When you have multiple projects open simultaneously,
+lsp-mode broadcasts ~workspace/didChangeWorkspaceFolders~ to EVERY running
+server whenever a new root is added -- even if that server has no interest in
+the language.
+
+Opening a =Node.js= project while =jdtls= is running, for example, would add the
+JS root to =jdtls=, causing it to crawl =node_modules=.
+
+The ~my/lsp-server-file-extensions~ below is the single place to declare which
+file extensions each server owns. Whenever you add a new language server to your
+config, add a matching entry here. Servers with no entry are unrestricted (the
+notification passes through unchanged).
+
+The interceptor uses =ripgrep= (=rg=) for the filesystem scan; it falls back to
+GNU =find= and logs a one-time hint to install =rg= if it is missing. =rg= is
+much faster than =find=, especially on large projects and remote filesystems, so
+it's highly recommended to install it for optimal performance.
+
+#+begin_src emacs-lisp
+(defvar my/lsp-server-file-extensions '()
+  "Alist mapping LSP server IDs (symbols) to accepted file-extension lists.
+Each entry has the form (SERVER-ID . (EXT1 EXT2 ...)) where extensions are
+plain strings without a leading dot (e.g. \"java\", \"ts\").
+
+Add a new entry here whenever you register a new language server.
+Servers absent from this map are unrestricted: they receive every
+workspace/didChangeWorkspaceFolders notification unchanged.")
+
+(defvar my/lsp--rg-warned-p nil
+  "Non-nil once the one-time ripgrep-missing warning has been emitted.")
+
+(defun my/lsp--folder-has-extensions-p (folder extensions)
+  "Return non-nil if FOLDER contains any file matching EXTENSIONS.
+EXTENSIONS is a list of extension strings without a leading dot.
+Uses ripgrep (rg) when available; falls back to GNU find and emits a
+one-time suggestion to install rg for faster workspace filtering."
+  (when (and folder (file-directory-p folder) extensions)
+    (let* ((dir (shell-quote-argument (expand-file-name folder)))
+           (result
+            (if (executable-find "rg")
+                (shell-command-to-string
+                 (concat "rg --files --max-depth 5 "
+                         (mapconcat (lambda (e)
+                                      (concat "-g " (shell-quote-argument
+                                                     (concat "*." e))))
+                                    extensions " ")
+                         " " dir " 2>/dev/null | head -1"))
+              (progn
+                (unless my/lsp--rg-warned-p
+                  (setq my/lsp--rg-warned-p t)
+                  (message (concat "lsp-filter: ripgrep (rg) not found; "
+                                   "using find for workspace filtering (slower). "
+                                   "Install rg for faster performance.")))
+                (shell-command-to-string
+                 (format "find %s -maxdepth 5 \\( %s \\) -print -quit 2>/dev/null"
+                         dir
+                         (mapconcat (lambda (e)
+                                      (concat "-name "
+                                              (shell-quote-argument
+                                               (concat "*." e))))
+                                    extensions " -o ")))))))
+      (not (string-empty-p (string-trim result))))))
+
+(defun my/lsp--server-extensions (workspace)
+  "Return the accepted extension list for WORKSPACE's server if restricted.
+If unrestricted, returns nil."
+  (let* ((client (lsp--workspace-client workspace))
+         (server-id (and client (lsp--client-server-id client))))
+    (alist-get server-id my/lsp-server-file-extensions)))
+
+(defun my/lsp--filter-added-folders (added extensions)
+  "Filter ADDED workspace-folder entries, keeping only those matching EXTENSIONS."
+  (seq-filter
+   (lambda (entry)
+     (let ((uri (if (listp entry)
+                    (plist-get entry :uri)
+                  (gethash "uri" entry))))
+       (my/lsp--folder-has-extensions-p (lsp--uri-to-path uri) extensions)))
+   (if (listp added) added (append added nil))))
+
+(defun my/lsp--rebuild-params (params filtered-added removed)
+  "Rebuild a workspace-change PARAMS with FILTERED-ADDED and REMOVED."
+  (if (listp params)
+      (list :event (list :added filtered-added :removed (or removed [])))
+    (let ((tbl (copy-hash-table params))
+          (ev  (make-hash-table :test #'equal)))
+      (puthash "added" filtered-added   ev)
+      (puthash "removed" (or removed []) ev)
+      (puthash "event" ev tbl)
+      tbl)))
+
+(defun my/lsp--filter-workspace-change-for-server (orig-fun workspace method params)
+  "Filter workspace/didChangeWorkspaceFolders using our extensions list.
+Servers absent from the map are unrestricted and receive the notification
+unchanged.
+- ORIG-FUN is `lsp--notify'
+- WORKSPACE is the target workspace,
+- METHOD is the JSON-RPC method string
+- PARAMS are the notification params."
+  (if (not (equal method "workspace/didChangeWorkspaceFolders"))
+      (funcall orig-fun workspace method params)
+    (let ((extensions (my/lsp--server-extensions workspace)))
+      (if (null extensions)
+          ;; Servers not in the map are unrestricted
+          (funcall orig-fun workspace method params)
+        (let* ((event (if (listp params)
+                          (plist-get params :event)
+                        (gethash "event" params)))
+               (added (if (listp event)
+                          (plist-get event :added)
+                        (gethash "added" event)))
+               (removed (if (listp event)
+                            (plist-get event :removed)
+                          (gethash "removed" event)))
+               (filtered-added (my/lsp--filter-added-folders added extensions)))
+          (when (or filtered-added (and removed (not (seq-empty-p removed))))
+            (funcall orig-fun workspace method
+                     (my/lsp--rebuild-params params filtered-added removed))))))))
+
+(with-eval-after-load 'lsp-mode
+  (advice-add 'lsp--notify :around #'my/lsp--filter-workspace-change-for-server))
 #+end_src
 
 
@@ -4899,6 +5042,9 @@ to place the cursor while typing interactively."
                      ('llvm "LLVM")
                      (_ "LLVM"))))))
 
+;; Register accepted extensions for workspace folder filtering
+(add-to-list 'my/lsp-server-file-extensions '(clangd . ("c" "cpp" "h" "hpp" "cc" "cxx" "cu")))
+
 (defun my/apheleia-get-cpp-style ()
   "Determine the best -style argument for clang-format.
 If a local .clang-format exists, use -style=file.
@@ -5162,20 +5308,23 @@ The ~lsp-java~ package integrates the Java language server, providing rich
 editing support for Java projects. We need to configure the path in our Emacs
 configuration (this is set in the ~lsp-java~ section below).
 
+The block below also contains cross-cutting LSP session hygiene settings that
+apply to all language servers:
+
 #+begin_src emacs-lisp
+;; Register accepted extensions for workspace folder filtering
+(add-to-list 'my/lsp-server-file-extensions '(jdtls . ("java")))
+
+(add-to-list 'load-path "/home/saulo/java-agent-loader/")
+(load "/home/saulo/java-agent-loader/jal.el")
+(require 'jal)
+
 (use-package lsp-java
   :pin "MELPA Unstable"
   :after java-ts-mode
-;; (add-to-list 'load-path "/home/saulo/java-agent-loader/")
-;; (load "/home/saulo/java-agent-loader/java-agent-loader.el")
-;; (require 'java-agent-loader)java
-
-;;use-package lsp-java
-;;   :init
-;;   (jal/lsp-java-setup '(("lombok")))
-
   :init
-  (add-to-list 'auto-mode-alist '("\\.java\\'" . java-ts-mode))
+  (jal-lsp-java-setup)
+  (add-to-list 'auto-mode-alist '("\\.java.*\\'" . java-ts-mode))
   :custom
   (lsp-java-server-install-dir
    (expand-file-name "~/.emacs.d/lsp_language_servers/eclipse.jdt.ls/"))
@@ -5356,6 +5505,9 @@ Then, we can configure Emacs:
     (my/kotlin-register-debug-templates))
   :hook ((kotlin-mode . lsp-deferred)
          (kotlin-mode . yas-minor-mode)))
+
+;; Register accepted extensions for workspace folder filtering
+(add-to-list 'my/lsp-server-file-extensions '(kotlin-ls . ("kt" "kts")))
 #+end_src
 
 
@@ -5399,6 +5551,11 @@ Then, we can configure Emacs. The setup below enables TypeScript mode using
 treesit (~*-ts-mode~):
 
 #+begin_src emacs-lisp
+;; Register accepted extensions for workspace folder filtering
+(dolist (entry '((eslint        . ("ts" "tsx" "js" "jsx" "html" "vue"))
+                 (eslint-remote . ("ts" "tsx" "js" "jsx" "html" "vue"))))
+  (add-to-list 'my/lsp-server-file-extensions entry))
+
 (defun my/typescript-register-debug-templates ()
   "Register DAP debug templates for TypeScript."
   (require 'dap-mode)
@@ -5450,6 +5607,9 @@ treesit (~*-ts-mode~):
       (setq lsp-typescript-server-path (if (file-exists-p project-tsls) project-tsls fallback-tsls))))
   :hook ((typescript-ts-mode . lsp-deferred)
           (typescript-ts-mode . yas-minor-mode)))
+
+;; Register accepted extensions for workspace folder filtering
+(add-to-list 'my/lsp-server-file-extensions '(ts-ls . ("ts" "tsx" "js" "jsx" "mjs" "cjs")))
 
 ;; Associate tsx and ts files with the correct modes
 (add-to-list 'auto-mode-alist '("\\.tsx\\'" . tsx-ts-mode))
