@@ -4887,7 +4887,6 @@ to place the cursor while typing interactively."
 
 (with-eval-after-load 'lsp-mode
   (defvar lsp-clients-clangd-args nil)
-  (add-to-list 'lsp-enabled-clients 'clangd)
   (setq lsp-clients-clangd-args
         `("--header-insertion=never"
           "--background-index"
