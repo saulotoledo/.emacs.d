@@ -5193,18 +5193,57 @@ configuration (this is set in the ~lsp-java~ section below).
   (setq lsp-java-format-settings-profile "GoogleStyle")
 
   (defun my/lsp-java-discover-runtimes ()
-    "Discover SDKMAN! java versions and return them as a vector for lsp-java."
+    "Discover SDKMAN! java versions and return them as a vector for lsp-java.
+
+Maps SDKMAN version directories to JDT execution environment names
+(e.g. `JavaSE-17'). When multiple patch versions of the same major
+exist only the lexicographically latest one is kept. All discovered
+runtimes are passed to jdtls; if jdtls does not recognise an environment
+it emits an \"Invalid runtime\" warning which is intercepted by
+`my/lsp-java-invalid-runtime-advice' to show an actionable hint."
     (let ((sdk-dir (expand-file-name "~/.sdkman/candidates/java")))
       (when (file-exists-p sdk-dir)
-        (let ((versions (seq-filter (lambda (dir)
-                                      (and (file-directory-p dir)
-                                           (not (string-equal (file-name-nondirectory dir) "current"))))
-                                    (directory-files sdk-dir t "^[^.]"))))
-          (vconcat (mapcar (lambda (path)
-                             `(:name ,(file-name-nondirectory path) :path ,path))
-                           versions))))))
+        (let* ((dirs (seq-filter
+                      (lambda (dir)
+                        (and (file-directory-p dir)
+                             (not (string-equal (file-name-nondirectory dir) "current"))))
+                      (directory-files sdk-dir t "^[^.]")))
+               (major->path (make-hash-table :test 'equal)))
+          (dolist (path dirs)
+            (let* ((dir-name (file-name-nondirectory path))
+                   (major (when (string-match "^\\([0-9]+\\)" dir-name)
+                            (string-to-number (match-string 1 dir-name)))))
+              (when major
+                (let ((existing (gethash major major->path)))
+                  (when (or (null existing)
+                            (string> dir-name (file-name-nondirectory existing)))
+                    (puthash major path major->path))))))
+          (let (runtime-list)
+            (maphash (lambda (major path)
+                       (let ((env-name (if (= major 8)
+                                          "JavaSE-1.8"
+                                        (format "JavaSE-%d" major))))
+                         (push `(:name ,env-name :path ,path) runtime-list)))
+                     major->path)
+            (vconcat runtime-list))))))
 
-  (setq lsp-java-configuration-runtimes (my/lsp-java-discover-runtimes)))
+  (setq lsp-java-configuration-runtimes (my/lsp-java-discover-runtimes))
+
+  ;; jdtls is the source of truth for supported execution environments.
+  ;; When it sends back an "Invalid runtime" warning (meaning a JDK we passed
+  ;; is newer than what this jdtls release knows about), intercept it and
+  ;; append an actionable hint so upgrading jdtls is the obvious next step.
+  (defun my/lsp-java-invalid-runtime-advice (format-string &rest args)
+    "Intercept jdtls \"Invalid runtime\" warnings and add an actionable hint."
+    (let ((msg (apply #'format format-string args)))
+      (when (string-match "Invalid runtime for \\(JavaSE-[0-9.]+\\)" msg)
+        (message
+         (concat "lsp-java: '%s' is not supported by the installed jdtls. "
+                 "Consider upgrading jdtls to a newer release. "
+                 "See: https://github.com/eclipse-jdtls/eclipse.jdt.ls/releases")
+         (match-string 1 msg)))))
+
+  (advice-add 'lsp--warn :after #'my/lsp-java-invalid-runtime-advice))
 #+end_src
 
 
