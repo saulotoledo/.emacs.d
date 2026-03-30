@@ -72,10 +72,6 @@
     - [[#general-ai-assistant-configuration][General AI Assistant Configuration]]
         - [[#encrypted-api-keys-for-the-ai-providers][Encrypted API Keys for the AI providers]]
         - [[#eca-editor-code-assistant][ECA (Editor Code Assistant)]]
-        - [[#eca-config-installation-with-default-model-override][ECA Config Installation with Default Model Override]]
-        - [[#eca-over-tramp][ECA over TRAMP]]
-        - [[#eca-chat-copilot-autocompletion][ECA Chat Copilot autocompletion]]
-        - [[#eca-chat-management-auto-save-and-index][ECA Chat Management (Auto-save and Index)]]
         - [[#github-copilot][GitHub Copilot]]
         - [[#github-copilot-chat][GitHub Copilot Chat]]
     - [[#ide-functionality-with-lsp][IDE functionality with LSP]]
@@ -3127,7 +3123,7 @@ Returns nil if auth-source is not ready or key is missing."
 #+end_src
 
 
-*** ECA Config Installation with Default Model Override
+**** ECA Config Installation with Default Model Override
 
 The ~my/eca-install-config~ function syncs =eca-config.json= from your Emacs
 directory to =~/.config/eca/config.json=. It supports overriding the
@@ -3256,6 +3252,24 @@ Finally, we setup the ECA package and its completion mode:
   (setq eca-extra-args '("--verbose" "--log-level" "debug"))
   (add-hook 'eca-chat-mode-hook (lambda () (setq-local show-trailing-whitespace nil)))
 
+  (defun my/eca-init (&rest _args)
+    "Ensure ECA config is installed."
+    (unless (and (boundp 'my/eca-initialized-p) my/eca-initialized-p)
+      (condition-case err
+          (progn
+            ;; Ensure local.el is loaded (it's loaded in after-init-hook, but be safe)
+            (let ((local-file (concat user-emacs-directory "local.el")))
+              (when (and (file-exists-p local-file)
+                         (not (boundp 'my/eca-default-model)))
+                (load-file local-file)))
+            (my/eca-setup-tokens)
+            (my/eca-install-config)
+            (setq my/eca-initialized-p t))
+        (error (message "ECA: Failed to load local.el: %s" (error-message-string err))))))
+
+  (defvar my/eca-initialized-p nil
+    "Non-nil when `my/eca-init' has run this session.")
+
   ;; Define completion setup function after ECA is fully loaded
   ;; ECA uses eca-completion-mode (overlay-based), not company-mode
   (with-eval-after-load 'eca
@@ -3266,13 +3280,13 @@ Optional _ARG is ignored (for compatibility with advice)."
       (interactive)
 
       (if (my/ai-copilot-authorized-p)
-          (progn
-            ;; If Copilot is ON, disable ECA completion to avoid conflicts
-            (when (bound-and-true-p eca-completion-mode)
-              (eca-completion-mode -1))
+          ;; If Copilot is ON, disable ECA completion to avoid conflicts
+          (when (bound-and-true-p eca-completion-mode)
+            (eca-completion-mode -1)
             (message "ECA [-]: Skipping ECA completion because Copilot is enabled"))
         ;; If Copilot is OFF, enable ECA completion
         (when (and (fboundp 'eca-completion-mode) (not (derived-mode-p 'eca-chat-mode)))
+          (my/eca-init) ;; Ensure ECA is initialized before enabling completion
           (eca-completion-mode 1)
           (message "ECA [✓]: Using ECA for ghost completions"))))
 
@@ -3351,13 +3365,15 @@ Otherwise, start a fresh session."
                                  (buffer-list))))
         (if (and eca-buf (get-buffer-window eca-buf))
             (progn
-              (eca-stop) ;; Kill the process
+              (eca-stop)
               (delete-window (get-buffer-window eca-buf))
               (dolist (buf (buffer-list))
                 (when (string-match-p "^<eca" (buffer-name buf))
                   (kill-buffer buf)))
               (message "ECA Sessions Terminated."))
           (eca))))
+
+  (advice-add 'eca :before #'my/eca-init)
 
   ;; NOTE: auth-source backends (gpg-agent, pass, keychain, etc.) are initialized
   ;; lazily and may rely on async subprocesses and the Emacs event loop.
@@ -3377,23 +3393,15 @@ Otherwise, start a fresh session."
   ;; became insufficient after adding a delay for starting up copilot-mode on buffers,
   ;; causing ECA to start with an empty buffer.
   ;; This also prevents files from opening on top of the ECA chat buffer.
-  (run-with-idle-timer
-   1 nil
-   (lambda ()
-     ;; Ensure local.el is loaded (it's loaded in after-init-hook, but be safe)
-     (let ((local-file (concat user-emacs-directory "local.el")))
-       (when (and (file-exists-p local-file)
-                  (not (boundp 'my/eca-default-model)))
-         (load-file local-file)))
-     (my/eca-setup-tokens)
-     (my/eca-install-config)
-     ;; Uncomment to enable ECA auto-start with Emacs:
-     ;; (eca)
-     (define-key custom-bindings-map (kbd "C-c e") #'my/eca-toggle))))
+  ;;
+  ;; Uncommment to start ECA automatically after startup:
+  ;; (run-with-idle-timer 1 nil #'eca)
+
+  (define-key custom-bindings-map (kbd "C-c e") #'my/eca-toggle))
 #+end_src
 
 
-*** ECA over TRAMP
+**** ECA over TRAMP
 
 I found a problem where the package suffers from a "paradox": it intends to be
 helpful but constantly probes files as if they were local, effectively "DDOSing"
@@ -3420,7 +3428,7 @@ Applies ORIG-FUN with ARGS."
 #+end_src
 
 
-*** ECA Chat Copilot autocompletion
+**** ECA Chat Copilot autocompletion
 
 This section configures key integration between Copilot's autocompletion and the
 ECA Chat (Editor Code Assistant) within Emacs. It ensures that when both Copilot
@@ -3441,7 +3449,7 @@ available, otherwise, it will fall back to ECA Chat's behavior.
 #+end_src
 
 
-*** ECA Chat Management (Auto-save and Index)
+**** ECA Chat Management (Auto-save and Index)
 
 This section adds automatic saving of ECA chats to a dedicated folder and
 maintains an Org-mode index for easy navigation.
