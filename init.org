@@ -4031,6 +4031,13 @@ code completion, go-to-definition, diagnostics, and more.
   ;; Performance tuning
   (setq read-process-output-max (* 1024 1024))
 
+  ;; Prevent noisy language servers (like semgrep-ls) from prompting
+  ;; to restart if they crash due to pipe breakage during Emacs shutdown.
+  (add-hook 'kill-emacs-query-functions
+            (lambda ()
+              (setq lsp-restart 'ignore)
+              t))
+
   ;; Globally ignore large/irrelevant directories
   (dolist (dir '("[/\\\\]node_modules\\'"
                  "[/\\\\]\\.git\\'"
