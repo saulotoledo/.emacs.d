@@ -308,7 +308,8 @@ menu_select_actions() {
       fi
 
       # Clear any toggles (spaces) that were in the burst
-      local space_count=$(echo "$extra" | tr -cd ' ' | wc -c)
+      local space_count
+      space_count=$(echo "$extra" | tr -cd ' ' | wc -c)
       if (( space_count > 0 )); then
          # This part is tricky; usually we don't want to "burst" toggle
          # but we can toggle the current cursor if spaces were found.
@@ -996,6 +997,12 @@ install_jdtls() {
   fi
 }
 
+uninstall_jdtls() {
+  if is_installed_jdtls; then
+    run_task "Removing existing JDTLS installation" "rm -Rf${VERBOSE:+v} $JDTLS_TARGET_DIR"
+  fi
+}
+
 is_installed_java() {
   return 1 # SDKMAN! will skip already installed versions
 }
@@ -1018,6 +1025,7 @@ install_java() {
 }
 
 uninstall_java() {
+  uninstall_jdtls
   log_skip "Java SDKs (SDKMAN!)."
 }
 
@@ -1044,6 +1052,12 @@ install_kls() {
   fi
 }
 
+uninstall_kls() {
+  if is_installed_kls; then
+    run_task "Removing existing KLS installation" "rm -Rf${VERBOSE:+v} $KLS_TARGET_DIR"
+  fi
+}
+
 is_installed_kotlin() {
   return 1 # SDKMAN! will skip already installed versions
 }
@@ -1062,6 +1076,7 @@ install_kotlin() {
 }
 
 uninstall_kotlin() {
+  uninstall_kls
   log_skip "Kotlin SDKs (SDKMAN!)"
 }
 
