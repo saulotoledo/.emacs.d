@@ -58,6 +58,7 @@ drafts.el
 ssh_keys/*
 
 # Other
+.lsp-java-format-cache/
 auto-save-list/
 eclipse*/
 lsp_language_servers/
