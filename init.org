@@ -1486,12 +1486,21 @@ intended to be overridden by ~editorconfig-mode~, if in use.
 (defvar sh-basic-offset)
 (defvar sh-indentation)
 (defvar c-basic-offset)
+(defvar java-ts-mode-indent-offset)
 (defvar js-indent-level)
 (defvar typescript-indent-level)
 (defvar css-indent-offset)
 (defvar python-indent-offset)
 (defvar nxml-child-indent)
 (defvar coffee-tab-width)
+
+;; Override java-ts-mode default (4) before any buffer is created.
+;; This is needed because java-ts-mode uses defcustom for java-ts-mode-indent-offset
+;; with a default of 4. When the mode initializes, it reads the global default -- not
+;; the buffer-local value set by hooks. Hooks like prog-mode-hook run after mode
+;; initialization, but setq only sets the buffer-local value, which gets overwritten
+;; by the mode's own defvar/defcustom default during java-ts-mode setup.
+(setq-default java-ts-mode-indent-offset 2)
 
 (defun my/default-indentation ()
   "Apply my preferred 2-space indentation settings across modes.
@@ -1509,6 +1518,7 @@ These settings are intended to be overridden by `editorconfig-mode'."
      sh-basic-offset 2
      sh-indentation 2
      c-basic-offset 2
+     java-ts-mode-indent-offset 2
      js-indent-level 2
      typescript-indent-level 2
      css-indent-offset 2
@@ -1517,6 +1527,7 @@ These settings are intended to be overridden by `editorconfig-mode'."
      coffee-tab-width 2)))
 
 (dolist (hook '(conf-unix-mode-hook
+                java-ts-mode-hook
                 markdown-mode-hook
                 nxml-mode-hook
                 prog-mode-hook
@@ -5369,6 +5380,65 @@ register_action "Install Java" "java" "jvm"
 #+end_src
 
 
+***** Google Java Format
+
+The [[https://github.com/google/google-java-format][Google Java Format]] tool reformats Java source code to comply with the
+[[https://google.github.io/styleguide/javaguide.html][Google Java Style Guide]] (2-space indentation). We use the pre-built native
+binary (GraalVM-based) so no JDK is required at formatting time, and
+formatting is fast ({{{<}}}100 ms per file).
+
+The native binary is downloaded from the latest GitHub release and placed
+under =~/.emacs.d/google-java-format/=. Apheleia uses it as an external
+formatter for Java buffers (see the Java setup section below).
+
+#+begin_src sh :tangle setup.sh
+GOOGLE_JAVA_FORMAT_VERSION="1.25.0"
+GOOGLE_JAVA_FORMAT_DIR="$HOME/.emacs.d/google-java-format"
+GOOGLE_JAVA_FORMAT_BIN="$GOOGLE_JAVA_FORMAT_DIR/google-java-format"
+
+is_installed_google_java_format() {
+  [ -x "$GOOGLE_JAVA_FORMAT_BIN" ]
+}
+
+install_google_java_format() {
+  if ! is_installed_google_java_format; then
+    # Determine platform binary name.
+    local arch
+    arch="$(uname -m)"
+    local os
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    local binary_name
+
+    case "${os}_${arch}" in
+      linux_x86_64)  binary_name="google-java-format_linux-x86-64" ;;
+      linux_aarch64) binary_name="google-java-format_linux-arm64" ;;
+      darwin_arm64)  binary_name="google-java-format_darwin-arm64" ;;
+      *)
+        log_error "No pre-built google-java-format binary for ${os}_${arch}."
+        log_error "Install manually: https://github.com/google/google-java-format/releases"
+        return 1
+        ;;
+    esac
+
+    mkdir -p "$GOOGLE_JAVA_FORMAT_DIR"
+
+    local url="https://github.com/google/google-java-format/releases/download/v${GOOGLE_JAVA_FORMAT_VERSION}/${binary_name}"
+    run_task "Downloading google-java-format v${GOOGLE_JAVA_FORMAT_VERSION}" \
+             "curl -L -o '$GOOGLE_JAVA_FORMAT_BIN' '$url'"
+    chmod +x "$GOOGLE_JAVA_FORMAT_BIN"
+  fi
+}
+
+uninstall_google_java_format() {
+  if is_installed_google_java_format; then
+    run_task "Removing google-java-format" "rm -Rf${VERBOSE:+v} $GOOGLE_JAVA_FORMAT_DIR"
+  fi
+}
+
+register_action "Install Google Java Format" "google-java-format" "jvm"
+#+end_src
+
+
 ***** ~lsp-java~ configuration
 
 The ~lsp-java~ package integrates the Java language server, providing rich
@@ -5385,6 +5455,26 @@ apply to all language servers:
 (add-to-list 'load-path "/home/saulo/java-agent-loader/")
 (load "/home/saulo/java-agent-loader/jal.el")
 (require 'jal)
+
+;; Path to the google-java-format native binary installed by setup.sh.
+(defconst my/google-java-format-bin
+  (expand-file-name "google-java-format/google-java-format"
+                    user-emacs-directory)
+  "Path to the google-java-format native binary.")
+
+;; Register google-java-format as an Apheleia formatter for Java.
+;; The native binary reads stdin (via "-") and writes formatted
+;; code to stdout.  Apheleia handles the rest.
+(with-eval-after-load 'apheleia
+  (setf (alist-get 'google-java-format apheleia-formatters)
+        (list my/google-java-format-bin "-"))
+  (setf (alist-get 'java-mode apheleia-mode-alist) 'google-java-format)
+  (setf (alist-get 'java-ts-mode apheleia-mode-alist) 'google-java-format))
+
+;; Disable LSP-based Java formatting.  Apheleia with
+;; google-java-format handles formatting instead.
+(with-eval-after-load 'lsp-java
+  (setq lsp-java-format-enabled nil))
 
 (use-package lsp-java
   :pin "MELPA Unstable"

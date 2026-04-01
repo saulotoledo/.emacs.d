@@ -1031,6 +1031,51 @@ uninstall_java() {
 
 register_action "Install Java" "java" "jvm"
 
+GOOGLE_JAVA_FORMAT_VERSION="1.25.0"
+GOOGLE_JAVA_FORMAT_DIR="$HOME/.emacs.d/google-java-format"
+GOOGLE_JAVA_FORMAT_BIN="$GOOGLE_JAVA_FORMAT_DIR/google-java-format"
+
+is_installed_google_java_format() {
+  [ -x "$GOOGLE_JAVA_FORMAT_BIN" ]
+}
+
+install_google_java_format() {
+  if ! is_installed_google_java_format; then
+    # Determine platform binary name.
+    local arch
+    arch="$(uname -m)"
+    local os
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    local binary_name
+
+    case "${os}_${arch}" in
+      linux_x86_64)  binary_name="google-java-format_linux-x86-64" ;;
+      linux_aarch64) binary_name="google-java-format_linux-arm64" ;;
+      darwin_arm64)  binary_name="google-java-format_darwin-arm64" ;;
+      *)
+        log_error "No pre-built google-java-format binary for ${os}_${arch}."
+        log_error "Install manually: https://github.com/google/google-java-format/releases"
+        return 1
+        ;;
+    esac
+
+    mkdir -p "$GOOGLE_JAVA_FORMAT_DIR"
+
+    local url="https://github.com/google/google-java-format/releases/download/v${GOOGLE_JAVA_FORMAT_VERSION}/${binary_name}"
+    run_task "Downloading google-java-format v${GOOGLE_JAVA_FORMAT_VERSION}" \
+             "curl -L -o '$GOOGLE_JAVA_FORMAT_BIN' '$url'"
+    chmod +x "$GOOGLE_JAVA_FORMAT_BIN"
+  fi
+}
+
+uninstall_google_java_format() {
+  if is_installed_google_java_format; then
+    run_task "Removing google-java-format" "rm -Rf${VERBOSE:+v} $GOOGLE_JAVA_FORMAT_DIR"
+  fi
+}
+
+register_action "Install Google Java Format" "google-java-format" "jvm"
+
 KLS_VERSION="1.3.13"
 KLS_TARGET_DIR="$HOME/.emacs.d/lsp_language_servers/kotlin.ls"
 
