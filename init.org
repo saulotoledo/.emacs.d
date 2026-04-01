@@ -4403,12 +4403,33 @@ errors, references, and more.
 you set breakpoints, step through code, and inspect variables for many languages.
 
 #+begin_src emacs-lisp
+(defvar-local my/dap-check-requirements #'always
+    "Buffer-local predicate called before starting a new DAP session.
+Must be a function of no arguments. Override in a mode hook with
+`setq-local' to session to start. Override in a mode hook with
+`setq-local' to add language-specific pre-flight checks (e.g.
+verifying that the language server is running). Defaults to `always',
+which always returns t.")
+
+  (defvar-local my/dap-start-debug
+    (lambda ()
+      (message
+       (concat "No debug launcher defined for this buffer.  "
+               "Add (setq-local my/dap-start-debug <fn>) "
+               "in the appropriate mode hook.")))
+    "Buffer-local function called to start a new DAP debug session.
+Must be a function of no arguments. Override in a mode hook with
+`setq-local' to provide a language-specific launcher (e.g. calling
+`dap-debug' with a launch.json configuration or a built-in template).
+The default implementation logs an actionable hint.")
+
 (use-package dap-mode
   :after lsp-mode
   :init
   (dap-auto-configure-mode 1)
   :bind
-  (("<f6>" . dap-next)
+  (("<f5>" . my/dap-run-continue-dispatch)
+   ("<f6>" . dap-next)
    ("<f7>" . dap-step-in)
    ("<f8>" . dap-step-out)
    ("<f9>" . dap-breakpoint-toggle))
@@ -4425,6 +4446,22 @@ you set breakpoints, step through code, and inspect variables for many languages
 
   ;; Log DAP protocol JSON to *Messages* to debug communication issues.
   (setq dap-print-io t)
+
+  (declare-function dap--cur-session "dap-mode")
+  (declare-function dap--session-running "dap-mode")
+  (defun my/dap-run-continue-dispatch ()
+    "Smart F5: continue an active session or start a new debug session.
+If a DAP session is active and running, calls `dap-continue'.
+Otherwise, calls `my/dap-check-requirements' (buffer-local).
+If it returns nil, logs a message and stops.
+On success, calls `my/dap-start-debug' (buffer-local)."
+    (interactive)
+    (let ((session (and (fboundp 'dap--cur-session) (dap--cur-session))))
+      (if (and session (dap--session-running session))
+          (call-interactively 'dap-continue)
+        (if (funcall my/dap-check-requirements)
+            (funcall my/dap-start-debug)
+          (message "DAP pre-flight check failed; not starting debug session.")))))
 
   ;; ansi-color-compilation-filter (Emacs 28+) correctly uses the
   ;; compilation-filter-start marker to apply colors only to new output.
@@ -5214,23 +5251,13 @@ Otherwise, use our custom configuration string."
   (add-hook 'compilation-finish-functions #'my/compilation-sentinel)
   (my/smart-compile t))
 
-(defun my/dap-cpp-f5-smart-dispatch ()
-  "Smart F5: Continue if debugging, otherwise compile and launch."
-  (interactive)
-  (declare-function dap--cur-session "dap-mode")
-  (declare-function dap--session-running "dap-mode")
-  (let ((session (dap--cur-session)))
-    (if (and session (dap--session-running session))
-        (call-interactively 'dap-continue)
-      (my/dap-cpp-launch))))
-
 (add-hook 'c++-ts-mode-hook
           (lambda ()
             (require 'dap-gdb-lldb)
             (declare-function dap-gdb-lldb-setup "dap-gdb-lldb")
             (dap-gdb-lldb-setup)
-            ;; We use the dispatcher to handle both launch and continue
-            (local-set-key (kbd "<f5>") 'my/dap-cpp-f5-smart-dispatch)))
+            ;; Override the global F5 launcher for C++ buffers.
+            (setq-local my/dap-start-debug #'my/dap-cpp-launch)))
 #+end_src
 
 
@@ -5496,62 +5523,39 @@ apply to all language servers:
   :bind
   (:map java-ts-mode-map
         ("C-M-:" . lsp-find-implementation)
-        ("M-RET" . lsp-java-organize-imports)
-        ("<f5>"  . my/dap-java-run))
+        ("M-RET" . lsp-java-organize-imports))
 
   :config
-  ;; Use a local copy of the Google Style XML to avoid a blocking network
-  ;; request to GitHub on every JDT LS startup.
-  ;; The file is cached under the Emacs directory. It is downloaded
-  ;; automatically on first use.
-  ;; Run M-x my/lsp-java-refresh-format-settings to update it manually.
-  (defconst my/lsp-java--format-cache-dir
-    (expand-file-name ".lsp-java-format-cache" user-emacs-directory)
-    "Directory for cached lsp-java format settings files.")
-
-  (defconst my/lsp-java--format-settings-file
-    (expand-file-name "eclipse-java-google-style.xml"
-                      my/lsp-java--format-cache-dir)
-    "Local path of the cached Google Java style XML.")
-
-  (defconst my/lsp-java--format-settings-url
-    (concat "https://raw.githubusercontent.com/google/styleguide/"
-            "gh-pages/eclipse-java-google-style.xml")
-    "Upstream URL of the Google Java style XML.")
-
-  (defun my/lsp-java-refresh-format-settings ()
-    "Re-download the Google Java style XML from GitHub.
-Call this manually when the upstream style file changes."
-    (interactive)
-    (make-directory my/lsp-java--format-cache-dir t)
-    (url-copy-file my/lsp-java--format-settings-url
-                   my/lsp-java--format-settings-file
-                   t)
-    (message "lsp-java: format settings refreshed."))
-
-  ;; Auto-download the style XML on first use if not yet cached.
-  (unless (file-exists-p my/lsp-java--format-settings-file)
-    (my/lsp-java-refresh-format-settings))
-
-  (setq lsp-java-format-settings-url
-        (concat "file://" my/lsp-java--format-settings-file))
-  (setq lsp-java-format-settings-profile "GoogleStyle")
-
   (declare-function dap--cur-session "dap-mode")
   (declare-function dap--session-running "dap-mode")
-  (defun my/dap-java-run ()
-    "Continue an active session or start a new Java debug session.
-If a DAP session is running, calls `dap-continue'. Otherwise,
-calls `dap-debug' if .vscode/launch.json exists, or falls back
-to `dap-java-debug'."
-    (interactive)
-    (let ((session (and (fboundp 'dap--cur-session) (dap--cur-session))))
-      (if (and session (dap--session-running session))
-          (call-interactively 'dap-continue)
-        (let ((root (lsp-workspace-root)))
-          (if (and root (file-exists-p (expand-file-name ".vscode/launch.json" root)))
-              (call-interactively 'dap-debug)
-            (dap-java-debug))))))
+
+  (defun my/dap-java--check-requirements ()
+    "Return non-nil if the Java LSP server is running in this buffer.
+Called by `my/dap-run-continue-dispatch' before attempting to start a debug
+session. Logs an actionable hint when the check fails."
+    (if (and (fboundp 'lsp-find-workspace)
+             (lsp-find-workspace 'jdtls (buffer-file-name)))
+        t
+      (message
+       (concat "jdtls is not running in this buffer. "
+               "Open a Java file and wait for LSP to initialize."))
+      nil))
+
+  (defun my/dap-java--start-debug ()
+    "Launch a Java DAP session for the current project.
+Uses .vscode/launch.json when present; falls back to the
+interactive `dap-java-debug' prompt otherwise."
+    (let ((root (lsp-workspace-root)))
+      (if (and root (file-exists-p (expand-file-name ".vscode/launch.json" root)))
+          (call-interactively 'dap-debug)
+        (dap-java-debug))))
+
+  (add-hook 'java-ts-mode-hook
+            (lambda ()
+              (setq-local my/dap-check-requirements
+                          #'my/dap-java--check-requirements)
+              (setq-local my/dap-start-debug
+                          #'my/dap-java--start-debug)))
 
   (defun my/lsp-java-discover-runtimes ()
     "Discover SDKMAN! java versions and return them as a vector for lsp-java.
