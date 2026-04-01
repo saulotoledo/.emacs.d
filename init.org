@@ -6055,6 +6055,112 @@ Notes:
 - Add =.vscode/launch.json= to your project =.gitignore= if the values contain
   environment-specific secrets or local paths.
 
+
+***** DAP Java setup, part 5: inline test links in =*Test.java= buffers
+
+In test files (matching =*Test.java=), class names and test method names are
+decorated as clickable inline links so you can run or debug a specific test
+without leaving the buffer.  The links are only added in files whose name
+ends with =Test.java=, so production code is not affected.
+
+Each link style is distinct so you can see at a glance what an action will do:
+
+- Class name links are underlined in green → run or debug all tests in class.
+- Method name links are underlined in orange → run or debug that method only.
+
+Test method detection covers all visibility modifiers (=public=, =protected=,
+=private=, or package-private) so it handles both JUnit 4 (=public void=) and
+JUnit 5 (package-private =void=) conventions.
+
+Keyboard and mouse shortcuts (only active in =*Test.java= buffers):
+
+- =click= - run the test at point (no debugger, fast feedback).
+- =C-S-click= - debug the test at point (attaches the debugger, hits breakpoints).
+- =C-c j= - run the test at point (keyboard equivalent of click).
+- =C-c C-j= - debug the test at point (keyboard equivalent of C-S-click).
+
+All shortcuts work whether the cursor is on a link or anywhere else in the
+file; when on a link the link action is used, otherwise LSP symbols resolve
+the enclosing class or method.
+
+#+begin_src emacs-lisp
+(defun my/dap-java-run-test-at-point ()
+  "Run the test at point without the debugger.
+If point is on an inline test link, activate its run action.
+Otherwise fall back to `dap-java-run-test-method'."
+  (interactive)
+  (if (button-at (point))
+      (push-button)
+    (dap-java-run-test-method)))
+
+(defun my/dap-java-debug-test-at-point ()
+  "Debug the test at point, attaching the DAP debugger.
+If point is on an inline test link, call the link's debug-action.
+Otherwise fall back to `dap-java-debug-test-method'."
+  (interactive)
+  (let* ((btn (button-at (point)))
+         (debug-fn (and btn (button-get btn 'debug-action))))
+    (if debug-fn
+        (funcall debug-fn)
+      (dap-java-debug-test-method (dap--find-available-port)))))
+
+(defun my/dap-java--ctrl-click-debug (event)
+  "Debug the test at the position of a C-S-click mouse EVENT."
+  (interactive "e")
+  (mouse-set-point event)
+  (my/dap-java-debug-test-at-point))
+
+(defun my/dap-java--add-test-links ()
+  "Decorate class and method names in *Test.java buffers as inline links.
+Links are added for:
+- Class names (underlined green): run/debug all tests in the class.
+- Method names (underlined orange): run/debug the individual test.
+Only activates when the buffer file name ends with Test.java.
+Visibility modifiers are optional, covering JUnit 4 (public void)
+and JUnit 5 (package-private void) conventions."
+  (when (and buffer-file-name
+             (string-match-p "Test\\.java\\'" buffer-file-name))
+    (save-excursion
+      ;; --- Class declarations ---
+      (goto-char (point-min))
+      (while (re-search-forward
+              "^\\s-*\\(?:public\\|protected\\|private\\)?\\s-*class\\s-+\\([A-Za-z0-9_]+\\)"
+              nil t)
+        (make-button (match-beginning 1) (match-end 1)
+                     'action       (lambda (_b) (dap-java-run-test-class))
+                     'debug-action (lambda ()
+                                     (dap-java-debug-test-class
+                                      (dap--find-available-port)))
+                     'help-echo    "click: run | C-S-click: debug | C-c j: run | C-c C-j: debug"
+                     'face         '(:underline t :foreground "green")))
+      ;; --- void methods (any visibility or none) ---
+      (goto-char (point-min))
+      (while (re-search-forward
+              (concat "^\\s-*\\(?:public\\|protected\\|private\\)?\\s-*"
+                      "void\\s-+\\([A-Za-z0-9_]+\\)\\s-*(")
+              nil t)
+        (make-button (match-beginning 1) (match-end 1)
+                     'action       (lambda (_b) (dap-java-run-test-method))
+                     'debug-action (lambda ()
+                                     (dap-java-debug-test-method
+                                      (dap--find-available-port)))
+                     'help-echo    "click: run | C-S-click: debug | C-c j: run | C-c C-j: debug"
+                     'face         '(:underline t :foreground "orange"))))))
+
+(defun my/dap-java--setup-test-buffer ()
+  "Set up inline test links and keybindings in *Test.java buffers."
+  (my/dap-java--add-test-links)
+  (when (and buffer-file-name
+             (string-match-p "Test\\.java\\'" buffer-file-name))
+    (local-set-key (kbd "C-c j")        #'my/dap-java-run-test-at-point)
+    (local-set-key (kbd "C-c C-j")      #'my/dap-java-debug-test-at-point)
+    (local-set-key (kbd "<C-S-mouse-1>") #'my/dap-java--ctrl-click-debug)))
+
+(add-hook 'java-ts-mode-hook #'my/dap-java--setup-test-buffer)
+(add-hook 'java-mode-hook    #'my/dap-java--setup-test-buffer)
+#+end_src
+
+
 ***** Java snippets
 
 A collection of Yasnippet snippets for Java development.
