@@ -78,7 +78,7 @@
         - [[#lsp-mode-core-lsp-client][lsp-mode: Core LSP client]]
         - [[#lsp-ui-ui-enhancements-for-lsp][lsp-ui: UI enhancements for LSP]]
         - [[#lsp-treemacs-project-and-symbol-tree-views][lsp-treemacs: Project and symbol tree views]]
-        - [[#dap-mode-debug-adapter-protocol-debugging][dap-mode: Debug Adapter Protocol (debugging)]]
+        - [[#dap-mode-debug-adapter-protocol-debugging][~dap-mode~: Debug Adapter Protocol (debugging)]]
     - [[#syntax-checking-with-flycheck][Syntax checking with Flycheck]]
     - [[#code-formatting][Code Formatting]]
         - [[#automatic-code-formatting-with-apheleia][Automatic code formatting with Apheleia]]
@@ -4397,27 +4397,30 @@ errors, references, and more.
 #+end_src
 
 
-*** dap-mode: Debug Adapter Protocol (debugging)
+*** ~dap-mode~: Debug Adapter Protocol (debugging)
 
 ~dap-mode~ adds debugging support to Emacs using the Debug Adapter Protocol. It lets
 you set breakpoints, step through code, and inspect variables for many languages.
 
+
+**** Basic configuration
+
 #+begin_src emacs-lisp
 (defvar-local my/dap-check-requirements #'always
-    "Buffer-local predicate called before starting a new DAP session.
+  "Buffer-local predicate called before starting a new DAP session.
 Must be a function of no arguments. Override in a mode hook with
 `setq-local' to session to start. Override in a mode hook with
 `setq-local' to add language-specific pre-flight checks (e.g.
 verifying that the language server is running). Defaults to `always',
 which always returns t.")
 
-  (defvar-local my/dap-start-debug
+(defvar-local my/dap-start-debug
     (lambda ()
       (message
        (concat "No debug launcher defined for this buffer.  "
                "Add (setq-local my/dap-start-debug <fn>) "
                "in the appropriate mode hook.")))
-    "Buffer-local function called to start a new DAP debug session.
+  "Buffer-local function called to start a new DAP debug session.
 Must be a function of no arguments. Override in a mode hook with
 `setq-local' to provide a language-specific launcher (e.g. calling
 `dap-debug' with a launch.json configuration or a built-in template).
@@ -4470,38 +4473,6 @@ On success, calls `my/dap-start-debug' (buffer-local)."
               (add-hook 'compilation-filter-hook
                         #'ansi-color-compilation-filter nil t)))
 
-  ;; Force quit when DAP parser bugs out and gets permanently stuck.
-  ;; Function created without "my/" prefix to facilitate running it
-  ;; interactively via M-x.
-  (defun dap-force-quit ()
-    "Forcefully terminate all DAP sessions and their JVM processes.
-Sends SIGKILL to each session's adapter process and program process
-(the JVM started via compile_attach), then clears all dap-mode state.
-Safe to call even when the session is completely unresponsive."
-    (interactive)
-    (ignore-errors
-      (dolist (session (dap--get-sessions))
-        ;; Kill the DAP adapter process (the debug adapter subprocess).
-        (when-let (proc (dap--debug-session-proc session))
-          (when (process-live-p proc)
-            (kill-process proc)))
-        ;; Kill the JVM process started by compile_attach.
-        ;; Use signal-process with SIGKILL to ensure child processes
-        ;; (grandchildren spawned by the JVM) are also terminated.
-        (when-let (prog-proc (dap--debug-session-program-proc session))
-          (when (process-live-p prog-proc)
-            (let ((pid (process-id prog-proc)))
-              (when pid
-                ;; Kill the entire process group so Spring Boot child
-                ;; threads and forked processes are also cleaned up.
-                (ignore-errors (signal-process (- pid) 'SIGKILL)))
-            (kill-process prog-proc))))))
-    (ignore-errors (dap--set-sessions nil))
-    (ignore-errors (lsp-workspace-set-metadata "default-session" nil))
-    (ignore-errors (dap-ui-hide-many-windows))
-    (ignore-errors (dap-ui-controls-mode -1))
-    (message "DAP session and processes nuked."))
-
   (declare-function lsp-treemacs-render "lsp-treemacs")
   (declare-function dap-ui-locals-get-data "dap-ui-locals")
   (declare-function my/dap-ui-repl-smart-context "init")
@@ -4548,12 +4519,12 @@ Safe to call even when the session is completely unresponsive."
   ;; 1. Stability: Increases the idle timer from 0.2s to 0.5s.
   ;; 2. Speed: Uses 'render' (Full Redraw) instead of 'generic-update' (Smart Sync).
   ;;    A full redraw is much faster because it avoids the tree-diffing logic.
-(declare-function lsp-treemacs-wcb-unless-killed "lsp-treemacs")
-(declare-function lsp-treemacs-render "lsp-treemacs")
-(declare-function dap-ui-locals-get-data "dap-ui")
-(declare-function ht-values "ht")
-(declare-function dap--get-breakpoints "dap-mode")
-(declare-function my/dap--buffers-w-breakpoints-safe nil)
+  (declare-function lsp-treemacs-wcb-unless-killed "lsp-treemacs")
+  (declare-function lsp-treemacs-render "lsp-treemacs")
+  (declare-function dap-ui-locals-get-data "dap-ui")
+  (declare-function ht-values "ht")
+  (declare-function dap--get-breakpoints "dap-mode")
+  (declare-function my/dap--buffers-w-breakpoints-safe nil)
 
   (defun my/dap-ui-locals--refresh-stable (&rest _)
     "Locals refresh with 0.5s idle timer and FAST rendering.
@@ -4620,16 +4591,21 @@ Avoids the expensive tree-diffing of lsp-treemacs-generic-update."
   (defun my/dap-kill-program-proc (session)
     "Kill the external program process attached to SESSION, if any.
 Called from `dap-terminated-hook' to clean up compile_attach JVMs.
-Sends SIGKILL to the process group so Spring Boot child threads and
-forked processes are also terminated.
+Uses pkill -P to kill the JVM child of the sh wrapper process,
+since compilation-start wraps commands in `sh -c', making the JVM
+a grandchild of Emacs that plain kill-process will not reach.
 SESSION is the `dap--debug-session' struct that just terminated."
     (when-let (proc (dap--debug-session-program-proc session))
-      (when (process-live-p proc)
-        (message "DAP: killing stale JVM process %s" (process-name proc))
-        (let ((pid (process-id proc)))
-          (when pid
-            (ignore-errors (signal-process (- pid) 'SIGKILL))))
-        (kill-process proc))))
+      (let ((pid (process-id proc)))
+        (when pid
+          (message "DAP: killing stale JVM process tree under sh pid %d" pid)
+          ;; Kill JVM children of the sh wrapper.
+          (ignore-errors
+            (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string pid)))
+          ;; Kill sh itself.
+          (ignore-errors
+            (call-process "kill" nil nil nil "-9" (number-to-string pid)))))
+      (ignore-errors (kill-process proc))))
 
   (add-hook 'dap-terminated-hook #'my/dap-kill-program-proc)
 
@@ -4666,10 +4642,91 @@ SESSION is the `dap--debug-session' struct that just terminated."
   )
 #+end_src
 
-In addition to the above, we also add a convenient way to toggle breakpoints by
-clicking the left fringe. This works in any buffer where ~dap-mode~ is active,
-allowing you to quickly set or remove breakpoints without needing to use
-keyboard shortcuts or commands.
+
+**** Extending DAP controls
+
+The default DAP controls posframe has no dedicated "Force Stop" button --
+~dap-disconnect~ uses the graceful DAP ~Disconnect~ request which the debug
+adapter may ignore, and leaves the Spring Boot JVM running. We override
+~dap-ui--update-controls~ to inject our own stop button that calls
+~dap-force-quit~, which sends =SIGKILL= to the adapter process and the JVM
+process group. The icon already ships with ~dap-mode~ (=icons/vscode/stop.png=).
+
+#+begin_src emacs-lisp
+;; Function created without "my/" prefix to facilitate running it
+;; interactively via M-x.
+(defun dap-force-quit ()
+  "Forcefully terminate all DAP sessions and their JVM processes.
+Sends SIGKILL to each session's adapter process and program process
+(the JVM started via compile_attach), then clears all dap-mode state.
+Safe to call even when the session is completely unresponsive."
+  (interactive)
+  (ignore-errors
+    (dolist (session (dap--get-sessions))
+      ;; Kill the DAP adapter process (the debug adapter subprocess).
+      (when-let (proc (dap--debug-session-proc session))
+        (when (process-live-p proc)
+          (kill-process proc)))
+      ;; Kill the JVM process started via compile_attach.
+      ;;
+      ;; Why plain kill-process doesn't work:
+      ;; compilation-start runs the command as `sh -c "<java cmd>"', so
+      ;; prog-proc is actually the *shell* wrapper, not the JVM.
+      ;; kill-process kills only sh; the JVM child survives as an orphan.
+      ;; signal-process with -(pid) also fails because the JVM is NOT a
+      ;; process group leader -- it keeps its own PGID.
+      ;;
+      ;; Fix: use pkill -KILL -P <sh-pid> to target sh's children
+      ;; (the JVM and anything it spawned), then kill sh itself.
+      (when-let (prog-proc (dap--debug-session-program-proc session))
+        (let ((pid (process-id prog-proc)))
+          (when pid
+            ;; Kill the JVM child processes (children of the sh wrapper).
+            (ignore-errors
+              (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string pid)))
+            ;; Kill sh itself.
+            (ignore-errors
+              (call-process "kill" nil nil nil "-9" (number-to-string pid)))))
+        (ignore-errors (kill-process prog-proc)))))
+  (ignore-errors (dap--set-sessions nil))
+  (ignore-errors (lsp-workspace-set-metadata "default-session" nil))
+  (ignore-errors (dap-ui-hide-many-windows))
+  (defvar dap-ui--control-buffer)
+  (ignore-errors (posframe-hide dap-ui--control-buffer))
+  (message "DAP session and processes nuked."))
+
+;; Replace the non-functional Restart button with Force Stop.
+;;
+;; We use :around + cl-letf to intercept only the call to
+;; `dap-ui--create-command' for "restart.png" and substitute
+;; "stop.png" -> `dap-force-quit'. All other buttons are untouched,
+;; so we do NOT need to redefine any of the existing icons.
+;;
+;; Why not Restart? dap-debug-restart opens an empty comint buffer and
+;; does nothing useful for compile_attach sessions because the JVM has
+;; already been killed — there is nothing left to re-attach to.
+(defun my/dap-ui--inject-stop-button (orig-fun &rest args)
+  "Around advice for `dap-ui--update-controls'.
+Replaces the non-functional Restart button with a Force Stop button
+that calls `dap-force-quit' to SIGKILL the JVM process group."
+  (cl-letf* ((orig-create (symbol-function 'dap-ui--create-command))
+              ((symbol-function 'dap-ui--create-command)
+               (lambda (image command hover-text)
+                 (if (string= image "restart.png")
+                     (funcall orig-create "stop.png" #'dap-force-quit "Force Stop (kills JVM)")
+                   (funcall orig-create image command hover-text)))))
+    (apply orig-fun args)))
+
+(with-eval-after-load 'dap-ui
+  (advice-add 'dap-ui--update-controls :around #'my/dap-ui--inject-stop-button))
+#+end_src
+
+
+**** Easy toggle for breakpoints
+
+We also add a convenient way to toggle breakpoints by clicking the left fringe.
+This works in any buffer where ~dap-mode~ is active, allowing you to quickly set
+or remove breakpoints without needing to use keyboard shortcuts or commands.
 
 #+begin_src emacs-lisp
 (with-eval-after-load 'dap-mode
@@ -4735,16 +4792,18 @@ breakpoint if `dap-mode' is active in the current buffer."
 
 ** Syntax checking with Flycheck
 
-Flycheck is a modern on-the-fly syntax checking extension for Emacs. It runs linters
-and compilers in the background as you edit, highlighting errors and warnings directly
-in your code buffer. This helps you catch mistakes early by providing immediate
-feedback about code issues (like syntax errors, unused variables, or style problems).
+Flycheck is a modern on-the-fly syntax checking extension for Emacs. It runs
+linters and compilers in the background as you edit, highlighting errors and
+warnings directly in your code buffer. This helps you catch mistakes early by
+providing immediate feedback about code issues (like syntax errors, unused
+variables, or style problems).
 
-By default, Flycheck limits the number of errors it will display in a buffer. Some
-language servers (such as Lean or large LSP projects) can produce many diagnostics,
-which may exceed this limit and cause Flycheck to stop reporting errors. To avoid
-missing important diagnostics, we set the error threshold to a reasonably high value
-(9999), so Flycheck continues to show all errors without being excessive.
+By default, Flycheck limits the number of errors it will display in a buffer.
+Some language servers (such as Lean or large LSP projects) can produce many
+diagnostics, which may exceed this limit and cause Flycheck to stop reporting
+errors. To avoid missing important diagnostics, we set the error threshold to a
+reasonably high value (9999), so Flycheck continues to show all errors without
+being excessive.
 
 #+begin_src emacs-lisp
 (defun my/flycheck-maybe-enable ()
@@ -6169,10 +6228,15 @@ use a custom build script or a submodule directory).
 
 **Notes:**
 
-- =projectName= must match the =<artifactId>= in the root =pom.xml= (Maven) or the Gradle project name exactly—JDT uses it to resolve classpaths.
-- =vmArgs= here controls *your application*, not the language server. Do not confuse it with =lsp-java-vmargs= which is for the JDT LS process itself.
-- The =dap-compilation= step (if present or auto-detected) runs synchronously before the JVM starts; if it fails, the debug session is aborted. For Maven, use =-q= (Maven quiet) to reduce noise.
-- Add =.vscode/launch.json= to your project =.gitignore= if the values contain environment-specific secrets or local paths.
+- =projectName= must match the =<artifactId>= in the root =pom.xml= (Maven) or
+  the Gradle project name exactly--JDT uses it to resolve classpaths.
+- =vmArgs= here controls *your application*, not the language server. Do not
+  confuse it with =lsp-java-vmargs= which is for the JDT LS process itself.
+- The =dap-compilation= step (if present or auto-detected) runs synchronously
+  before the JVM starts; if it fails, the debug session is aborted. For Maven,
+  use =-q= (Maven quiet) to reduce noise.
+- Add =.vscode/launch.json= to your project =.gitignore= if the values contain
+  environment-specific secrets or local paths.
 
 
 ***** DAP Java setup, part 5: inline test links in =*Test.java= buffers
