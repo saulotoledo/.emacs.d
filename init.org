@@ -4948,7 +4948,14 @@ package).
   :hook ((prog-mode . cognitive-complexity-mode))
   :custom
   (cognitive-complexity-complexity-threshold 15)
-  (cognitive-complexity-maintainability-threshold 50))
+  (cognitive-complexity-maintainability-threshold 50)
+  :config
+  ;; Fix: cognitive-complexity--delete-ovs never resets the overlay list to nil.
+  ;; See https://github.com/emacs-vs/cognitive-complexity/issues/4
+  (advice-add 'cognitive-complexity--enable :before
+              (lambda ()
+                (remove-overlays (point-min) (point-max) 'cognitive-complexity t)
+                (setq cognitive-complexity--ovs nil))))
 #+end_src
 
 
