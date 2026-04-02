@@ -4666,6 +4666,72 @@ SESSION is the `dap--debug-session' struct that just terminated."
   )
 #+end_src
 
+In addition to the above, we also add a convenient way to toggle breakpoints by
+clicking the left fringe. This works in any buffer where ~dap-mode~ is active,
+allowing you to quickly set or remove breakpoints without needing to use
+keyboard shortcuts or commands.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'dap-mode
+  (defun my/dap-fringe-click-toggle-breakpoint (event)
+    "Toggle a DAP breakpoint at the line clicked in the left fringe.
+EVENT is the mouse click event."
+    (interactive "e")
+    (when (and (bound-and-true-p dap-mode)
+               (derived-mode-p 'prog-mode))
+      (let ((pos (posn-point (event-start event))))
+        (when pos
+          (save-excursion
+            (goto-char pos)
+            (dap-breakpoint-toggle))))))
+
+  (add-hook 'prog-mode-hook
+            (lambda ()
+              (local-set-key [left-fringe mouse-1] #'my/dap-fringe-click-toggle-breakpoint)))
+
+  (with-eval-after-load 'treesit-fold-indicators
+    (defun my/dap-treesit-fold-fringe-click-advice (orig-fn event)
+      "Handle [left-fringe mouse-1] in *-ts-mode for breakpoints and folds.
+By default, clicking the fringe with no fold indicator does nothing (event is
+swallowed). This advice ensures the click toggles a DAP breakpoint if no fold
+indicator is present, so fringe clicks are always useful. Call ORIG-FN if a
+fold indicator is present at the clicked line; otherwise, toggle a DAP
+breakpoint if `dap-mode' is active in the current buffer."
+      (let* ((pos (posn-point (event-start event)))
+             (cur-ln (when pos (line-number-at-pos pos)))
+             (ovs (when pos
+                    (append (treesit-fold--overlays-in
+                             'type 'treesit-fold-indicators-fr-plus)
+                            (treesit-fold--overlays-in
+                             'type 'treesit-fold-indicators-fr-minus-tail))))
+             (has-indicator
+              (and ovs cur-ln
+                   (cl-some
+                    (lambda (ov)
+                      (= cur-ln (line-number-at-pos (overlay-start ov))))
+                    ovs))))
+        (if has-indicator
+            ;; Fold-indicator line: if a DAP breakpoint is already there,
+            ;; remove it (otherwise it would not be possible to remove
+            ;; an orphaned breakpoint stuck on a fold-indicator line by
+            ;; clicking on the fringe).
+            (let ((bp-on-line
+                   (and (bound-and-true-p dap-mode)
+                        pos
+                        (save-excursion
+                          (goto-char pos)
+                          (dap--get-breakpoint-at-point)))))
+              (if bp-on-line
+                  (my/dap-fringe-click-toggle-breakpoint event)
+                (funcall orig-fn event)))
+          (when (and (bound-and-true-p dap-mode)
+                     (derived-mode-p 'prog-mode))
+            (my/dap-fringe-click-toggle-breakpoint event)))))
+    (advice-add 'treesit-fold-indicators-click-fringe
+                :around #'my/dap-treesit-fold-fringe-click-advice)))
+#+end_src
+
+
 
 ** Syntax checking with Flycheck
 
