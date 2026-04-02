@@ -5839,6 +5839,23 @@ CONF is the launch configuration plist or hash-table."
     (and (equal request "launch")
          (member console '("integratedTerminal" "externalTerminal")))))
 
+(defun my/dap-java--default-compilation-command (root)
+  "Return the default DAP compilation command for a Java project at ROOT.
+ROOT should be the top-level workspace root (not a submodule), obtained
+from the jdtls workspace struct via `lsp--workspace-root'. Detects Maven
+(pom.xml) or Gradle (build.gradle / build.gradle.kts) and returns the
+appropriate compile command string. Logs a message and returns nil when
+no recognised build file is found, so the build step is skipped."
+  (cond
+   ((file-exists-p (expand-file-name "pom.xml" root))
+    "mvn compile")
+   ((or (file-exists-p (expand-file-name "build.gradle" root))
+        (file-exists-p (expand-file-name "build.gradle.kts" root)))
+    "gradle compileJava")
+   (t
+    (message "DAP Java: no pom.xml or build.gradle found in %s; skipping compilation step" root)
+    nil)))
+
 (defun my/dap-java--build-compile-attach (conf)
   "Build a compile_attach session plist from CONF.
 Implements server=y: the JVM opens a debug socket and the debug
@@ -5954,14 +5971,21 @@ CONF is the launch configuration plist from the launch.json entry."
                    :port              port
                    :environment-variables env-variables
                    ;; Forward the optional build step from launch.json.
+                   ;; If absent, auto-detect Maven or Gradle from the
+                   ;; top-level workspace root (not cwd, which may be a
+                   ;; submodule). Using lsp--workspace-root ensures we
+                   ;; always compile the root project.
                    :dap-compilation
                    (or (plist-get conf :dap-compilation)
                        (when (hash-table-p conf)
-                         (gethash "dap-compilation" conf)))
+                         (gethash "dap-compilation" conf))
+                       (my/dap-java--default-compilation-command
+                        (lsp--workspace-root jdtls-ws)))
                    :dap-compilation-dir
                    (or (plist-get conf :dap-compilation-dir)
                        (when (hash-table-p conf)
-                         (gethash "dap-compilation-dir" conf)))
+                         (gethash "dap-compilation-dir" conf))
+                       (lsp--workspace-root jdtls-ws))
                    ;; Placeholder so plist-put in :startup-function
                    ;; mutates in-place: dap--create-session reads
                    ;; :debugServer after :startup-function runs.
@@ -6052,36 +6076,61 @@ Because =dap-mode= understands the standard VS Code launch schema, the same
 modification. Fields prefixed with =dap-= (e.g. =dap-compilation=) are Emacs
 extensions understood only by =dap-mode= and ignored by VS Code.
 
-Therefore, wach Java project that you want to debug must have a
+Therefore, each Java project that you want to debug must have a
 =.vscode/launch.json= file at the workspace root. =dap-mode= reads this file
 when you invoke =dap-debug= (=M-x dap-debug=) and selects a configuration by
 name. The=my/dap-java--debug-provider= installed in part 3 then routes any
 =launch= configuration that targets =integratedTerminal= through the
 =compile_attach= flow described in part 2.
 
-The minimum required fields and their purpose are:
 
-| Field                 | Purpose                                                         |
-|-----------------------+-----------------------------------------------------------------|
-| =type=                | Must be ="java"= - selects the Java debug provider.             |
-| =request=             | Must be ="launch"= - the provider converts it to compile_attach.|
-| =name=                | Human-readable label shown in the dap-debug selection menu.     |
-| =mainClass=           | Fully-qualified main class (e.g. =com.example.app.Application=).|
-| =projectName=         | Maven/Gradle project name, used to resolve the classpath.       |
-| =cwd=                 | Working directory; use =${workspaceFolder}= for the repo root.  |
-| =console=             | Must be ="integratedTerminal"= to trigger the compile_attach    |
-|                       | flow.  Use ="internalConsole"= to fall back to the default      |
-|                       | JDT launch flow (no vmArgs forwarding).                         |
-| =vmArgs=              | JVM arguments for the *debugged process* (not the language      |
-|                       | server). Spring Boot =−D= properties belong here.               |
-| =args=                | Program arguments passed after the main class name.             |
-| =env=                 | Extra environment variables (e.g. =SPRING_PROFILES_ACTIVE=).    |
-| =dap-compilation=     | Optional shell command run by dap-mode *before* launching,      |
-|                       | e.g. ="mvn compile"= or ="./gradlew classes"=.                  |
-| =dap-compilation-dir= | Directory in which =dap-compilation= is executed; usually       |
-|                       | =${workspaceFolder}=.                                           |
+**Minimum required fields:**
 
-Example =.vscode/launch.json= for a Spring Boot application:
+| Field                 | Purpose                                                          |
+|-----------------------+------------------------------------------------------------------|
+| =type=                | Must be ="java"= - selects the Java debug provider.              |
+| =request=             | Must be ="launch"= - the provider converts it to compile_attach. |
+| =name=                | Human-readable label shown in the dap-debug selection menu.      |
+| =mainClass=           | Fully-qualified main class (e.g. =com.example.app.Application=). |
+| =projectName=         | Maven/Gradle project name, used to resolve the classpath.        |
+| =cwd=                 | Working directory; use =${workspaceFolder}= for the repo root.   |
+| =console=             | Must be ="integratedTerminal"= to trigger the compile_attach     |
+|                       | flow.  Use ="internalConsole"= to fall back to the default       |
+|                       | JDT launch flow (no vmArgs forwarding).                          |
+| =vmArgs=              | JVM arguments for the *debugged process* (not the language       |
+|                       | server). Spring Boot =−D= properties belong here.                |
+| =args=                | Program arguments passed after the main class name.              |
+| =env=                 | Extra environment variables (e.g. =SPRING_PROFILES_ACTIVE=).     |
+
+
+**Optional =dap-*= fields:**
+
+| Field                 | Purpose                                                          |
+|-----------------------+------------------------------------------------------------------|
+| =dap-compilation=     | **Optional.** Shell command run by dap-mode *before* launching.  |
+|                       | If omitted, auto-detected as described above.                    |
+| =dap-compilation-dir= | **Optional.** Directory for =dap-compilation=.                   |
+|                       | If omitted, defaults to =${workspaceFolder}=.                    |
+
+Fields prefixed with =dap-= (e.g. =dap-compilation=, =dap-compilation-dir=) are
+**optional** Emacs extensions. If omitted, our =dap-mode= helpers provide
+sensible fallbacks:
+
+- If =dap-compilation= is missing, we will attempt to auto-detect the build tool
+  at the workspace root:
+  - If a =pom.xml= is found, it uses =mvn compile=.
+  - If a =build.gradle= or =build.gradle.kts= is found, it uses =gradle
+    compileJava=.
+  - If neither is found, no build step is run (the value is nil).
+- If =dap-compilation-dir= is missing, the workspace root is used as the working
+  directory for the build command.
+
+These fields are ignored by VS Code and only affect Emacs. You only need to
+specify them if you want to override the auto-detected defaults (for example, to
+use a custom build script or a submodule directory).
+
+
+**Example =.vscode/launch.json= for a Spring Boot application:**
 
 #+begin_src json
 {
@@ -6092,7 +6141,7 @@ Example =.vscode/launch.json= for a Spring Boot application:
       "request": "launch",
       "name": "App Name - dev - Build and Debug",
       "mainClass": "com.example.app.Application",
-      "projectName": "my-service-application",
+      "projectName": "my-spring-application",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "vmArgs": [
@@ -6103,23 +6152,20 @@ Example =.vscode/launch.json= for a Spring Boot application:
       "env": {
         "SPRING_PROFILES_ACTIVE": "local,dev"
       },
-      "dap-compilation": "mvn compile -q",
-      "dap-compilation-dir": "${workspaceFolder}"
+      // The following dap-* fields are optional:
+      // "dap-compilation": "mvn compile -q", // If omitted, auto-detected or skipped
+      // "dap-compilation-dir": "${workspaceFolder}" // If omitted, defaults to workspace root
     }
   ]
 }
 #+end_src
 
-Notes:
-- =projectName= must match the =<artifactId>= in the root =pom.xml= (Maven) or
-  the Gradle project name exactly - JDT uses it to resolve classpaths.
-- =vmArgs= here controls *your application*, not the language server. Do not
-  confuse it with =lsp-java-vmargs= which is for the JDT LS process itself.
-- The =dap-compilation= step runs synchronously before the JVM starts; if it
-  fails, the debug session is aborted. For Maven, use =-q= (Maven quiet) to
-  reduce noise.
-- Add =.vscode/launch.json= to your project =.gitignore= if the values contain
-  environment-specific secrets or local paths.
+**Notes:**
+
+- =projectName= must match the =<artifactId>= in the root =pom.xml= (Maven) or the Gradle project name exactly—JDT uses it to resolve classpaths.
+- =vmArgs= here controls *your application*, not the language server. Do not confuse it with =lsp-java-vmargs= which is for the JDT LS process itself.
+- The =dap-compilation= step (if present or auto-detected) runs synchronously before the JVM starts; if it fails, the debug session is aborted. For Maven, use =-q= (Maven quiet) to reduce noise.
+- Add =.vscode/launch.json= to your project =.gitignore= if the values contain environment-specific secrets or local paths.
 
 
 ***** DAP Java setup, part 5: inline test links in =*Test.java= buffers
