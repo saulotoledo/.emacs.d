@@ -1653,7 +1653,7 @@ becomes a network-bound request that can easily overwhelm your connection. There
 might be crashes resulting of this "startup storm," where aggressive LSP clients
 flood the network with filesystem checks before the TRAMP handshake is even
 complete, triggering race conditions and file-missing errors within your custom
-project context logic.  By applying "remote-safe" restrictions, we shift our
+project context logic. By applying "remote-safe" restrictions, we shift our
 environment from an eager, "probe-everything-now" model to an on-demand,
 lazy-loading architecture; this synchronizes Emacs' demands with the realities
 of network latency.
@@ -3980,6 +3980,8 @@ together to provide a full-featured development experience:
 
 *** lsp-mode: Core LSP client
 
+**** The main package
+
 ~lsp-mode~ is the main package that connects Emacs to language servers, enabling
 code completion, go-to-definition, diagnostics, and more.
 
@@ -4187,6 +4189,9 @@ so we also set lsp-eslint-enable to nil for extra reliability."
                                         '(("NODE_NO_WARNINGS" . "1")))))))
 #+end_src
 
+
+**** Using ~plists~
+
 By default, ~lsp-mode~ uses hash tables to handle the serialization of JSON-RPC
 messages from language servers. However, some language servers do not handle
 this default implementation correctly and will fail, often attempting to
@@ -4215,6 +4220,9 @@ Run once if you see wrong-type-argument hash-table-p when flycheck runs LSP diag
   (byte-recompile-directory (file-name-directory (locate-library "lsp-mode")) 0 t)
   (message "Recompiled. Restart Emacs for changes to take effect."))
 #+end_src
+
+
+**** Additional optimizations
 
 In addition to the settings above, we also do some optimization on LSP for
 simultanoeus projects. When you have multiple projects open simultaneously,
@@ -4341,6 +4349,25 @@ unchanged.
 #+end_src
 
 
+**** Useful helpers
+
+Below we add a useful helpers for handling the LSP workspace. See the functions'
+documentations for details on these helpers.
+
+#+begin_src emacs-lisp
+(defun my/clean-lsp-workspace-cache ()
+  "Delete ~/.emacs.d/workspace/ to force a fresh LSP reindex.
+Use this when switching Java major versions or when jdtls shows stale errors.
+After this runs, restart LSP (or Emacs) to trigger a full reindex."
+  (interactive)
+  (let ((workspace-dir (expand-file-name "workspace" user-emacs-directory)))
+    (when (and (file-directory-p workspace-dir)
+               (yes-or-no-p (format "Delete all files in %s? " workspace-dir)))
+      (delete-directory workspace-dir t)
+      (message "LSP workspace cache cleared. Restart Emacs or LSP for a fresh index."))))
+#+end_src
+
+
 *** lsp-ui: UI enhancements for LSP
 
 ~lsp-ui~ adds visual improvements to LSP, such as inline documentation popups, code actions
@@ -4417,7 +4444,7 @@ which always returns t.")
 (defvar-local my/dap-start-debug
     (lambda ()
       (message
-       (concat "No debug launcher defined for this buffer.  "
+       (concat "No debug launcher defined for this buffer. "
                "Add (setq-local my/dap-start-debug <fn>) "
                "in the appropriate mode hook.")))
   "Buffer-local function called to start a new DAP debug session.
@@ -4704,7 +4731,7 @@ Safe to call even when the session is completely unresponsive."
 ;;
 ;; Why not Restart? dap-debug-restart opens an empty comint buffer and
 ;; does nothing useful for compile_attach sessions because the JVM has
-;; already been killed — there is nothing left to re-attach to.
+;; already been killed -- there is nothing left to re-attach to.
 (defun my/dap-ui--inject-stop-button (orig-fun &rest args)
   "Around advice for `dap-ui--update-controls'.
 Replaces the non-functional Restart button with a Force Stop button
@@ -5623,14 +5650,14 @@ apply to all language servers:
 
 ;; Register google-java-format as an Apheleia formatter for Java.
 ;; The native binary reads stdin (via "-") and writes formatted
-;; code to stdout.  Apheleia handles the rest.
+;; code to stdout. Apheleia handles the rest.
 (with-eval-after-load 'apheleia
   (setf (alist-get 'google-java-format apheleia-formatters)
         (list my/google-java-format-bin "-"))
   (setf (alist-get 'java-mode apheleia-mode-alist) 'google-java-format)
   (setf (alist-get 'java-ts-mode apheleia-mode-alist) 'google-java-format))
 
-;; Disable LSP-based Java formatting.  Apheleia with
+;; Disable LSP-based Java formatting. Apheleia with
 ;; google-java-format handles formatting instead.
 (with-eval-after-load 'lsp-java
   (setq lsp-java-format-enabled nil))
@@ -5639,15 +5666,26 @@ apply to all language servers:
   :pin "MELPA Unstable"
   :after java-ts-mode
   :init
+  ;; These must be set BEFORE jal-lsp-java-setup runs, because jal calls
+  ;; (require 'lsp-java) which defines the defcustoms with defaults.
+  ;; use-package :custom runs too late (after :init), so we use setq here.
+  (setq lsp-java-server-install-dir
+        (expand-file-name "~/.emacs.d/lsp_language_servers/eclipse.jdt.ls/"))
+  (setq lsp-java-vmargs
+        '("-Xmx2G"
+          "-XX:+UseG1GC"
+          "-XX:+UseStringDeduplication"))
+  ;; Disable jdtls auto-build to prevent it from overwriting Maven's
+  ;; compiled output in target/classes with its own (sometimes incorrect)
+  ;; class files. When auto-build is on, jdtls compiles in the background
+  ;; and can write error-stub class files (e.g. "Unresolved compilation
+  ;; problem") on top of a clean Maven build. With auto-build off, Maven
+  ;; is the sole authority on target/classes and the DAP classpath is
+  ;; always consistent with what `mvn compile' produced.
+  (setq lsp-java-autobuild-enabled nil)
+
   (jal-lsp-java-setup)
   (add-to-list 'auto-mode-alist '("\\.java.*\\'" . java-ts-mode))
-  :custom
-  (lsp-java-server-install-dir
-   (expand-file-name "~/.emacs.d/lsp_language_servers/eclipse.jdt.ls/"))
-  (lsp-java-vmargs
-   '("-Xmx2G"
-     "-XX:+UseG1GC"
-     "-XX:+UseStringDeduplication"))
 
   :hook
   (java-ts-mode . lsp-deferred)
@@ -5741,6 +5779,294 @@ it emits an \"Invalid runtime\" warning which is intercepted by
          (match-string 1 msg)))))
 
   (advice-add 'lsp--warn :after #'my/lsp-java-invalid-runtime-advice))
+#+end_src
+
+
+***** Workaround: Fix m2e property indirection causing incorrect Java compliance
+
+~lsp-java~ uses the Eclipse JDT Language Server (=jdtls=), which delegates Maven
+project import and POM processing to Maven Integration for Eclipse (=m2e=).
+During import, =m2e= computes the effective POM, resolves dependencies, and
+generates Eclipse project metadata -- such as =.classpath=, =.project=, and
+=.settings= -- that =jdtls= consumes to build its project model and classpath.
+Because =jdtls= relies on that generated metadata, any incorrect property
+resolution performed by =m2e= (for example, resolving a property against a
+parent POM instead of a child override) will propagate into the language server
+as an incorrect Java compliance level or JRE container, resulting in missing
+APIs, spurious diagnostics, and other incorrect language-server behavior.
+
+When =m2e= evaluates Maven properties that use indirection (for example, when
+=maven.compiler.source=, =maven.compiler.target= or =maven.compiler.release= are
+defined in terms of another property such as =${project.build.java.target}=), it
+can sometimes resolve the reference against the parent POM rather than a child
+module's override. The result is generated Eclipse settings and workspace
+metadata that claim an incorrect, older Java compliance level and place an older
+JRE container on the module classpath (for example, =JavaSE-1.8=). That mismatch
+causes language servers and editors to report missing APIs or incorrect
+diagnostics.
+
+This issue is reported at https://github.com/eclipse-m2e/m2e-core/issues/2156.
+
+Solution implemented here (local workaround): after =m2e= finishes importing
+projects (=jdtls= reports "Started"), the functions in this section read the
+intended Java compliance value and rewrite the generated JDT workspace and
+module files to match. Concretely, the code below:
+
+- updates =.settings/org.eclipse.jdt.core.prefs= entries in the =jdtls=
+  workspace metadata to set =org.eclipse.jdt.core.compiler.compliance=,
+  =org.eclipse.jdt.core.compiler.source= and
+  =org.eclipse.jdt.core.compiler.codegen.targetPlatform= to the resolved value;
+- patches module =.classpath= entries that reference the =JRE_CONTAINER= so they
+  point to the correct =JavaSE-<version>= container.
+
+These changes are generic and apply to any Maven multi-module project where
+property indirection (for example, a parent property =project.build.java.target=
+and a child override) leads to a discrepancy between Maven's effective model and
+the files =m2e= generates.
+
+*Example:*
+
+~Parent POM properties:~
+
+#+begin_example xml
+<project.build.java.target>1.8</project.build.java.target>
+<maven.compiler.source>${project.build.java.target}</maven.compiler.source>
+#+end_example
+
+~Child POM override:~
+
+#+begin_example xml
+<project.build.java.target>25</project.build.java.target>
+#+end_example
+
+Follows the implementation of the workaround:
+
+#+begin_src emacs-lisp
+(defun my/clean-jdtls-project-files (&optional root)
+  "Delete stale Eclipse/jdtls project files.
+It deletes `.classpath', `.project', `.settings' and `.factorypath'.
+ROOT defaults to the current `lsp-workspace-root' or `projectile-project-root'.
+These files are regenerated by jdtls/m2e on reimport. Delete them when
+jdtls shows a wrong Java compliance level (e.g. reports Java-8 errors
+on a Java-25 project) because m2e cached stale settings."
+  (interactive)
+  (let* ((root (or root
+                   (and (fboundp 'lsp-workspace-root) (lsp-workspace-root))
+                   (and (fboundp 'projectile-project-root) (projectile-project-root))
+                   (read-directory-name "Project root: ")))
+         (patterns '(".classpath" ".project" ".settings" ".factorypath"))
+         (files '()))
+    (dolist (pat patterns)
+      (let ((found (directory-files-recursively root (concat "\\`" (regexp-quote pat) "\\'")
+                                                t)))
+        (setq files (append files found))))
+    (if (null files)
+        (message "No Eclipse project files found under %s" root)
+      (when (yes-or-no-p
+             (format "Delete %d Eclipse project files under %s? " (length files) root))
+        (dolist (f files)
+          (if (file-directory-p f)
+              (delete-directory f t)
+            (delete-file f)))
+        (message "Deleted %d Eclipse project files. Restart LSP to reimport." (length files))))))
+
+(defun my/clean-jdtls-full (&optional root)
+  "Full jdtls cleanup: delete workspace cache AND stale Eclipse project files.
+Use when jdtls shows wrong Java compliance or persistent stale diagnostics."
+  (interactive)
+  (my/clean-jdtls-project-files root)
+  (my/clean-lsp-workspace-cache))
+
+(defun my/jdtls-fix-m2e-compliance ()
+  "Fix m2e setting the wrong Java compliance for Maven projects.
+m2e in jdtls 1.57 does not resolve `maven.compiler.release' (or
+`maven.compiler.source'/`target') correctly when the property uses
+indirection through a parent POM. It falls back to the parent's default
+(often Java 1.8) even though the child overrides the property to a higher
+version. This function reads the effective `maven.compiler.release' (or
+`source') from the project POM and writes the correct compliance to each
+module's `.settings/org.eclipse.jdt.core.prefs'. jdtls picks up project-
+directory settings with higher priority than its workspace metadata, so
+this overrides the wrong m2e-generated values."
+  (interactive)
+  (let* ((root (or (and (fboundp 'lsp-workspace-root) (lsp-workspace-root))
+                   (and (fboundp 'projectile-project-root) (projectile-project-root))
+                   (read-directory-name "Project root: ")))
+         (java-version (my/jdtls--detect-maven-java-version root)))
+    (if (null java-version)
+        (message "Could not detect Java version from Maven for %s" root)
+      (let ((count 0))
+        ;; Write .settings for each submodule that has a src/main/java
+        (dolist (pom (directory-files-recursively root "\\`pom\\.xml\\'"))
+          (let ((mod-dir (file-name-directory pom)))
+            (when (or (file-directory-p (expand-file-name "src/main/java" mod-dir))
+                      (string= (file-truename (expand-file-name root))
+                               (file-truename mod-dir)))
+              (my/jdtls--write-compliance-prefs mod-dir java-version)
+              (setq count (1+ count)))))
+        (message "Wrote Java %s compliance to %d module(s) under %s. Restart LSP to apply."
+                 java-version count root)))))
+
+(defun my/jdtls--detect-maven-java-version (root)
+  "Detect the Java version from Maven compiler settings in ROOT.
+Reads `maven.compiler.release', falling back to `maven.compiler.source',
+then `maven.compiler.target'. Returns the version string (e.g. \"25\")
+or nil."
+  (let ((pom (expand-file-name "pom.xml" root)))
+    (when (file-exists-p pom)
+      (with-temp-buffer
+        (insert-file-contents pom)
+        (or (my/jdtls--extract-pom-property "maven.compiler.release")
+            (my/jdtls--extract-pom-property "maven.compiler.source")
+            (my/jdtls--extract-pom-property "maven.compiler.target")
+            ;; Try resolving the property indirection one level
+            (let ((prop-ref (my/jdtls--extract-pom-property-raw "maven.compiler.release")))
+              (when (and prop-ref (string-match "\\${\\(.+\\)}" prop-ref))
+                (my/jdtls--extract-pom-property (match-string 1 prop-ref)))))))))
+
+(defun my/jdtls--extract-pom-property (name)
+  "Extract a literal property value for NAME from the current buffer's POM.
+Returns nil if the property is not found or is a property reference."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward
+           (format "<%s>\\([^$<]+\\)</%s>" (regexp-quote name) (regexp-quote name))
+           nil t)
+      (string-trim (match-string 1)))))
+
+(defun my/jdtls--extract-pom-property-raw (name)
+  "Extract a raw property value (including ${refs}) for NAME from the current buffer."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward
+           (format "<%s>\\([^<]+\\)</%s>" (regexp-quote name) (regexp-quote name))
+           nil t)
+      (string-trim (match-string 1)))))
+
+(defun my/jdtls--write-compliance-prefs (dir java-version)
+  "Write `.settings/org.eclipse.jdt.core.prefs' in DIR with JAVA-VERSION."
+  (let* ((settings-dir (expand-file-name ".settings" dir))
+         (prefs-file (expand-file-name "org.eclipse.jdt.core.prefs" settings-dir))
+         (content (format "\
+eclipse.preferences.version=1
+org.eclipse.jdt.core.compiler.codegen.methodParameters=generate
+org.eclipse.jdt.core.compiler.codegen.targetPlatform=%s
+org.eclipse.jdt.core.compiler.compliance=%s
+org.eclipse.jdt.core.compiler.problem.enablePreviewFeatures=disabled
+org.eclipse.jdt.core.compiler.problem.forbiddenReference=warning
+org.eclipse.jdt.core.compiler.problem.reportPreviewFeatures=ignore
+org.eclipse.jdt.core.compiler.processAnnotations=enabled
+org.eclipse.jdt.core.compiler.release=enabled
+org.eclipse.jdt.core.compiler.source=%s
+" java-version java-version java-version)))
+    (make-directory settings-dir t)
+    (write-region content nil prefs-file)))
+
+(defun my/jdtls--fix-classpath-jre (dir env-name)
+  "Fix the JRE container in DIR/.classpath to use ENV-NAME (e.g. \"JavaSE-25\").
+This is useful when m2e generates `.classpath' with another JRE (e.g., JavaSE-1.8)
+due to a property indirection bug (see https://github.com/eclipse-m2e/m2e-core/issues/2156
+for details). The JRE container determines which class library is on the build path,
+so even with correct compliance settings, APIs like List.of() are missing if
+the container points to a version like JavaSE-1.8, for example."
+  (let ((classpath-file (expand-file-name ".classpath" dir)))
+    (when (file-exists-p classpath-file)
+      (with-temp-buffer
+        (insert-file-contents classpath-file)
+        (when (re-search-forward
+               "JRE_CONTAINER/org\\.eclipse\\.jdt\\.internal\\.debug\\.ui\\.launcher\\.StandardVMType/JavaSE-[0-9.]+"
+               nil t)
+          (let ((old (match-string 0))
+                (new (format "JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/%s"
+                             env-name)))
+            (unless (string= old new)
+              (goto-char (point-min))
+              (while (search-forward old nil t)
+                (replace-match new t t))
+              (write-region (point-min) (point-max) classpath-file))))))))
+#+end_src
+
+The next function advises jdtls's =language/status= callback to detect when
+jdtls reports "Started" (meaning m2e has finished importing the project). At
+that point, =m2e= has already written its (wrong) =.settings= files with
+=compliance=1.8= (considering =1.8= as the wrong version resolved from our
+examples). We overwrite them with the correct Java version resolved from the POM
+in memory, then notify jdtls via =workspace/didChangeWatchedFiles= so it reloads
+the settings. This runs on every "Started" event (including after
+rebuild/restart) because m2e re-imports and overwrites =.settings= each time.
+This way the POM is never modified.
+
+#+begin_src emacs-lisp
+(defun my/jdtls--fix-compliance-after-import (workspace status)
+  "Advice :after `lsp-java--language-status-callback'.
+When jdtls reports type=\"Started\", overwrite the m2e-generated .settings
+and .classpath files with correct compliance and JRE container.
+Runs on every \"Started\" event (including after rebuild/restart) because
+m2e re-imports and overwrites these files each time.
+WORKSPACE is the lsp workspace, STATUS is the notification payload."
+  (when-let* ((type (if (hash-table-p status)
+                        (gethash "type" status)
+                      (plist-get status :type)))
+              (_started (string= type "Started"))
+              (root (lsp--workspace-root workspace))
+              (pom (expand-file-name "pom.xml" root))
+              (_has-pom (file-exists-p pom))
+              (java-version (my/jdtls--detect-maven-java-version root)))
+    (let ((count 0)
+          (env-name (if (string= java-version "8")
+                        "JavaSE-1.8"
+                      (format "JavaSE-%s" java-version))))
+      ;; 1. Write .settings in every module that has a pom.xml
+      (dolist (mod-pom (directory-files-recursively root "\\`pom\\.xml\\'"))
+        (let ((mod-dir (file-name-directory mod-pom)))
+          (my/jdtls--write-compliance-prefs mod-dir java-version)
+          (setq count (1+ count))))
+      ;; 2. Overwrite the jdtls workspace metadata .settings AND .classpath
+      (let ((ws-projects (expand-file-name
+                          ".metadata/.plugins/org.eclipse.core.resources/.projects"
+                          lsp-java-workspace-dir)))
+        (when (file-directory-p ws-projects)
+          (dolist (proj-dir (directory-files ws-projects t "^[^.]"))
+            (when (file-directory-p proj-dir)
+              (my/jdtls--write-compliance-prefs proj-dir java-version)
+              (my/jdtls--fix-classpath-jre proj-dir env-name)))))
+      ;; 3. Overwrite the global workspace JDT prefs
+      (let ((global-prefs-dir (expand-file-name
+                               ".metadata/.plugins/org.eclipse.core.runtime/.settings"
+                               lsp-java-workspace-dir)))
+        (when (file-directory-p global-prefs-dir)
+          (my/jdtls--write-compliance-prefs
+           (file-name-directory global-prefs-dir) java-version)))
+      ;; 4. Notify jdtls about the changes via workspace/didChangeWatchedFiles
+      (with-lsp-workspace workspace
+        (let (changes)
+          (dolist (mod-pom (directory-files-recursively root "\\`pom\\.xml\\'"))
+            (let* ((mod-dir (file-name-directory mod-pom))
+                   (prefs (expand-file-name ".settings/org.eclipse.jdt.core.prefs" mod-dir)))
+              (when (file-exists-p prefs)
+                (push (list :uri (lsp--path-to-uri prefs) :type 2) changes))))
+          ;; Also notify about .classpath changes in workspace metadata
+          (let ((ws-projects (expand-file-name
+                              ".metadata/.plugins/org.eclipse.core.resources/.projects"
+                              lsp-java-workspace-dir)))
+            (when (file-directory-p ws-projects)
+              (dolist (proj-dir (directory-files ws-projects t "^[^.]"))
+                (let ((cp (expand-file-name ".classpath" proj-dir)))
+                  (when (file-exists-p cp)
+                    (push (list :uri (lsp--path-to-uri cp) :type 2) changes))))))
+          (when changes
+            (lsp-notify "workspace/didChangeWatchedFiles"
+                        (list :changes (apply #'vector changes))))))
+      (message "m2e compliance fix: wrote Java %s (%s) to %d module(s) + workspace metadata under %s"
+               java-version env-name count root))))
+
+(with-eval-after-load 'lsp-java
+  (unless (advice-member-p #'my/jdtls--fix-compliance-after-import
+                           #'lsp-java--language-status-callback)
+    ;; After m2e finishes importing (jdtls reports "Started"), overwrite the
+    ;; wrong .settings files with correct Java compliance resolved from POM.
+    (advice-add 'lsp-java--language-status-callback :after
+                #'my/jdtls--fix-compliance-after-import)))
 #+end_src
 
 
@@ -5953,7 +6279,7 @@ CONF is the launch configuration plist from the launch.json entry."
                              "No :projectName in launch configuration")))
          (cwd           (or (plist-get conf :cwd) (lsp-java--get-root)))
          ;; Find the jdtls workspace using the project cwd as the lookup
-         ;; key.  lsp-find-workspace with a path uses
+         ;; key. lsp-find-workspace with a path uses
          ;; lsp-find-session-folder, which searches registered workspace
          ;; roots -- reliable even when called from a non-Java buffer.
          ;; Falls back to any jdtls workspace in the session if the path
@@ -5997,7 +6323,7 @@ CONF is the launch configuration plist from the launch.json entry."
          ;; Reference the classpath via an env variable to avoid shell
          ;; quoting issues when the classpath contains spaces.
          (cp-var (format dap-java--var-format "CLASSPATH_ARGS"))
-         ;; Build the full java invocation.  seq-filter removes empty
+         ;; Build the full java invocation. seq-filter removes empty
          ;; tokens so no stray spaces appear when args are absent.
          (java-command
           (string-trim
@@ -6161,7 +6487,7 @@ name. The=my/dap-java--debug-provider= installed in part 3 then routes any
 | =projectName=         | Maven/Gradle project name, used to resolve the classpath.        |
 | =cwd=                 | Working directory; use =${workspaceFolder}= for the repo root.   |
 | =console=             | Must be ="integratedTerminal"= to trigger the compile_attach     |
-|                       | flow.  Use ="internalConsole"= to fall back to the default       |
+|                       | flow. Use ="internalConsole"= to fall back to the default        |
 |                       | JDT launch flow (no vmArgs forwarding).                          |
 | =vmArgs=              | JVM arguments for the *debugged process* (not the language       |
 |                       | server). Spring Boot =−D= properties belong here.                |
@@ -6243,13 +6569,13 @@ use a custom build script or a submodule directory).
 
 In test files (matching =*Test.java=), class names and test method names are
 decorated as clickable inline links so you can run or debug a specific test
-without leaving the buffer.  The links are only added in files whose name
+without leaving the buffer. The links are only added in files whose name
 ends with =Test.java=, so production code is not affected.
 
 Each link style is distinct so you can see at a glance what an action will do:
 
-- Class name links are underlined in green → run or debug all tests in class.
-- Method name links are underlined in orange → run or debug that method only.
+- Class name links are underlined in green -> run or debug all tests in class.
+- Method name links are underlined in orange -> run or debug that method only.
 
 Test method detection covers all visibility modifiers (=public=, =protected=,
 =private=, or package-private) so it handles both JUnit 4 (=public void=) and
@@ -6341,6 +6667,199 @@ and JUnit 5 (package-private void) conventions."
 
 (add-hook 'java-ts-mode-hook #'my/dap-java--setup-test-buffer)
 (add-hook 'java-mode-hook    #'my/dap-java--setup-test-buffer)
+#+end_src
+
+
+***** Java environment bootstrap
+
+~exec-path-from-shell~ uses a login shell (=-l= flag), which on Linux sources
+=.zprofile= / =.profile= but NOT =.zshrc= / =.bashrc=. SDKMAN installs its
+initialisation into =.zshrc= / =.bashrc=, so Emacs never picks up the
+SDKMAN-managed Java from the login shell alone. The fix is to read the
+=~/.sdkman/candidates/java/current= symlink directly -- this is always set by
+=sdk use= / =sdk default= and requires no hardcoded version.
+
+If SDKMAN is not installed the function is a no-op and Emacs falls back to
+whatever Java is already on =exec-path=.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'lsp-java
+  (defvar lsp-java-java-path)
+
+  (defun my/bootstrap-sdkman-java ()
+    "Bootstrap SDKMAN's current Java into Emacs's environment.
+Sets JAVA_HOME, exec-path, PATH, and `lsp-java-java-path' from the
+`~/.sdkman/candidates/java/current' symlink. No version is hardcoded.
+IDempotent: skips PATH/JAVA_HOME patches when SDKMAN is already present.
+Falls back silently to system Java when SDKMAN is not installed.
+Call interactively after switching Java with `sdk use java X.X.X'
+outside Emacs, then invoke `jal-lsp-java-switch-java-version' to
+update LSP without restarting Emacs."
+    (interactive)
+    (let* ((sdkman-java-dir (expand-file-name "~/.sdkman/candidates/java/current"))
+           (java-bin-dir    (expand-file-name "bin" sdkman-java-dir))
+           (java-bin        (expand-file-name "java" java-bin-dir)))
+      (cond
+       ((file-executable-p java-bin)
+        ;; Only patch JAVA_HOME/PATH if exec-path-from-shell did not already
+        ;; pick up SDKMAN (idempotent: skip when JAVA_HOME already points there).
+        (unless (string-prefix-p sdkman-java-dir (or (getenv "JAVA_HOME") ""))
+          (setenv "JAVA_HOME" sdkman-java-dir)
+          (setenv "PATH" (concat java-bin-dir path-separator (getenv "PATH")))
+          (add-to-list 'exec-path java-bin-dir))
+        ;; Pin lsp-java-java-path only when it has not already been set to a
+        ;; non-SDKMAN-current path by the user (e.g. via my/java-switch-version).
+        ;; This prevents re-loading the config from undoing a live version switch.
+        (let ((current-path (bound-and-true-p lsp-java-java-path)))
+          (when (or (null current-path)
+                    (string= current-path "java")
+                    ;; Still pointing at SDKMAN current: safe to update.
+                    (string-prefix-p sdkman-java-dir current-path))
+            (setq lsp-java-java-path java-bin)
+            (message "SDKMAN Java bootstrapped: %s" java-bin))))
+       ((file-directory-p (expand-file-name "~/.sdkman/candidates/java"))
+        ;; SDKMAN is installed but no `current' version is selected.
+        (message "SDKMAN found but no current Java selected; using system Java."))
+       ;; SDKMAN not installed -- silent fallback to system Java.
+       )))
+
+  (my/bootstrap-sdkman-java))
+#+end_src
+
+
+***** LSP workspace cache and Java switch workflow
+
+Since =lsp-java-configuration-runtimes= is already populated with all SDKMAN
+versions (via =my/lsp-java-discover-runtimes=), there is no need to touch the
+system SDKMAN default (=sdk use= / =sdk default=) when switching Java within
+Emacs. The switch is Emacs-session-local only: it does not affect your shell,
+other terminals, or other projects.
+
+Set =my/java-clean-workspace-on-switch= to =nil= if you want to skip the
+workspace cache deletion when switching Java versions (useful when staying on
+the same major version and wanting a faster iteration cycle).
+
+#+begin_src emacs-lisp
+(defvar my/java-clean-workspace-on-switch t
+  "When non-nil, delete the LSP workspace cache on every Java version switch.
+Set to nil to skip cache deletion when staying on the same major version.")
+
+(defun my/java--candidate-from-runtime (runtime)
+  "Return the java binary path from RUNTIME plist, or nil if not executable."
+  (when-let ((home (plist-get runtime :path)))
+    (let ((bin (expand-file-name "bin/java" home)))
+      (when (file-executable-p bin) bin))))
+
+(defun my/java--collect-candidates (current-path)
+  "Return a deduplicated list of java executables to offer for selection.
+Starts from CURRENT-PATH, adds system java if available, then all
+runtimes from `lsp-java-configuration-runtimes'."
+  (let* ((from-runtimes
+          (delq nil
+                (mapcar #'my/java--candidate-from-runtime
+                        (append (bound-and-true-p lsp-java-configuration-runtimes) nil))))
+         (system-java (executable-find "java"))
+         (all (delete-dups
+               (delq nil
+                     (append (list current-path)
+                             (when (and system-java
+                                        (not (string= current-path system-java)))
+                               (list system-java))
+                             from-runtimes)))))
+    all))
+
+(defun my/java--sync-env (java-bin)
+  "Patch JAVA_HOME, PATH, and exec-path in this Emacs session for JAVA-BIN.
+Does not affect the shell or any system processes."
+  (let* ((java-home (file-name-directory
+                     (directory-file-name (file-name-directory java-bin))))
+         (bin-dir   (expand-file-name "bin" java-home)))
+    (setenv "JAVA_HOME" java-home)
+    (setenv "PATH" (concat bin-dir path-separator (getenv "PATH")))
+    (add-to-list 'exec-path bin-dir)))
+
+(defun my/java--clean-workspace ()
+  "Delete ~/.emacs.d/workspace/ unconditionally (no prompt).
+Respects `my/java-clean-workspace-on-switch'."
+  (when my/java-clean-workspace-on-switch
+    (let ((workspace-dir (expand-file-name "workspace" user-emacs-directory)))
+      (when (file-directory-p workspace-dir)
+        (delete-directory workspace-dir t)
+        (message "LSP workspace cache cleared.")))))
+
+(defun my/java--apply-selection (chosen current-path)
+  "Set `lsp-java-java-path' to CHOSEN and, if changed, sync env and restart LSP.
+Also syncs JAVA_HOME/PATH/exec-path and deletes the workspace cache before
+restarting, so jdtls starts fresh with the correct JDK."
+  (defvar lsp-java-java-path)
+  (setq lsp-java-java-path chosen)
+  (if (string= chosen current-path)
+      (message "Java version unchanged (%s)." chosen)
+    (message "Switching to Java at '%s'..." chosen)
+    (my/java--sync-env chosen)
+    (my/java--clean-workspace)
+    ;; jal--lsp-java-restart is still used so jal's vmargs/agent injection runs.
+    (when (fboundp 'jal--lsp-java-restart)
+      (jal--lsp-java-restart))))
+
+(defun my/java-switch-version ()
+  "Interactively switch the Java version for this Emacs session.
+Picks from all versions in `lsp-java-configuration-runtimes'. Updates
+JAVA_HOME, PATH, exec-path, and `lsp-java-java-path' session-locally.
+Optionally cleans the LSP workspace cache before restarting jdtls,
+controlled by `my/java-clean-workspace-on-switch'."
+  (interactive)
+  (require 'lsp-java)
+  (defvar lsp-java-java-path)
+  (let* ((current (or (bound-and-true-p lsp-java-java-path) "java"))
+         (candidates (my/java--collect-candidates current)))
+    (if (< (length candidates) 2)
+        (message "No alternative Java versions found; only available: %s" current)
+      (let ((chosen (completing-read
+                     (format "Java version (current: %s): " current)
+                     candidates nil t)))
+        (my/java--apply-selection chosen current)))))
+
+(defun my/java--detect-build-command (dir)
+  "Return the build command for project in DIR, or nil if none is found.
+Detects Maven (pom.xml) and Gradle (build.gradle / build.gradle.kts).
+Returns nil and messages the user when no recognised build file exists."
+  (cond
+   ((file-exists-p (expand-file-name "pom.xml" dir))
+    "mvn clean install -DskipTests")
+   ((file-exists-p (expand-file-name "build.gradle" dir))
+    "./gradlew clean build -x test")
+   ((file-exists-p (expand-file-name "build.gradle.kts" dir))
+    "./gradlew clean build -x test")
+   (t
+    (message "No pom.xml or build.gradle found in %s; skipping rebuild." dir)
+    nil)))
+
+(defun my/java-switch-and-rebuild (project-dir)
+  "Switch Java, clean workspace, and rebuild PROJECT-DIR.
+Calls `my/java-switch-version' (session-local, no SDKMAN system change),
+auto-detects Maven or Gradle, and runs the appropriate build command with
+the newly selected JAVA_HOME. Aborts the build step if no build file is found."
+  (interactive
+   (list (read-directory-name "Project directory: "
+                              (or (and (fboundp 'lsp-workspace-root)
+                                       (lsp-workspace-root))
+                                  default-directory))))
+  (my/java-switch-version)
+  (let* ((project-dir   (expand-file-name project-dir))
+         (build-command (my/java--detect-build-command project-dir)))
+    (when build-command
+      (let* ((java-bin  (bound-and-true-p lsp-java-java-path))
+             (java-home (when java-bin
+                          (file-name-directory
+                           (directory-file-name (file-name-directory java-bin)))))
+             (default-directory project-dir)
+             (process-environment
+              (if java-home
+                  (cons (format "JAVA_HOME=%s" java-home) process-environment)
+                process-environment)))
+        (message "Rebuilding %s with: %s" project-dir build-command)
+        (compilation-start build-command 'compilation-mode)))))
 #+end_src
 
 
