@@ -908,6 +908,46 @@ uninstall_ripgrep() {
 
 register_action "Install Ripgrep" "ripgrep" "Utils"
 
+VTERM_BUILD_PACKAGES=(
+  "libvterm" "cmake" "build-essential"
+)
+
+is_installed_vterm_build_bundle() {
+  are_these_system_packages_installed "${VTERM_BUILD_PACKAGES[@]}"
+}
+
+register_system_package "libvterm" \
+                        "alpine:libvterm-dev" \
+                        "fedora:libvterm-devel" \
+                        "linuxbrew:libvterm" \
+                        "mac:libvterm" \
+                        "debian-ubuntu:libvterm-dev"
+
+register_system_package "cmake" \
+                        "alpine:cmake" \
+                        "fedora:cmake" \
+                        "linuxbrew:cmake" \
+                        "mac:cmake" \
+                        "debian-ubuntu:cmake"
+
+register_system_package "build-essential" \
+                        "alpine:build-base" \
+                        "fedora:gcc-c++" \
+                        "linuxbrew:gcc" \
+                        "mac:xcode" \
+                        "debian-ubuntu:build-essential"
+
+install_vterm_build_bundle() {
+  log_info "Starting C++ Development environment setup..."
+  install_system_packages "${VTERM_BUILD_PACKAGES[@]}"
+}
+
+uninstall_vterm_build_bundle() {
+  log_skip "vterm build bundle" "The packages used for vterm builds are system packages and will not be uninstalled automatically"
+}
+
+register_action "Install vterm build bundle" "vterm_build_bundle" "Utils"
+
 is_installed_semgrep() {
   command -v semgrep >/dev/null 2>&1
 }

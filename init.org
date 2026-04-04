@@ -60,7 +60,7 @@
     - [[#scrollbar-on-the-terminal][Scrollbar on the terminal]]
     - [[#move-text][Move Text]]
     - [[#expanding-ripgrep][Expanding ripgrep]]
-    - [[#terminal][Terminal]]
+    - [[#vterm-a-fully-capable-terminal-emulator][~vterm~, a fully capable terminal emulator]]
     - [[#multiple-cursors][Multiple cursors]]
     - [[#improved-help][Improved help]]
     - [[#hiding-secrets][Hiding secrets]]
@@ -2886,9 +2886,62 @@ We can also call =rg-dwim= or =rg= and give any path.
 #+end_src
 
 
-** Terminal
+** ~vterm~, a fully capable terminal emulator
 
-A fully capable terminal emulator.
+We install ~vterm~ below, a compiled C module that feels as fast as a native
+terminal. Alternatives like ~Eshell~ or ~Term~ are written in Elisp; while they
+integrate deeply with Emacs, they often lag, flicker, or break entirely when
+running resource-heavy programs like =htop= or =vim=. By using ~vterm~, we get a
+"real" terminal experience that handles complex character encoding and
+high-speed scrolling without the compromises found in pure Emacs Lisp shells.
+
+~vterm~ is built as a compiled C module for maximum performance, so you must
+have a few development packages installed on your system to allow Emacs to build
+the driver during the initial setup:
+
+#+begin_src sh :tangle setup.sh
+VTERM_BUILD_PACKAGES=(
+  "libvterm" "cmake" "build-essential"
+)
+
+is_installed_vterm_build_bundle() {
+  are_these_system_packages_installed "${VTERM_BUILD_PACKAGES[@]}"
+}
+
+register_system_package "libvterm" \
+                        "alpine:libvterm-dev" \
+                        "fedora:libvterm-devel" \
+                        "linuxbrew:libvterm" \
+                        "mac:libvterm" \
+                        "debian-ubuntu:libvterm-dev"
+
+register_system_package "cmake" \
+                        "alpine:cmake" \
+                        "fedora:cmake" \
+                        "linuxbrew:cmake" \
+                        "mac:cmake" \
+                        "debian-ubuntu:cmake"
+
+register_system_package "build-essential" \
+                        "alpine:build-base" \
+                        "fedora:gcc-c++" \
+                        "linuxbrew:gcc" \
+                        "mac:xcode" \
+                        "debian-ubuntu:build-essential"
+
+install_vterm_build_bundle() {
+  log_info "Starting C++ Development environment setup..."
+  install_system_packages "${VTERM_BUILD_PACKAGES[@]}"
+}
+
+uninstall_vterm_build_bundle() {
+  log_skip "vterm build bundle" "The packages used for vterm builds are system packages and will not be uninstalled automatically"
+}
+
+register_action "Install vterm build bundle" "vterm_build_bundle" "Utils"
+#+end_src
+
+And below the Emacs setup:
 
 #+begin_src emacs-lisp
 (use-package vterm
