@@ -448,7 +448,17 @@ is_system_package_installed() {
   esac
 }
 
-install_system_packages() {
+are_these_system_packages_installed() {
+  for package in "$@"; do
+    if ! is_system_package_installed "$package"; then
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+install_system_package() {
   local friendly_name="$1"
   local os_label=""
   local cmd_prefix=""
@@ -510,6 +520,16 @@ install_system_packages() {
   fi
 
   run_task "System: Installing $friendly_name ($os_label)" "$final_cmd"
+}
+
+install_system_packages() {
+  for package in "$@"; do
+    if ! is_system_package_installed "$package" || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      install_system_package "$package"
+    else
+      log_skip "$package" "ALREADY INSTALLED"
+    fi
+  done
 }
 
 register_shell_path() {
@@ -776,13 +796,7 @@ DIRVISH_UTILITIES=(
 )
 
 is_installed_dirvish_utilities_bundle() {
-  for package in "${DIRVISH_UTILITIES[@]}"; do
-    if ! is_system_package_installed "$package"; then
-      return 1
-    fi
-  done
-
-  return 0
+  are_these_system_packages_installed "${DIRVISH_UTILITIES[@]}"
 }
 
 # --- Core Performance & Navigation ---
@@ -863,14 +877,7 @@ register_system_package "pandoc" \
 
 install_dirvish_utilities_bundle() {
   log_info "Starting Dirvish utilities setup..."
-
-  for package in "${DIRVISH_UTILITIES[@]}"; do
-    if ! is_system_package_installed "$package" || [[ "$FORCE_REINSTALL" == "true" ]]; then
-      install_system_packages "$package"
-    else
-      log_skip "$package" "ALREADY INSTALLED"
-    fi
-  done
+  install_system_packages "${DIRVISH_UTILITIES[@]}"
 }
 
 uninstall_dirvish_utilities_bundle() {
@@ -892,12 +899,7 @@ register_system_package "ripgrep" \
 
 install_ripgrep() {
   log_info "Starting Ripgrep setup..."
-
-  if ! is_system_package_installed "ripgrep" || [[ "$FORCE_REINSTALL" == "true" ]]; then
-    install_system_packages "ripgrep"
-  else
-    log_skip "ripgrep" "ALREADY INSTALLED"
-  fi
+  install_system_packages "ripgrep"
 }
 
 uninstall_ripgrep() {
@@ -948,20 +950,14 @@ uninstall_prettier() {
 
 register_action "Install Prettier" "prettier" "node"
 
-CPP_MIN_DEV_PACAKGES=(
+CPP_MIN_DEV_PACKAGES=(
   "gcc-c++" "gdb" "cmake" "make" "clang-tools-extra" "bear"
   "openssl-devel" "libxcrypt-devel" "ncurses-devel"
   "zlib-devel" "sqlite-devel" "readline-devel" "libffi-devel"
 )
 
 is_installed_cpp_dev_bundle() {
-  for package in "${CPP_MIN_DEV_PACAKGES[@]}"; do
-    if ! is_system_package_installed "$package"; then
-      return 1
-    fi
-  done
-
-  return 0
+  are_these_system_packages_installed "${CPP_MIN_DEV_PACKAGES[@]}"
 }
 
 # Compiler & Build Tools
@@ -1061,14 +1057,7 @@ register_system_package "zlib-devel" \
 
 install_cpp_dev_bundle() {
   log_info "Starting C++ Development environment setup..."
-
-  for package in "${CPP_MIN_DEV_PACAKGES[@]}"; do
-    if ! is_system_package_installed "$package" || [[ "$FORCE_REINSTALL" == "true" ]]; then
-      install_system_packages "$package"
-    else
-      log_skip "$package" "ALREADY INSTALLED"
-    fi
-  done
+  install_system_packages "${CPP_MIN_DEV_PACKAGES[@]}"
 }
 
 uninstall_cpp_dev_bundle() {
