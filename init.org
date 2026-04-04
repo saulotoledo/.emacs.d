@@ -61,6 +61,7 @@
     - [[#move-text][Move Text]]
     - [[#expanding-ripgrep][Expanding ripgrep]]
     - [[#vterm-a-fully-capable-terminal-emulator][~vterm~, a fully capable terminal emulator]]
+    - [[#expand-region][Expand region]]
     - [[#multiple-cursors][Multiple cursors]]
     - [[#improved-help][Improved help]]
     - [[#hiding-secrets][Hiding secrets]]
@@ -2984,6 +2985,58 @@ And below the Emacs setup:
 #+end_src
 
 
+** Expand region
+
+Expand region increases the selected region by semantic units when you keep
+pressing the key until it selects what you want.
+
+#+begin_src emacs-lisp
+(use-package expand-region
+  :custom
+  ;; Global optimization: disabling state-save prevents UI lag in large buffers
+  (er/save-state-before-expand nil)
+  (er/history-is-kept-at-point nil)
+  :bind (("C-=" . er/expand-region)
+         ("C--" . er/contract-region))
+  :config
+
+  (defun my/er-mark-org-code-block-fast ()
+    "Mark an org-code-block, searching at most 10KB to prevent lag."
+    (interactive)
+    (let ((case-fold-search t)
+          (re "#\\+begin_\\(\\sw+\\)")
+          (limit (max (point-min) (- (point) 10000))))
+      (when (or (looking-at re)
+                (search-backward-regexp re limit t))
+        (set-mark (point))
+        (search-forward (concat "#+end_" (match-string 1))
+                        (min (point-max) (+ (point) 20000)) t)
+        (exchange-point-and-mark))))
+
+  (defun my/er-expand-region-large-buffer-advice (orig-fun &rest args)
+    "Dynamically override `er/try-expand-list' in large Org buffers.
+When the buffer exceeds 50,000 characters, this advice overrides the
+standard expansion list with a high-performance subset, disabling
+heavy semantic analysis (like class/function detection) to prevent lag.
+ORIG-FUN is the original function. ARGS are its arguments."
+    (if (and (derived-mode-p 'org-mode)
+             (> (buffer-size) 50000))
+        (let ((er/try-expand-list
+               '(er/mark-word
+                 er/mark-symbol
+                 er/mark-sentence
+                 er/mark-paragraph
+                 my/er-mark-org-code-block-fast))
+              (er/save-mode-excursion nil))
+          (message "Expand-region: Optimized for large buffer.")
+          (apply orig-fun args))
+      (apply orig-fun args)))
+
+  (advice-add 'er/expand-region :around #'my/er-expand-region-large-buffer-advice)
+  (advice-add 'er/contract-region :around #'my/er-expand-region-large-buffer-advice))
+#+end_src
+
+
 ** Multiple cursors
 
 Multiple Cursors lets you edit many places at once: mark the next or
@@ -3013,6 +3066,11 @@ a couple of convenient keybindings.
                  delete-forward-char
                  delete-horizontal-space
                  downcase-word
+                 er/contract-region
+                 er/mark-inside-quotes
+                 er/mark-symbol
+                 er/mark-word
+                 er/expand-region
                  exchange-point-and-mark
                  forward-char
                  forward-word
@@ -5038,7 +5096,7 @@ process group. The icon already ships with ~dap-mode~ (=icons/vscode/stop.png=).
 (defun dap-force-quit ()
   "Forcefully terminate all DAP sessions and their JVM processes.
 Sends SIGKILL to each session's adapter process and program process
-(the JVM started via compile_attach), then clears all dap-mode state.
+\\(the JVM started via compile_attach), then clears all dap-mode state.
 Safe to call even when the session is completely unresponsive."
   (interactive)
   (ignore-errors
@@ -5087,6 +5145,7 @@ Safe to call even when the session is completely unresponsive."
 ;; already been killed -- there is nothing left to re-attach to.
 (defun my/dap-ui--inject-stop-button (orig-fun &rest args)
   "Around advice for `dap-ui--update-controls'.
+ORIG-FUN is the advised function. ARGS are its arguments.
 Replaces the non-functional Restart button with a Force Stop button
 that calls `dap-force-quit' to SIGKILL the JVM process group."
   (cl-letf* ((orig-create (symbol-function 'dap-ui--create-command))
@@ -6211,7 +6270,8 @@ on a Java-25 project) because m2e cached stale settings."
 
 (defun my/clean-jdtls-full (&optional root)
   "Full jdtls cleanup: delete workspace cache AND stale Eclipse project files.
-Use when jdtls shows wrong Java compliance or persistent stale diagnostics."
+Use when jdtls shows wrong Java compliance or persistent stale diagnostics.
+ROOT is the project root to clean; if nil, prompts."
   (interactive)
   (my/clean-jdtls-project-files root)
   (my/clean-lsp-workspace-cache))
@@ -6221,7 +6281,7 @@ Use when jdtls shows wrong Java compliance or persistent stale diagnostics."
 m2e in jdtls 1.57 does not resolve `maven.compiler.release' (or
 `maven.compiler.source'/`target') correctly when the property uses
 indirection through a parent POM. It falls back to the parent's default
-(often Java 1.8) even though the child overrides the property to a higher
+\\(often Java 1.8) even though the child overrides the property to a higher
 version. This function reads the effective `maven.compiler.release' (or
 `source') from the project POM and writes the correct compliance to each
 module's `.settings/org.eclipse.jdt.core.prefs'. jdtls picks up project-
@@ -6302,12 +6362,13 @@ org.eclipse.jdt.core.compiler.source=%s
     (write-region content nil prefs-file)))
 
 (defun my/jdtls--fix-classpath-jre (dir env-name)
-  "Fix the JRE container in DIR/.classpath to use ENV-NAME (e.g. \"JavaSE-25\").
-This is useful when m2e generates `.classpath' with another JRE (e.g., JavaSE-1.8)
-due to a property indirection bug (see https://github.com/eclipse-m2e/m2e-core/issues/2156
-for details). The JRE container determines which class library is on the build path,
-so even with correct compliance settings, APIs like List.of() are missing if
-the container points to a version like JavaSE-1.8, for example."
+  "Set the JRE container in DIR/.classpath to ENV-NAME.
+This is useful when m2e generates `.classpath' with another JRE (e.g.,
+JavaSE-1.8) due to a property indirection bug (see
+https://github.com/eclipse-m2e/m2e-core/issues/2156 for details). The
+JRE container determines which class library is on the build path, so
+even with correct compliance settings, APIs like List.of() are missing
+if the container points to a version like JavaSE-1.8, for example."
   (let ((classpath-file (expand-file-name ".classpath" dir)))
     (when (file-exists-p classpath-file)
       (with-temp-buffer
@@ -6574,7 +6635,7 @@ CONF is the launch configuration plist or hash-table."
   "Return the default DAP compilation command for a Java project at ROOT.
 ROOT should be the top-level workspace root (not a submodule), obtained
 from the jdtls workspace struct via `lsp--workspace-root'. Detects Maven
-(pom.xml) or Gradle (build.gradle / build.gradle.kts) and returns the
+\\(pom.xml) or Gradle (build.gradle / build.gradle.kts) and returns the
 appropriate compile command string. Logs a message and returns nil when
 no recognised build file is found, so the build step is skipped."
   (cond
@@ -7108,7 +7169,7 @@ runtimes from `lsp-java-configuration-runtimes'."
     all))
 
 (defun my/java--sync-env (java-bin)
-  "Patch JAVA_HOME, PATH, and exec-path in this Emacs session for JAVA-BIN.
+  "Patch JAVA_HOME, PATH, and variable `exec-path' for JAVA-BIN in this session.
 Does not affect the shell or any system processes."
   (let* ((java-home (file-name-directory
                      (directory-file-name (file-name-directory java-bin))))
@@ -7128,8 +7189,9 @@ Respects `my/java-clean-workspace-on-switch'."
 
 (defun my/java--apply-selection (chosen current-path)
   "Set `lsp-java-java-path' to CHOSEN and, if changed, sync env and restart LSP.
-Also syncs JAVA_HOME/PATH/exec-path and deletes the workspace cache before
-restarting, so jdtls starts fresh with the correct JDK."
+Also syncs JAVA_HOME, PATH, and the variable `exec-path' and deletes the
+workspace cache before restarting, so jdtls starts fresh with the correct JDK.
+CURRENT-PATH is the existing JDK path."
   (defvar lsp-java-java-path)
   (setq lsp-java-java-path chosen)
   (if (string= chosen current-path)
@@ -7144,9 +7206,9 @@ restarting, so jdtls starts fresh with the correct JDK."
 (defun my/java-switch-version ()
   "Interactively switch the Java version for this Emacs session.
 Picks from all versions in `lsp-java-configuration-runtimes'. Updates
-JAVA_HOME, PATH, exec-path, and `lsp-java-java-path' session-locally.
-Optionally cleans the LSP workspace cache before restarting jdtls,
-controlled by `my/java-clean-workspace-on-switch'."
+JAVA_HOME, PATH, the variable `exec-path', and `lsp-java-java-path'
+session-locally. Optionally cleans the LSP workspace cache before
+restarting jdtls, controlled by `my/java-clean-workspace-on-switch'."
   (interactive)
   (require 'lsp-java)
   (defvar lsp-java-java-path)
