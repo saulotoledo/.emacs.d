@@ -2995,7 +2995,53 @@ a couple of convenient keybindings.
   :bind
   ("C->"   . mc/mark-next-like-this)
   ("C-<"   . mc/mark-previous-like-this)
-  ("C-M-#" . mc/mark-all-dwim))
+  ("C-M-#" . mc/mark-all-dwim)
+  :init
+  ;; Set list file location explicitly
+  (setq mc/list-file (concat user-emacs-directory ".mc-lists.el"))
+
+  ;; Eagerly require mc-core at start so we can load, inject and save directly
+  (require 'multiple-cursors-core)
+  (mc/load-lists)
+  (dolist (cmd '(back-to-indentation
+                 backward-char
+                 backward-kill-word
+                 backward-word
+                 c-electric-backspace
+                 capitalize-word
+                 cycle-spacing
+                 delete-forward-char
+                 delete-horizontal-space
+                 downcase-word
+                 exchange-point-and-mark
+                 forward-char
+                 forward-word
+                 indent-for-tab-command
+                 just-one-space
+                 kill-line
+                 kill-region
+                 mark-word
+                 move-beginning-of-line
+                 move-end-of-line
+                 mwim-beginning-of-code-or-line
+                 mwim-beginning-of-line
+                 mwim-end-of-code-or-line
+                 mwim-end-of-line
+                 newline
+                 org-self-insert-command
+                 org-yank
+                 reindent-then-newline-and-indent
+                 set-rectangular-region-anchor
+                 subword-backward
+                 subword-forward
+                 upcase-word
+                 yank
+                 yank-pop
+                 zap-to-char))
+    (add-to-list 'mc/cmds-to-run-for-all cmd)
+    (when (boundp 'mc/cmds-to-run-once)
+      (setq mc/cmds-to-run-once (delq cmd mc/cmds-to-run-once))))
+  (mc/save-lists))
 
 (declare-function mc/num-cursors "multiple-cursors")
 (declare-function my/mc-count-cursors "multiple-cursors")
