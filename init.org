@@ -51,6 +51,10 @@
 - [[#other-useful-packages][Other useful packages]]
     - [[#try-a-new-package-without-installing-it][Try a new package without installing it]]
     - [[#restart-emacs-from-within-emacs][Restart Emacs from within Emacs]]
+    - [[#dired][Dired]]
+        - [[#basic-package-configuration][Basic package configuration]]
+        - [[#dirvish][Dirvish]]
+        - [[#dired-faces][Dired faces]]
     - [[#snippets][Snippets]]
     - [[#undo-tree][Undo tree]]
     - [[#scrollbar-on-the-terminal][Scrollbar on the terminal]]
@@ -2438,6 +2442,241 @@ The following is a simple package to restart Emacs for within Emacs.
 #+begin_src emacs-lisp
 (use-package restart-emacs
   :bind ("C-c C-M-r" . restart-emacs))
+#+end_src
+
+
+** Dired
+
+*** Basic package configuration
+
+Dired is a built-in package. We just set some configurations below:
+
+#+begin_src emacs-lisp
+(use-package dired
+  :ensure nil ; Built-in
+  :custom
+  (dired-listing-switches "-ah --group-directories-first")
+  :config
+  (add-hook 'dired-mode-hook (lambda () (setq-local line-spacing 0.1))))
+#+end_src
+
+
+*** Dirvish
+
+Dirvish is the heavyweight champion of Dired improvements. It isn't just a
+"skin"; it's a complete rewrite of the Dired user interface that makes Emacs
+feel like a high-end file manager (like Ranger or a modern IDE sidebar) while
+keeping the power of Dired's underlying Lisp.
+
+Dirvish uses a set if system utilities for giving information about packages. We
+install them below:
+
+#+begin_src sh :tangle setup.sh
+DIRVISH_UTILITIES=(
+  "fd" "git"
+  "mediainfo" "imagemagick" "ffmpegthumbnailer" "vipsthumbnail"
+  "poppler" "unzip" "glow" "pandoc"
+)
+
+is_installed_dirvish_utilities_bundle() {
+  for package in "${DIRVISH_UTILITIES[@]}"; do
+    if ! is_system_package_installed "$package"; then
+      echo "$package is missing"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# --- Core Performance & Navigation ---
+# Used for fast searching, jumping to files, and directory rendering.
+register_system_package "fd" \
+                        "alpine:fd" \
+                        "fedora:fd-find" \
+                        "linuxbrew:fd" \
+                        "mac:fd" \
+                        "debian-ubuntu:fd-find"
+
+register_system_package "git" \
+                        "alpine:git" \
+                        "fedora:git" \
+                        "linuxbrew:git" \
+                        "mac:git" \
+                        "debian-ubuntu:git"
+
+# --- Media Metadata & Previews ---
+# Used by dispatchers to show technical info and thumbnails for video/audio/images.
+register_system_package "mediainfo" \
+                        "alpine:mediainfo" \
+                        "fedora:mediainfo" \
+                        "linuxbrew:mediainfo" \
+                        "mac:mediainfo" \
+                        "debian-ubuntu:mediainfo"
+
+register_system_package "imagemagick" \
+                        "alpine:imagemagick" \
+                        "fedora:ImageMagick" \
+                        "linuxbrew:imagemagick" \
+                        "mac:imagemagick" \
+                        "debian-ubuntu:imagemagick"
+
+register_system_package "ffmpegthumbnailer" \
+                        "alpine:ffmpegthumbnailer" \
+                        "fedora:ffmpegthumbnailer" \
+                        "linuxbrew:ffmpegthumbnailer" \
+                        "mac:ffmpegthumbnailer" \
+                        "debian-ubuntu:ffmpegthumbnailer"
+
+register_system_package "vipsthumbnail" \
+                        "alpine:vips-tools" \
+                        "fedora:vips-tools" \
+                        "linuxbrew:vips" \
+                        "mac:vips" \
+                        "debian-ubuntu:libvips-tools"
+
+# --- Document & Archive Parsing ---
+# Used to peek inside PDFs, archives, and formatted text files.
+register_system_package "poppler" \
+                        "alpine:poppler-utils" \
+                        "fedora:poppler" \
+                        "linuxbrew:poppler" \
+                        "mac:poppler" \
+                        "debian-ubuntu:poppler-utils"
+
+register_system_package "unzip" \
+                        "alpine:unzip" \
+                        "fedora:unzip" \
+                        "linuxbrew:unzip" \
+                        "mac:unzip" \
+                        "debian-ubuntu:unzip"
+
+register_system_package "glow" \
+                        "alpine:glow" \
+                        "fedora:glow" \
+                        "linuxbrew:glow" \
+                        "mac:glow" \
+                        "debian-ubuntu:glow"
+
+register_system_package "pandoc" \
+                        "alpine:pandoc" \
+                        "fedora:pandoc" \
+                        "linuxbrew:pandoc" \
+                        "mac:pandoc" \
+                        "debian-ubuntu:pandoc"
+
+install_dirvish_utilities_bundle() {
+  log_info "Starting Dirvish utilities setup..."
+
+  for package in "${DIRVISH_UTILITIES[@]}"; do
+    if ! is_system_package_installed "$package" || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      install_system_packages "$package"
+    else
+      log_skip "$package" "ALREADY INSTALLED"
+    fi
+  done
+}
+
+uninstall_dirvish_utilities_bundle() {
+  log_skip "Dirvish utilities" "The packages used with Dirvish are system packages and will not be uninstalled automatically"
+}
+
+register_action "Install Dirvish utilities" "dirvish_utilities_bundle" "Utils"
+#+end_src
+
+With the system utilities installed, we can configure the package on Emacs:
+
+#+begin_src emacs-lisp
+(use-package dirvish
+  :pin "MELPA Unstable"
+  :bind (:map dirvish-mode-map
+              ("TAB" . dirvish-subtree-toggle))
+  :init
+  (dirvish-override-dired-mode)
+  :config
+  (defun my/dirvish-toggle-git-msg ()
+    "Toggle 'vc-state' and 'git-msg' attributes for Dirvish."
+    (interactive)
+    (let ((has-git (or (memq 'git-msg dirvish-attributes)
+                       (memq 'vc-state dirvish-attributes))))
+      ;; Toggle the global attributes
+      (if has-git
+          (setq dirvish-attributes (remq 'vc-state (remq 'git-msg dirvish-attributes)))
+        (setq dirvish-attributes (append dirvish-attributes '(vc-state git-msg))))
+
+      ;; Re-initialize the active dirvish session so git background processes correctly start/stop
+      (when (and (derived-mode-p 'dired-mode) (dirvish-curr))
+        (let ((dir default-directory)
+              (layout-p (dv-curr-layout (dirvish-curr))))
+          (kill-buffer (current-buffer))
+          (if layout-p
+              (dirvish dir)
+            (dired dir))))
+
+      (message "Dirvish: git info %s" (if has-git "Disabled" "Enabled"))))
+
+  (setq dirvish-mode-line-format '(:left (path) :right (file-size)))
+  (setq dirvish-attributes '(subtree-state nerd-icons file-size))
+  (setq dirvish-preview-dispatchers '(dired image gif audio epub archive font pdf video))
+  (setq dirvish-cache-dir
+        (expand-file-name "dirvish/" user-emacs-directory))
+  (setq dirvish-subtree-listing-switches "-Ah --group-directories-first")
+  (define-key dired-mode-map (kbd "|") #'dirvish-layout-toggle)
+  (define-key dired-mode-map (kbd "g") #'my/dirvish-toggle-git-msg))
+#+end_src
+
+
+*** Dired faces
+
+This package adds extra highlighting to file permissions, sizes, and dates,
+making the buffer much easier to parse.
+
+#+begin_src emacs-lisp
+(defun my/apply-diredfl-faces ()
+  "Apply diredfl faces based on the current theme."
+  (let ((theme-name (format "%s" (car custom-enabled-themes))))
+    (cond
+     ;; CASE: Nord Themes
+     ((string-match-p "doom-nord" theme-name)
+      (custom-set-faces
+       '(diredfl-date-time  ((t (:foreground "#b8a98f"))))
+       '(diredfl-dir-name   ((t (:foreground "#81a1c1" :weight bold))))
+       '(diredfl-dir-priv   ((t (:foreground "#88c0d0" :weight bold))))
+       '(diredfl-exec-priv  ((t (:foreground "#9683a3"))))
+       '(diredfl-file-name  ((t (:foreground "#eceff4"))))
+       '(diredfl-group      ((t (:foreground "#434c5e" :inherit nil))))
+       '(diredfl-no-priv    ((t (:foreground "#434c5e"))))
+       '(diredfl-number     ((t (:foreground "#616e88"))))
+       '(diredfl-owner      ((t (:foreground "#4c566a" :inherit nil))))
+       '(diredfl-read-priv  ((t (:foreground "#70788d"))))
+       '(diredfl-write-priv ((t (:foreground "#a3adcb"))))))
+
+     ;; CASE: Doom-One / Default (The Steel Blue setup)
+     (t
+      (custom-set-faces
+       '(diredfl-date-time  ((t (:foreground "#c6c9cd"))))
+       '(diredfl-dir-name   ((t (:foreground "#51afef"))))
+       '(diredfl-dir-priv   ((t (:foreground "#3579a8" :weight bold))))
+       '(diredfl-exec-priv  ((t (:foreground "#a9a1e1"))))
+       '(diredfl-file-name  ((t (:foreground "#bbc2cf"))))
+       '(diredfl-group      ((t (:foreground "#282c34" :inherit nil))))
+       '(diredfl-no-priv    ((t (:foreground "#3f444a"))))
+       '(diredfl-number     ((t (:foreground "#4c566a"))))
+       '(diredfl-owner      ((t (:foreground "#3f444a" :inherit nil))))
+       '(diredfl-read-priv  ((t (:foreground "#5b6268"))))
+       '(diredfl-write-priv ((t (:foreground "#9ca0a4"))))))))
+
+  (when (and after-init-time (derived-mode-p 'dired-mode))
+    (revert-buffer)))
+
+;; Hook it so it runs whenever you switch themes
+(add-hook 'after-load-theme-hook #'my/apply-diredfl-faces)
+
+(use-package diredfl
+  :hook ((dired-mode . diredfl-mode)
+         (dirvish-directory-view-mode . diredfl-mode))
+  :init
+  (my/apply-diredfl-faces))
 #+end_src
 
 

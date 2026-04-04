@@ -769,6 +769,117 @@ uninstall_list_of_secrets() {
 
 register_action "Setup encrypted authinfo" "list-of-secrets" "secrets"
 
+DIRVISH_UTILITIES=(
+  "fd" "git"
+  "mediainfo" "imagemagick" "ffmpegthumbnailer" "vipsthumbnail"
+  "poppler" "unzip" "glow" "pandoc"
+)
+
+is_installed_dirvish_utilities_bundle() {
+  for package in "${DIRVISH_UTILITIES[@]}"; do
+    if ! is_system_package_installed "$package"; then
+      echo "$package is missing"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+# --- Core Performance & Navigation ---
+# Used for fast searching, jumping to files, and directory rendering.
+register_system_package "fd" \
+                        "alpine:fd" \
+                        "fedora:fd-find" \
+                        "linuxbrew:fd" \
+                        "mac:fd" \
+                        "debian-ubuntu:fd-find"
+
+register_system_package "git" \
+                        "alpine:git" \
+                        "fedora:git" \
+                        "linuxbrew:git" \
+                        "mac:git" \
+                        "debian-ubuntu:git"
+
+# --- Media Metadata & Previews ---
+# Used by dispatchers to show technical info and thumbnails for video/audio/images.
+register_system_package "mediainfo" \
+                        "alpine:mediainfo" \
+                        "fedora:mediainfo" \
+                        "linuxbrew:mediainfo" \
+                        "mac:mediainfo" \
+                        "debian-ubuntu:mediainfo"
+
+register_system_package "imagemagick" \
+                        "alpine:imagemagick" \
+                        "fedora:ImageMagick" \
+                        "linuxbrew:imagemagick" \
+                        "mac:imagemagick" \
+                        "debian-ubuntu:imagemagick"
+
+register_system_package "ffmpegthumbnailer" \
+                        "alpine:ffmpegthumbnailer" \
+                        "fedora:ffmpegthumbnailer" \
+                        "linuxbrew:ffmpegthumbnailer" \
+                        "mac:ffmpegthumbnailer" \
+                        "debian-ubuntu:ffmpegthumbnailer"
+
+register_system_package "vipsthumbnail" \
+                        "alpine:vips-tools" \
+                        "fedora:vips-tools" \
+                        "linuxbrew:vips" \
+                        "mac:vips" \
+                        "debian-ubuntu:libvips-tools"
+
+# --- Document & Archive Parsing ---
+# Used to peek inside PDFs, archives, and formatted text files.
+register_system_package "poppler" \
+                        "alpine:poppler-utils" \
+                        "fedora:poppler" \
+                        "linuxbrew:poppler" \
+                        "mac:poppler" \
+                        "debian-ubuntu:poppler-utils"
+
+register_system_package "unzip" \
+                        "alpine:unzip" \
+                        "fedora:unzip" \
+                        "linuxbrew:unzip" \
+                        "mac:unzip" \
+                        "debian-ubuntu:unzip"
+
+register_system_package "glow" \
+                        "alpine:glow" \
+                        "fedora:glow" \
+                        "linuxbrew:glow" \
+                        "mac:glow" \
+                        "debian-ubuntu:glow"
+
+register_system_package "pandoc" \
+                        "alpine:pandoc" \
+                        "fedora:pandoc" \
+                        "linuxbrew:pandoc" \
+                        "mac:pandoc" \
+                        "debian-ubuntu:pandoc"
+
+install_dirvish_utilities_bundle() {
+  log_info "Starting Dirvish utilities setup..."
+
+  for package in "${DIRVISH_UTILITIES[@]}"; do
+    if ! is_system_package_installed "$package" || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      install_system_packages "$package"
+    else
+      log_skip "$package" "ALREADY INSTALLED"
+    fi
+  done
+}
+
+uninstall_dirvish_utilities_bundle() {
+  log_skip "Dirvish utilities" "The packages used with Dirvish are system packages and will not be uninstalled automatically"
+}
+
+register_action "Install Dirvish utilities" "dirvish_utilities_bundle" "Utils"
+
 is_installed_semgrep() {
   command -v semgrep >/dev/null 2>&1
 }
