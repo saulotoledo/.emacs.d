@@ -778,7 +778,6 @@ DIRVISH_UTILITIES=(
 is_installed_dirvish_utilities_bundle() {
   for package in "${DIRVISH_UTILITIES[@]}"; do
     if ! is_system_package_installed "$package"; then
-      echo "$package is missing"
       return 1
     fi
   done
@@ -880,6 +879,33 @@ uninstall_dirvish_utilities_bundle() {
 
 register_action "Install Dirvish utilities" "dirvish_utilities_bundle" "Utils"
 
+is_installed_ripgrep() {
+  is_system_package_installed "ripgrep"
+}
+
+register_system_package "ripgrep" \
+                        "alpine:ripgrep" \
+                        "fedora:ripgrep" \
+                        "linuxbrew:ripgrep" \
+                        "mac:ripgrep" \
+                        "debian-ubuntu:ripgrep"
+
+install_ripgrep() {
+  log_info "Starting Ripgrep setup..."
+
+  if ! is_system_package_installed "ripgrep" || [[ "$FORCE_REINSTALL" == "true" ]]; then
+    install_system_packages "ripgrep"
+  else
+    log_skip "ripgrep" "ALREADY INSTALLED"
+  fi
+}
+
+uninstall_ripgrep() {
+  log_skip "Ripgrep" "Ripgrep is system package and will not be uninstalled automatically"
+}
+
+register_action "Install Ripgrep" "ripgrep" "Utils"
+
 is_installed_semgrep() {
   command -v semgrep >/dev/null 2>&1
 }
@@ -931,7 +957,6 @@ CPP_MIN_DEV_PACAKGES=(
 is_installed_cpp_dev_bundle() {
   for package in "${CPP_MIN_DEV_PACAKGES[@]}"; do
     if ! is_system_package_installed "$package"; then
-      echo "$package is missing"
       return 1
     fi
   done
