@@ -1746,7 +1746,7 @@ is installed below.
   ;; for treemacs users
   ;; (doom-themes-treemacs-theme "doom-nova") ; use "doom-colors" for less minimal icon theme
   :config
-  (load-theme 'doom-nord t) ; or doom-nord-light
+  (load-theme 'doom-one t) ; See also doom-nord or doom-nord-light
 
   ;; (custom-set-faces
   ;;   '(org-block ((t (:background "#ff0000")))))
