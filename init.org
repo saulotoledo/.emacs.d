@@ -2533,7 +2533,22 @@ Dired is a built-in package. We just set some configurations below:
   :custom
   (dired-listing-switches "-ah --group-directories-first")
   :config
-  (add-hook 'dired-mode-hook (lambda () (setq-local line-spacing 0.1))))
+  (defun my/refresh-dired-and-children (&rest _)
+    "Force-refresh the current Dired buffer and any related child buffers.
+It should be used after wdired to make sure the changes done will
+propagate to the other buffers when renaming a subtree in the main buffer."
+    (let ((parent-dir (expand-file-name default-directory)))
+      (dolist (buf (buffer-list))
+        (with-current-buffer buf
+          (when (and (derived-mode-p 'dired-mode)
+                     (string-prefix-p parent-dir (expand-file-name default-directory)))
+            (revert-buffer t t))))))
+
+  (advice-add 'wdired-finish-edit :after #'my/refresh-dired-and-children)
+  (add-hook 'dired-mode-hook (lambda () (setq-local line-spacing 0.1)))
+  (global-auto-revert-mode 1)
+  (setq auto-revert-check-vc-info t)
+  (setq dired-auto-revert-buffer t))
 #+end_src
 
 
