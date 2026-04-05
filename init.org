@@ -2653,6 +2653,17 @@ register_system_package "pandoc" \
 
 install_dirvish_utilities_bundle() {
   log_info "Starting Dirvish utilities setup..."
+
+  if [ -f /etc/debian_version ]; then
+    # Debian/Ubuntu: There is no official Personal Package Archive (PPA) for Glow on Ubuntu.
+    # Instead, the developers provide a dedicated APT repository and other official installation methods.
+    sudo mkdir -p /etc/apt/keyrings
+    if [ ! -f /etc/apt/keyrings/charm.gpg ]; then
+      curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+    fi
+    echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
+  fi
+
   install_system_packages "${DIRVISH_UTILITIES[@]}"
 }
 
@@ -5708,7 +5719,7 @@ register_system_package "libxcrypt-devel" \
                         "fedora:libxcrypt-devel" \
                         "linuxbrew:libxcrypt" \
                         "mac:libxcrypt" \
-                        "debian-ubuntu:libxcrypt-dev"
+                        "debian-ubuntu:libxcrypt-source"
 
 register_system_package "ncurses-devel" \
                         "alpine:ncurses-dev" \
