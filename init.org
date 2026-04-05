@@ -4663,7 +4663,7 @@ so we also set lsp-eslint-enable to nil for extra reliability."
      (make-lsp-client :new-connection (lsp-stdio-connection '("vscode-eslint-language-server" "--stdio"))
                       :activation-fn (lambda (file-name _mode)
                                        (let* ((filename (or file-name (buffer-file-name)))
-                                              (is-match (and filename (string-match-p "\\.\\(js\\|ts\\|jsx\\|tsx\\|html\\|vue\\)\\'" filename))))
+                                              (is-match (and filename (string-match-p "\\.\\(js\\|ts\\|cts\\|mts\\|jsx\\|tsx\\|html\\|vue\\)\\'" filename))))
                                          ;; Only check for TRAMP if the extension already matched
                                          (and is-match (file-remote-p filename))))
                       :server-id 'eslint-remote
@@ -7493,8 +7493,8 @@ treesit (~*-ts-mode~):
 
 #+begin_src emacs-lisp
 ;; Register accepted extensions for workspace folder filtering
-(dolist (entry '((eslint        . ("ts" "tsx" "js" "jsx" "html" "vue"))
-                 (eslint-remote . ("ts" "tsx" "js" "jsx" "html" "vue"))))
+(dolist (entry '((eslint        . ("ts" "tsx" "cts" "mts" "js" "jsx" "html" "vue"))
+                 (eslint-remote . ("ts" "tsx" "cts" "mts" "js" "jsx" "html" "vue"))))
   (add-to-list 'my/lsp-server-file-extensions entry))
 
 (defun my/typescript-register-debug-templates ()
@@ -7532,7 +7532,7 @@ treesit (~*-ts-mode~):
 
 (use-package typescript-ts-mode
   :defer t
-  :mode "\\.tsx?\\'"
+  :mode "\\.[cm]?tsx?\\'"
   :after (lsp-mode dap-mode yasnippet)
   :config
   ;; Ensure dap-js is loaded for TypeScript/Node.js debugging
@@ -7550,11 +7550,11 @@ treesit (~*-ts-mode~):
           (typescript-ts-mode . yas-minor-mode)))
 
 ;; Register accepted extensions for workspace folder filtering
-(add-to-list 'my/lsp-server-file-extensions '(ts-ls . ("ts" "tsx" "js" "jsx" "mjs" "cjs")))
+(add-to-list 'my/lsp-server-file-extensions '(ts-ls . ("ts" "tsx" "cts" "mts" "js" "jsx" "mjs" "cjs")))
 
 ;; Associate tsx and ts files with the correct modes
 (add-to-list 'auto-mode-alist '("\\.tsx\\'" . tsx-ts-mode))
-(add-to-list 'auto-mode-alist '("\\.ts\\'" . typescript-ts-mode))
+(add-to-list 'auto-mode-alist '("\\.[cm]?ts\\'" . typescript-ts-mode))
 #+end_src
 
 
