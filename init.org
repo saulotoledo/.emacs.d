@@ -41,12 +41,18 @@
     - [[#maximize-frame-at-startup][Maximize frame at startup]]
 - [[#version-control][Version control]]
     - [[#magit-a-powerful-git-interface-for-emacs][Magit: a powerful Git interface for Emacs]]
+        - [[#the-main-package][The main package]]
+        - [[#using-diff-hl-to-show-diffs-in-the-fringe][Using ~diff-hl~ to show diffs in the fringe]]
+        - [[#magit-integration-with-treemacs][Magit integration with Treemacs]]
     - [[#forge][Forge]]
+    - [[#smerge-mode-config-and-improvements][~smerge-mode~ config and improvements]]
+        - [[#the-main-package-1][The main package]]
+        - [[#conflict-buttons][Conflict buttons]]
+    - [[#ediff-configuration][Ediff configuration]]
     - [[#blamerel][Blamer.el]]
     - [[#ansi-color-support-in-the-magit-process-buffer][ANSI color support in the magit process buffer]]
         - [[#option-1-official-built-in-solution-with-delay][Option 1: Official built-in solution (with delay)]]
         - [[#option-2-real-time-color-application-recommended][Option 2: Real-time color application (recommended)]]
-    - [[#other-magit-related-changes][Other magit-related changes]]
 - [[#other-useful-packages][Other useful packages]]
     - [[#try-a-new-package-without-installing-it][Try a new package without installing it]]
     - [[#restart-emacs-from-within-emacs][Restart Emacs from within Emacs]]
@@ -2249,6 +2255,8 @@ Below we maximize the Emacs frame when starting up.
 
 ** Magit: a powerful Git interface for Emacs
 
+*** The main package
+
 Magit is a powerful Git interface for Emacs, providing an intuitive
 way to manage Git repositories directly from the editor.
 
@@ -2267,6 +2275,35 @@ In the Magit status buffer:
 #+end_src
 
 
+*** Using ~diff-hl~ to show diffs in the fringe
+
+Below we add some visual indications for uncommitted changes with [[https://github.com/dgutov/diff-hl][~diff-hl~]].
+In addition, ~diff-hl~ can be automatically updated when interacting with Magit.
+~diff-hl~ shows a git diff in the fringe (the left or right margins) of
+the editor, indicating added, modified, and deleted lines in the current
+file. It provides visual cues for changes made since the last commit,
+making it easier to track modifications.
+
+#+begin_src emacs-lisp
+(use-package diff-hl
+  :defer t
+  :hook ((magit-pre-refresh . ignore)
+         (magit-post-refresh . diff-hl-magit-post-refresh))
+  :config
+  (global-diff-hl-mode 1))
+#+end_src
+
+
+*** Magit integration with Treemacs
+
+Below we integrate Treemacs with Magit to show Git status in the Treemacs sidebar.
+
+#+begin_src emacs-lisp
+(use-package treemacs-magit
+  :after (treemacs magit))
+#+end_src
+
+
 ** Forge
 
 Forge is an extension for Magit that provides integration with Git hosting
@@ -2278,6 +2315,90 @@ requests, issues, and other repository features directly from Emacs.
   :pin "MELPA Unstable"
   :after magit
   :config)
+#+end_src
+
+
+** ~smerge-mode~ config and improvements
+
+*** The main package
+
+The ~smerge-mode~ is a built-in Emacs minor mode designed specifically for
+resolving merge conflicts. When you encounter a conflict during a Git merge or
+rebase, Emacs can automatically detect the conflict markers (~<<<<<<<~,
+~=======~, ~>>>>>>>~) and enable this mode to help you navigate and choose
+between changes.
+
+#+begin_src emacs-lisp
+(use-package smerge-mode
+  :ensure nil ; Built-in
+  :defer t
+  :bind (:map smerge-mode-map
+              ("C-c M-s-n" . smerge-next)
+              ("C-c M-s-p" . smerge-prev)
+              ("C-c M-s-m" . smerge-keep-mine)
+              ("C-c M-s-o" . smerge-keep-other)
+              ("C-c M-s-b" . smerge-keep-base)
+              ("C-c M-s-a" . smerge-keep-all)
+              ("C-c M-s-r" . smerge-resolve)
+              ("C-c M-s-E" . smerge-ediff))
+  :config
+  (defun my/smerge-mode-maybe ()
+    "Efficiently check for smerge markers in large files.
+It only search the first 10000 characters to prevent lag
+For other cases, rely on Magit or start smerge-mode manually."
+    (save-excursion
+      (goto-char (point-min))
+      (when (re-search-forward "^<<<<<<< " 10000 t)
+        (smerge-mode 1))))
+
+  (set-face-attribute 'smerge-upper nil :background "dark slate blue" :foreground 'unspecified)
+  (set-face-attribute 'smerge-lower nil :background "dark olive green" :foreground 'unspecified)
+  (set-face-attribute 'smerge-base nil :background "dim gray" :foreground 'unspecified)
+  (set-face-attribute 'smerge-refined-removed nil :background "#5a3d3d" :foreground 'unspecified)
+  (set-face-attribute 'smerge-refined-added nil :background "#3d5a5a" :foreground 'unspecified)
+  (set-face-attribute 'smerge-markers nil :background "#2e2e2e" :foreground "orange")
+  (add-hook 'find-file-hook #'my/smerge-mode-maybe) ; Run this check every time you open a file
+  (add-hook 'after-revert-hook #'my/smerge-mode-maybe) ; Also check after a VC (Git) pull/merge refreshes the buffer
+  (setq smerge-auto-refine t))
+#+end_src
+
+
+*** Conflict buttons
+
+#+begin_src emacs-lisp
+(use-package conflict-buttons
+  :defer t
+  :hook (smerge-mode . conflict-buttons-mode)
+  :init
+  ;; Ensure conflict-buttons state survives buffer reverts (revert-buffer).
+  ;; If we do not mark the following variable se as permanent-local,
+  ;; `kill-all-local-variables' wipes the tracking list, leaving orphaned
+  ;; overlays behind.
+  (put 'conflict-buttons--overlays 'permanent-local t)
+  :config
+  ;; Robust sweep: before re-installing buttons, clear ANY existing ones from the
+  ;; buffer (even ones untracked due to past reverts).
+  (advice-add 'conflict-buttons--install :before
+              (lambda (&rest _)
+                (remove-overlays (point-min) (point-max) 'conflict-buttons t))))
+#+end_src
+
+
+** Ediff configuration
+
+Ediff is Emacs' built-in interface for comparing and merging files, buffers, and
+directories.
+
+#+begin_src emacs-lisp
+(use-package ediff
+  :ensure nil ; Built-in
+  :custom
+  (ediff-window-setup-function 'ediff-setup-windows-plain) ; Stop the floating control panel frame
+  (ediff-split-window-function 'split-window-horizontally) ; Split windows horizontally (Side-by-Side) instead of vertically
+  :config
+  ;; When ediff quits without resolving, write back standard git-style markers
+  ;; so smerge-mode can detect and re-highlight them in the restored buffer.
+  (setq ediff-combination-pattern '("<<<<<<< HEAD" A "=======" B ">>>>>>> other")))
 #+end_src
 
 
@@ -2359,54 +2480,6 @@ _ARGS are additional arguments passed by magit-process-filter (unused)."
 (declare-function ansi-color-apply-on-region "ansi-color")
 
 (advice-add 'magit-process-filter :after #'my/magit-color-buffer)
-#+end_src
-
-
-** Other magit-related changes
-
-Below we add some visual indications for uncommitted changes with [[https://github.com/dgutov/diff-hl][~diff-hl~]].
-In addition, ~diff-hl~ can be automatically updated when interacting with Magit.
-~diff-hl~ shows a git diff in the fringe (the left or right margins) of
-the editor, indicating added, modified, and deleted lines in the current
-file. It provides visual cues for changes made since the last commit,
-making it easier to track modifications.
-
-#+begin_src emacs-lisp
-(use-package diff-hl
-  :defer t
-  :hook ((magit-pre-refresh . ignore)
-         (magit-post-refresh . diff-hl-magit-post-refresh))
-  :config
-  (global-diff-hl-mode 1))
-#+end_src
-
-Below we integrate Treemacs with Magit to show Git status in the Treemacs sidebar.
-
-#+begin_src emacs-lisp
-(use-package treemacs-magit
-  :after (treemacs magit))
-#+end_src
-
-Next, we introduce a utility function and associated hooks to automatically enable
-~smerge-mode~ when a file contains merge conflict markers. This is particularly useful
-for developers working with version control systems like Git, as it streamlines the
-process of resolving merge conflicts.
-
-We can navigate between conflict markers using the following keybindings:
-- =C-c ^ n= - Jump to the next conflict marker.
-- =C-c ^ p= - Jump to the previous conflict marker.
-
-#+begin_src emacs-lisp
-(defun maybe-enable-smerge-mode ()
-  "Enable `smerge-mode' for buffers with merge conflict markers."
-  (save-excursion
-    (goto-char (point-min))
-    (when (re-search-forward "^<<<<<<< " nil t)
-      (smerge-mode 1))))
-
-(add-hook 'find-file-hook #'maybe-enable-smerge-mode)
-(add-hook 'after-revert-hook #'maybe-enable-smerge-mode)
-(add-hook 'after-change-major-mode-hook #'maybe-enable-smerge-mode)
 #+end_src
 
 
