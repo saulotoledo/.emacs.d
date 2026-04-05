@@ -2545,10 +2545,12 @@ propagate to the other buffers when renaming a subtree in the main buffer."
             (revert-buffer t t))))))
 
   (advice-add 'wdired-finish-edit :after #'my/refresh-dired-and-children)
+  (define-key dired-mode-map (kbd "C-<up>") #'dired-up-directory)
   (add-hook 'dired-mode-hook (lambda () (setq-local line-spacing 0.1)))
   (global-auto-revert-mode 1)
   (setq auto-revert-check-vc-info t)
-  (setq dired-auto-revert-buffer t))
+  (setq dired-auto-revert-buffer t)
+  (setq dired-find-subdir t))
 #+end_src
 
 
@@ -2667,7 +2669,11 @@ With the system utilities installed, we can configure the package on Emacs:
 (use-package dirvish
   :pin "MELPA Unstable"
   :bind (:map dirvish-mode-map
-              ("TAB" . dirvish-subtree-toggle))
+              ("TAB"     . dirvish-subtree-toggle)
+              ("<right>" . dirvish-subtree-toggle)
+              ("<left>"  . my/dirvish-subtree-left)
+              ("|"       . dirvish-layout-toggle)
+              ("g"       . my/dirvish-toggle-git-msg))
   :init
   (dirvish-override-dired-mode)
   :config
@@ -2692,14 +2698,21 @@ With the system utilities installed, we can configure the package on Emacs:
 
       (message "Dirvish: git info %s" (if has-git "Disabled" "Enabled"))))
 
+  (defun my/dirvish-subtree-left ()
+    "Go to the subtree parent; if already at the parent, toggle it."
+    (interactive)
+    (let ((orig-point (point)))
+      (dirvish-subtree-up)
+      ;; If the cursor didn't move, we were already at the parent/header
+      (when (= orig-point (point))
+        (dirvish-subtree-toggle))))
+
   (setq dirvish-mode-line-format '(:left (path) :right (file-size)))
   (setq dirvish-attributes '(subtree-state nerd-icons file-size))
   (setq dirvish-preview-dispatchers '(dired image gif audio epub archive font pdf video))
   (setq dirvish-cache-dir
         (expand-file-name "dirvish/" user-emacs-directory))
-  (setq dirvish-subtree-listing-switches "-Ah --group-directories-first")
-  (define-key dired-mode-map (kbd "|") #'dirvish-layout-toggle)
-  (define-key dired-mode-map (kbd "g") #'my/dirvish-toggle-git-msg))
+  (setq dirvish-subtree-listing-switches "-Ah --group-directories-first"))
 #+end_src
 
 
