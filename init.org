@@ -2531,7 +2531,13 @@ Dired is a built-in package. We just set some configurations below:
 (use-package dired
   :ensure nil ; Built-in
   :custom
-  (dired-listing-switches "-ah --group-directories-first")
+  ;; IMPORTANT: We need to add "-l" below or it will fail in WSL2 due to
+  ;; missing //DIRED// in the output of ls, required by dired to parse the
+  ;; output correctly.
+  ;; NOTE FOR MAC USERS: If you are on Mac, make sure to use GNU ls (e.g.,
+  ;; via coreutils) and not the BSD ls that comes with macOS, as the latter
+  ;; may not support the required options for dired to work properly.
+  (dired-listing-switches "-ahl --group-directories-first")
   :config
   (defun my/refresh-dired-and-children (&rest _)
     "Force-refresh the current Dired buffer and any related child buffers.
@@ -2549,8 +2555,7 @@ propagate to the other buffers when renaming a subtree in the main buffer."
   (add-hook 'dired-mode-hook (lambda () (setq-local line-spacing 0.1)))
   (global-auto-revert-mode 1)
   (setq auto-revert-check-vc-info t)
-  (setq dired-auto-revert-buffer t)
-  (setq dired-find-subdir t))
+  (setq dired-auto-revert-buffer t))
 #+end_src
 
 
