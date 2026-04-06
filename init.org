@@ -102,9 +102,7 @@
         - [[#c][C++]]
         - [[#python][Python]]
         - [[#jvm-based-languages-java--kotlin][JVM-based languages (Java & Kotlin)]]
-        - [[#typescript][TypeScript]]
-        - [[#javascript][JavaScript]]
-        - [[#general-nodejs-development-setup][General Node.js development setup]]
+        - [[#nodejs-based-development][Node.js-based development]]
         - [[#general-web-development-html-css][General Web development (HTML, CSS)]]
         - [[#advanced-shell-development][Advanced shell development]]
         - [[#build-systems-makefile--autotools][Build Systems (Makefile & Autotools)]]
@@ -7518,7 +7516,83 @@ Then, we can configure Emacs:
 #+end_src
 
 
-*** TypeScript
+*** Node.js-based development
+**** General configuration
+
+Below we add some general helper functions and settings to our setup:
+
+#+begin_src emacs-lisp
+(defun my/nodejs-get-project-package-manager ()
+  "Detect the package manager by looking for lockfiles."
+  (let ((root (or (and (fboundp 'project-root)
+                       (project-current)
+                       (project-root (project-current)))
+                  default-directory)))
+    (cond
+      ((file-exists-p (expand-file-name "pnpm-lock.yaml" root)) "pnpm")
+      ((file-exists-p (expand-file-name "yarn.lock" root)) "yarn")
+      (t "npm"))))
+
+(defun my/nodejs-flycheck-use-eslint ()
+  "Configure Flycheck to use eslint via the detected package manager."
+  (let ((manager (my/nodejs-get-project-package-manager)))
+    (cond
+      ((string-equal manager "pnpm")
+       (setq-local flycheck-javascript-eslint-executable "pnpm")
+       (setq-local flycheck-javascript-eslint-args '("exec" "eslint" "--format" "unix" "--stdin")))
+      ((string-equal manager "yarn")
+       (setq-local flycheck-javascript-eslint-executable "yarn")
+       (setq-local flycheck-javascript-eslint-args '("eslint" "--format" "unix" "--stdin")))
+      (t
+       (setq-local flycheck-javascript-eslint-executable "npx")
+       (setq-local flycheck-javascript-eslint-args '("eslint" "--format" "unix" "--stdin"))))))
+
+(add-hook 'flycheck-mode-hook #'my/nodejs-flycheck-use-eslint)
+
+;; Ensure dap-js is loaded for TypeScript/Node.js debugging
+(with-eval-after-load 'dap-mode
+  (require 'dap-js)
+  (setq-default dap-js-debug-path
+                (expand-file-name "vscode-js-debug"
+                                  (expand-file-name "nodejs_tools/" user-emacs-directory))))
+#+end_src
+
+
+**** Node.js REPL
+
+Node.js REPL integration with ~nodejs-repl~ package. This provides an interactive
+Node.js shell within Emacs, allowing you to run JavaScript code snippets and
+test functions on the fly.
+
+#+begin_src emacs-lisp
+(use-package nodejs-repl
+  :config
+  (defun my/nodejs-repl-with-manager ()
+    "Launch nodejs-repl using the detected package manager."
+    (interactive)
+    (let* ((manager (my/nodejs-get-project-package-manager))
+           (cmd (if (string-equal manager "npm") "npx" manager)))
+      (setq nodejs-repl-command cmd)
+      (setq nodejs-repl-arguments '("node"))
+      (nodejs-repl))))
+#+end_src
+
+
+
+**** JavaScript
+
+Major mode for editing JavaScript:
+
+#+begin_src emacs-lisp
+(use-package js
+  :ensure nil
+  :defer t
+  :mode (("\\.[cm]?js\\'" . js-ts-mode)
+         ("\\.jsx\\'" . tsx-ts-mode)))
+#+end_src
+
+
+**** TypeScript
 
 To enable IDE features for TypeScript, you need to install both the TypeScript
 compiler (typescript) and the TypeScript Language Server (TSLS), and configure
@@ -7621,58 +7695,6 @@ treesit (~*-ts-mode~):
 ;; Associate tsx and ts files with the correct modes
 (add-to-list 'auto-mode-alist '("\\.tsx\\'" . tsx-ts-mode))
 (add-to-list 'auto-mode-alist '("\\.[cm]?ts\\'" . typescript-ts-mode))
-#+end_src
-
-
-*** JavaScript
-
-Major mode for editing JavaScript:
-
-#+begin_src emacs-lisp
-(use-package js
-  :ensure nil
-  :defer t
-  :mode (("\\.[cm]?js\\'" . js-ts-mode)
-         ("\\.jsx\\'" . tsx-ts-mode)))
-#+end_src
-
-
-*** General Node.js development setup
-
-Node.js REPL integration with ~nodejs-repl~ package. This provides an interactive
-Node.js shell within Emacs, allowing you to run JavaScript code snippets and
-test functions on the fly.
-
-#+begin_src emacs-lisp
-(use-package nodejs-repl
-  :commands nodejs-repl)
-
-;; Ensure dap-js is loaded for TypeScript/Node.js debugging
-(with-eval-after-load 'dap-mode
-  (require 'dap-js)
-  (setq-default dap-js-debug-path (expand-file-name "vscode-js-debug" "~/.emacs.d/nodejs_tools/")))
-#+end_src
-
-
-In addition to that, here goes a setup for Flycheck to use eslint from either
-Yarn or npm, preferring Yarn if both are available in the project. This affects
-all Node.js projects.
-
-#+begin_src emacs-lisp
-(defun my/flycheck-use-eslint ()
-  "Configure Flycheck to use eslint via Yarn or npm, preferring Yarn."
-  (when-let ((root (locate-dominating-file
-                    (or buffer-file-name default-directory)
-                    "package.json")))
-    (cond
-     ((file-exists-p (expand-file-name "yarn.lock" root))
-      (setq-local flycheck-javascript-eslint-executable "yarn")
-      (setq-local flycheck-javascript-eslint-args '("eslint" "--format" "unix" "--stdin")))
-     (t
-      (setq-local flycheck-javascript-eslint-executable "npm")
-      (setq-local flycheck-javascript-eslint-args '("run" "eslint" "--"))))))
-
-(add-hook 'flycheck-mode-hook #'my/flycheck-use-eslint)
 #+end_src
 
 
