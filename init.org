@@ -3196,7 +3196,7 @@ pressing the key until it selects what you want.
 When the buffer exceeds 50,000 characters, this advice overrides the
 standard expansion list with a high-performance subset, disabling
 heavy semantic analysis (like class/function detection) to prevent lag.
-ORIG-FUN is the original function. ARGS are its arguments."
+ORIG-FUN is the advised function. ARGS are its arguments."
     (if (and (derived-mode-p 'org-mode)
              (> (buffer-size) 50000))
         (let ((er/try-expand-list
@@ -5042,15 +5042,22 @@ Must be a function of no arguments. Override in a mode hook with
 `dap-debug' with a launch.json configuration or a built-in template).
 The default implementation logs an actionable hint.")
 
+(defvar-local my/dap-force-stop #'dap-force-quit
+  "Buffer-local function called by the Force Stop button.
+Must be a function of no arguments. The default calls `dap-force-quit'
+which disconnects the DAP session. Override in a mode hook with
+`setq-local' when termination needs language-specific cleanup (e.g.
+killing a suspended JVM process group for Java compile_attach sessions).")
+
 (use-package dap-mode
   :after lsp-mode
   :init
   (dap-auto-configure-mode 1)
   :bind
   (("<f5>" . my/dap-run-continue-dispatch)
-   ("<f6>" . dap-next)
-   ("<f7>" . dap-step-in)
-   ("<f8>" . dap-step-out)
+   ("<f6>" . my/dap-next-dispatch)
+   ("<f7>" . my/dap-step-in-dispatch)
+   ("<f8>" . my/dap-step-out-dispatch)
    ("<f9>" . dap-breakpoint-toggle))
   :config
   ;; Fix for newline translation issues on Linux/WSL file-watching.
@@ -5068,19 +5075,49 @@ The default implementation logs an actionable hint.")
 
   (declare-function dap--cur-session "dap-mode")
   (declare-function dap--session-running "dap-mode")
+  (declare-function dap--debug-session-thread-id "dap-mode")
+
+  (defun my/dap--thread-stopped-p (session)
+    "Return non-nil if SESSION has a currently stopped thread."
+    (and session
+         (dap--session-running session)
+         (dap--debug-session-thread-id session)))
+
   (defun my/dap-run-continue-dispatch ()
-    "Smart F5: continue an active session or start a new debug session.
-If a DAP session is active and running, calls `dap-continue'.
-Otherwise, calls `my/dap-check-requirements' (buffer-local).
-If it returns nil, logs a message and stops.
-On success, calls `my/dap-start-debug' (buffer-local)."
+    "Smart F5: continue a stopped thread, or start a new debug session.
+- If a thread is stopped (breakpoint/exception): calls `dap-continue'.
+- If session is running but no thread is stopped: shows a hint.
+- Otherwise: starts a new session via `my/dap-start-debug'."
     (interactive)
     (let ((session (and (fboundp 'dap--cur-session) (dap--cur-session))))
-      (if (and session (dap--session-running session))
-          (call-interactively 'dap-continue)
+      (cond
+       ((my/dap--thread-stopped-p session)
+        (call-interactively 'dap-continue))
+       ((and session (dap--session-running session))
+        (message "Debug session is running. Set a breakpoint (<f9>) and trigger it to pause."))
+       (t
         (if (funcall my/dap-check-requirements)
             (funcall my/dap-start-debug)
-          (message "DAP pre-flight check failed; not starting debug session.")))))
+          (message "DAP pre-flight check failed; not starting debug session."))))))
+
+  (defun my/dap-step-dispatch (step-fn)
+    "Call STEP-FN if a thread is stopped, otherwise show a hint."
+    (let ((session (and (fboundp 'dap--cur-session) (dap--cur-session))))
+      (if (my/dap--thread-stopped-p session)
+          (call-interactively step-fn)
+        (message "No stopped thread. Set a breakpoint (<f9>) and trigger it first."))))
+
+  (defun my/dap-next-dispatch ()
+    "F6: step over -- only when a thread is stopped."
+    (interactive) (my/dap-step-dispatch 'dap-next))
+
+  (defun my/dap-step-in-dispatch ()
+    "F7: step in -- only when a thread is stopped."
+    (interactive) (my/dap-step-dispatch 'dap-step-in))
+
+  (defun my/dap-step-out-dispatch ()
+    "F8: step out -- only when a thread is stopped."
+    (interactive) (my/dap-step-dispatch 'dap-step-out))
 
   ;; ansi-color-compilation-filter (Emacs 28+) correctly uses the
   ;; compilation-filter-start marker to apply colors only to new output.
@@ -5200,31 +5237,6 @@ Avoids the expensive tree-diffing of lsp-treemacs-generic-update."
 
   (advice-add 'dap--buffers-w-breakpoints :override #'my/dap--buffers-w-breakpoints-safe)
 
-  ;; Kill the JVM process when a compile_attach session ends or fails.
-  ;; Without this the JVM keeps running (suspended on JDWP server=y),
-  ;; holding its debug port, so subsequent sessions fail with
-  ;; "Address already in use".
-  (defun my/dap-kill-program-proc (session)
-    "Kill the external program process attached to SESSION, if any.
-Called from `dap-terminated-hook' to clean up compile_attach JVMs.
-Uses pkill -P to kill the JVM child of the sh wrapper process,
-since compilation-start wraps commands in `sh -c', making the JVM
-a grandchild of Emacs that plain kill-process will not reach.
-SESSION is the `dap--debug-session' struct that just terminated."
-    (when-let (proc (dap--debug-session-program-proc session))
-      (let ((pid (process-id proc)))
-        (when pid
-          (message "DAP: killing stale JVM process tree under sh pid %d" pid)
-          ;; Kill JVM children of the sh wrapper.
-          (ignore-errors
-            (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string pid)))
-          ;; Kill sh itself.
-          (ignore-errors
-            (call-process "kill" nil nil nil "-9" (number-to-string pid)))))
-      (ignore-errors (kill-process proc))))
-
-  (add-hook 'dap-terminated-hook #'my/dap-kill-program-proc)
-
   ;; A few other improvements that might be useful in the future. For now I've
   ;; disabled them because they are not freezing Emacs, but they seem to work.
   ;;
@@ -5272,38 +5284,70 @@ process group. The icon already ships with ~dap-mode~ (=icons/vscode/stop.png=).
 ;; Function created without "my/" prefix to facilitate running it
 ;; interactively via M-x.
 (defun dap-force-quit ()
-  "Forcefully terminate all DAP sessions and their JVM processes.
-Sends SIGKILL to each session's adapter process and program process
-\\(the JVM started via compile_attach), then clears all dap-mode state.
+  "Forcefully terminate all DAP sessions and clean up.
+Kills the DAP adapter process, the terminal process (and its children)
+started via runInTerminal, then clears all dap-mode state.
 Safe to call even when the session is completely unresponsive."
   (interactive)
   (ignore-errors
     (dolist (session (dap--get-sessions))
-      ;; Kill the DAP adapter process (the debug adapter subprocess).
+      ;; Kill the DAP adapter process (the network connection subprocess).
       (when-let (proc (dap--debug-session-proc session))
         (when (process-live-p proc)
           (kill-process proc)))
-      ;; Kill the JVM process started via compile_attach.
-      ;;
-      ;; Why plain kill-process doesn't work:
-      ;; compilation-start runs the command as `sh -c "<java cmd>"', so
-      ;; prog-proc is actually the *shell* wrapper, not the JVM.
-      ;; kill-process kills only sh; the JVM child survives as an orphan.
-      ;; signal-process with -(pid) also fails because the JVM is NOT a
-      ;; process group leader -- it keeps its own PGID.
-      ;;
-      ;; Fix: use pkill -KILL -P <sh-pid> to target sh's children
-      ;; (the JVM and anything it spawned), then kill sh itself.
-      (when-let (prog-proc (dap--debug-session-program-proc session))
-        (let ((pid (process-id prog-proc)))
-          (when pid
-            ;; Kill the JVM child processes (children of the sh wrapper).
-            (ignore-errors
-              (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string pid)))
-            ;; Kill sh itself.
-            (ignore-errors
-              (call-process "kill" nil nil nil "-9" (number-to-string pid)))))
-        (ignore-errors (kill-process prog-proc)))))
+      ;; Kill the compile_attach program proc (Java / C++ / Node.js adapter).
+      ;; compilation-start wraps the command as `sh -c "..."', so we need
+      ;; pkill -P to reach the grandchild (JVM, gdb, etc.).
+      ;; For pwa-node the program-proc IS the dapDebugServer.js node process.
+      (let* ((prog-proc (dap--debug-session-program-proc session))
+             (prog-pid  (and prog-proc (process-id prog-proc))))
+        (message "dap-force-quit: prog-proc=%s pid=%s live=%s"
+                 prog-proc prog-pid
+                 (and prog-proc (process-live-p prog-proc)))
+        (when prog-pid
+          (ignore-errors
+            (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string prog-pid)))
+          (ignore-errors
+            (call-process "kill" nil nil nil "-9" (number-to-string prog-pid))))
+        (ignore-errors (when prog-proc (kill-process prog-proc))))
+      ;; Kill the runInTerminal process (Node.js / pwa-node sessions).
+      ;; start-process-shell-command also wraps in sh, so kill children too.
+      (let* ((name (dap--debug-session-name session))
+             (term-buf (get-buffer (format "*%s - *" name)))
+             (term-buf (or term-buf
+                           (cl-find-if (lambda (b)
+                                         (string-prefix-p (format "*%s" name)
+                                                          (buffer-name b)))
+                                       (buffer-list))))
+             (term-proc (and term-buf (get-buffer-process term-buf)))
+             (term-pid  (and term-proc (process-id term-proc))))
+        (message "dap-force-quit: term-buf=%s term-proc=%s pid=%s"
+                 (and term-buf (buffer-name term-buf))
+                 term-proc term-pid)
+        (when term-pid
+          (ignore-errors
+            (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string term-pid)))
+          (ignore-errors
+            (call-process "kill" nil nil nil "-9" (number-to-string term-pid))))
+        (ignore-errors (when term-proc (kill-process term-proc)))))
+  ;; Fallback: kill any surviving dapDebugServer.js by PID (port argument uniquely
+  ;; identifies this Emacs instance's adapter when program-proc tracking fails,
+  ;; e.g. when stopped at a breakpoint and the process object is no longer live).
+  ;; NOTE: pkill -f matches the full command line, so it only kills processes
+  ;; running dapDebugServer.js -- safe as long as you don't run multiple Emacs
+  ;; debug sessions concurrently.
+  (ignore-errors
+    (call-process "pkill" nil nil nil "-KILL" "-f" "dapDebugServer.js")))
+  ;; Kill the lsp-treemacs-backed dap-ui buffers BEFORE firing session hooks.
+  ;; `lsp-treemacs-wcb-unless-killed' guards every refresh with (buffer-live-p),
+  ;; so killing the buffers here prevents `lsp-treemacs-generic-refresh' /
+  ;; `treemacs-update-node' from being called when dap--set-sessions nil
+  ;; fires dap-session-changed-hook. Without this, Treemacs refresh runs
+  ;; unconditionally even when Treemacs is not open, causing background noise.
+  (dolist (buf '("*dap-ui-sessions*" "*dap-ui-locals*" "*dap-ui-expressions*"))
+    (when-let (b (get-buffer buf))
+      (ignore-errors (kill-buffer b))))
+  ;; Now it is safe to clear sessions; the hooks will find the buffers dead.
   (ignore-errors (dap--set-sessions nil))
   (ignore-errors (lsp-workspace-set-metadata "default-session" nil))
   (ignore-errors (dap-ui-hide-many-windows))
@@ -5311,26 +5355,22 @@ Safe to call even when the session is completely unresponsive."
   (ignore-errors (posframe-hide dap-ui--control-buffer))
   (message "DAP session and processes nuked."))
 
-;; Replace the non-functional Restart button with Force Stop.
-;;
-;; We use :around + cl-letf to intercept only the call to
-;; `dap-ui--create-command' for "restart.png" and substitute
-;; "stop.png" -> `dap-force-quit'. All other buttons are untouched,
-;; so we do NOT need to redefine any of the existing icons.
-;;
-;; Why not Restart? dap-debug-restart opens an empty comint buffer and
-;; does nothing useful for compile_attach sessions because the JVM has
-;; already been killed -- there is nothing left to re-attach to.
+;; Replace the non-functional Restart button with a Force Stop button.
+;; Calls the buffer-local `my/dap-force-stop' so each language can supply
+;; its own teardown (e.g. Java kills the suspended JVM process group).
+;; The default is `dap-force-quit', which works for all other languages.
 (defun my/dap-ui--inject-stop-button (orig-fun &rest args)
   "Around advice for `dap-ui--update-controls'.
 ORIG-FUN is the advised function. ARGS are its arguments.
-Replaces the non-functional Restart button with a Force Stop button
-that calls `dap-force-quit' to SIGKILL the JVM process group."
+Replaces the Restart button with a Force Stop button that calls
+the buffer-local `my/dap-force-stop'."
   (cl-letf* ((orig-create (symbol-function 'dap-ui--create-command))
               ((symbol-function 'dap-ui--create-command)
                (lambda (image command hover-text)
                  (if (string= image "restart.png")
-                     (funcall orig-create "stop.png" #'dap-force-quit "Force Stop (kills JVM)")
+                     (funcall orig-create "stop.png"
+                              (lambda () (interactive) (funcall my/dap-force-stop))
+                              "Force Stop")
                    (funcall orig-create image command hover-text)))))
     (apply orig-fun args)))
 
@@ -6296,12 +6336,30 @@ interactive `dap-java-debug' prompt otherwise."
           (call-interactively 'dap-debug)
         (dap-java-debug))))
 
+  (defun my/dap-java--force-stop ()
+    "Force-stop a Java DAP session and kill the suspended JVM process group.
+The JVM is started with JDWP server=y, which suspends it waiting for the
+debugger. A plain `dap-force-quit' disconnects the DAP session but leaves
+the JVM running, holding its debug port. Subsequent sessions then fail
+with \"Address already in use\". This function kills the JVM's process
+tree before disconnecting."
+    (when-let* ((session (dap--cur-session))
+                (proc (dap--debug-session-program-proc session))
+                (pid (process-id proc)))
+      (ignore-errors
+        (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string pid)))
+      (ignore-errors
+        (call-process "kill" nil nil nil "-9" (number-to-string pid))))
+    (dap-force-quit))
+
   (add-hook 'java-ts-mode-hook
             (lambda ()
               (setq-local my/dap-check-requirements
                           #'my/dap-java--check-requirements)
               (setq-local my/dap-start-debug
-                          #'my/dap-java--start-debug)))
+                          #'my/dap-java--start-debug)
+              (setq-local my/dap-force-stop
+                          #'my/dap-java--force-stop)))
 
   (defun my/lsp-java-discover-runtimes ()
     "Discover SDKMAN! java versions and return them as a vector for lsp-java.
@@ -7590,12 +7648,52 @@ Below we add some general helper functions and settings to our setup:
 
 (add-hook 'flycheck-mode-hook #'my/nodejs-flycheck-use-eslint)
 
-;; Ensure dap-js is loaded for TypeScript/Node.js debugging
+;; Ensure dap-js is loaded and the debug adapter is installed automatically.
+;; dap-js-path defaults to ~/.emacs.d/.extension/js-debug.
+;; dap-js-setup downloads the adapter only when it is missing.
 (with-eval-after-load 'dap-mode
   (require 'dap-js)
-  (setq-default dap-js-debug-path
-                (expand-file-name "vscode-js-debug"
-                                  (expand-file-name "nodejs_tools/" user-emacs-directory))))
+  (dap-js-setup)
+
+  ;; dap-mode bug: dap--start-process ignores both `env` and the DAP spec
+  ;; requirement that the runInTerminal success response include a body with
+  ;; `shellProcessId`. For pwa-node the adapter needs both:
+  ;;   1. the env vars (NODE_OPTIONS / VSCODE_INSPECTOR_OPTIONS) in the child
+  ;;      process so the bootloader is loaded, and
+  ;;   2. the shell PID in the response body so it can track/auto-attach to the
+  ;;      node process.  Without the PID the adapter crashes immediately after
+  ;;      receiving the success response ("connection broken by remote peer").
+  (defun my/dap--start-process-with-env (debug-session parsed-msg)
+    "Override `dap--start-process' to pass env and return shellProcessId.
+Extracts `env', `args', `cwd', `title', and `kind' from PARSED-MSG,
+spawns the command in a shell with the env vars injected into
+`process-environment', captures the shell PID, and sends a success
+response containing :shellProcessId so pwa-node can auto-attach."
+    (let* ((args-hash (gethash "arguments" parsed-msg))
+           (seq       (gethash "seq" parsed-msg))
+           (args      (gethash "args" args-hash))
+           (cwd       (gethash "cwd" args-hash))
+           (title     (or (gethash "title" args-hash) "DAP Terminal"))
+           (env-hash  (gethash "env" args-hash))
+           (default-directory (or cwd default-directory))
+           ;; Build the env list from the hash
+           (extra-env
+            (when (hash-table-p env-hash)
+              (let (pairs)
+                (maphash (lambda (k v) (push (concat k "=" v) pairs)) env-hash)
+                pairs)))
+           (process-environment (append extra-env process-environment))
+           (command (combine-and-quote-strings (append args nil) " "))
+           ;; Spawn via shell so we can capture the shell PID
+           (buf (dap--make-terminal-buffer title debug-session))
+           (proc (start-process-shell-command title buf command))
+           (pid (process-id proc)))
+      (dap--send-message
+       (dap--make-success-response seq "runInTerminal" (list :shellProcessId pid))
+       (dap--resp-handler)
+       debug-session)))
+
+  (advice-add 'dap--start-process :override #'my/dap--start-process-with-env))
 #+end_src
 
 
