@@ -2709,7 +2709,7 @@ With the system utilities installed, we can configure the package on Emacs:
               ("<right>" . dirvish-subtree-toggle)
               ("<left>"  . my/dirvish-subtree-left)
               ("|"       . dirvish-layout-toggle)
-              ("g"       . my/dirvish-toggle-git-msg))
+              ("@"       . my/dirvish-toggle-git-msg))
   :init
   (dirvish-override-dired-mode)
   :config
