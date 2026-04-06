@@ -39,6 +39,7 @@
         - [[#ivy-counsel-and-ivy-rich][Ivy, Counsel, and Ivy-rich]]
         - [[#swiper-and-avy-fast-search-and-navigation][Swiper and Avy: Fast Search and Navigation]]
     - [[#maximize-frame-at-startup][Maximize frame at startup]]
+    - [[#ansi-color-support-in-compilation-buffers][ANSI color support in compilation buffers]]
 - [[#version-control][Version control]]
     - [[#magit-a-powerful-git-interface-for-emacs][Magit: a powerful Git interface for Emacs]]
         - [[#the-main-package][The main package]]
@@ -2251,6 +2252,27 @@ Below we maximize the Emacs frame when starting up.
 #+end_src
 
 
+** ANSI color support in compilation buffers
+
+Here we make sure that ANSI color codes are properly interpreted in compilation
+buffers, so that colored output from build tools or test runners is displayed
+correctly.
+
+#+begin_src emacs-lisp
+(use-package ansi-color
+  :ensure nil ; Built-in
+  :config
+  (defun my/ansi-colorize-buffer ()
+    "Translate ANSI color codes into text properties."
+    (let ((inhibit-read-only t))
+      (read-only-mode -1)
+      (ansi-color-apply-on-region (point-min) (point-max))
+      (read-only-mode 1)))
+
+  (add-hook 'compilation-filter-hook 'ansi-color-compilation-filter))
+#+end_src
+
+
 * Version control
 
 ** Magit: a powerful Git interface for Emacs
@@ -2478,7 +2500,6 @@ _ARGS are additional arguments passed by magit-process-filter (unused)."
     (read-only-mode 1)))
 
 (declare-function ansi-color-apply-on-region "ansi-color")
-
 (advice-add 'magit-process-filter :after #'my/magit-color-buffer)
 #+end_src
 
