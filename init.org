@@ -2351,14 +2351,15 @@ rebase, Emacs can automatically detect the conflict markers (~<<<<<<<~,
 between changes.
 
 #+begin_src emacs-lisp
+(defvar smerge-auto-refine nil)
 (use-package smerge-mode
   :ensure nil ; Built-in
   :defer t
   :bind (:map smerge-mode-map
               ("C-c M-s-n" . smerge-next)
               ("C-c M-s-p" . smerge-prev)
-              ("C-c M-s-m" . smerge-keep-mine)
-              ("C-c M-s-o" . smerge-keep-other)
+              ("C-c M-s-u" . smerge-keep-upper)
+              ("C-c M-s-l" . smerge-keep-lower)
               ("C-c M-s-b" . smerge-keep-base)
               ("C-c M-s-a" . smerge-keep-all)
               ("C-c M-s-r" . smerge-resolve)
