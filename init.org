@@ -7859,19 +7859,19 @@ to be triggered from any source file within a project.
 
 #+begin_src emacs-lisp
 (use-package makefile-executor
+  :bind ("C-c c m" . my/makefile-executor-smart-run)
+  :hook (makefile-mode . makefile-executor-mode)
   :config
-  (add-hook 'makefile-mode-hook 'makefile-executor-mode)
-
   (defun my/makefile-executor-smart-run ()
     "Find the closest Makefile and run an executor command."
     (interactive)
-    (let ((makefile (locate-dominating-file default-directory "Makefile")))
-      (if makefile
-          (let ((default-directory makefile))
-            (makefile-executor-execute-project-target))
-        (message "No Makefile found in the current hierarchy."))))
-
-  (global-set-key (kbd "C-c c m") 'my/makefile-executor-smart-run))
+    (let ((makefile-dir (locate-dominating-file default-directory "Makefile")))
+      (if makefile-dir
+          (let ((default-directory makefile-dir))
+            (condition-case err
+                (makefile-executor-execute-project-target)
+              (error (message "Makefile executor error: %s" (error-message-string err)))))
+        (message "No Makefile found in the current hierarchy.")))))
 #+end_src
 
 
