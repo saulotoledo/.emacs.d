@@ -2213,6 +2213,25 @@ the cursor anywhere on the screen without using the mouse or arrow keys.
 #+begin_src emacs-lisp
 (declare-function swiper-isearch-thing-at-point "swiper")
 
+(defun my/clear-minibuffer-and-run (command)
+  "Execute COMMAND after clearing any existing minibuffer layers.
+This ensures that starting a new search or finding a file
+never 'piles up' on an old session."
+  (if (> (minibuffer-depth) 0)
+      (progn
+        ;; "top-level" is an interrupt, anything after it will not run.
+        ;; Therefore, we schedule our call for when Emacs is idle, which
+        ;; is right after the interrupt:
+        (run-at-time 0 nil (lambda (cmd)
+                             (let ((this-command cmd))
+                               (call-interactively cmd)))
+                     command)
+        ;; The next line halts execution and leads Emacs to be idle, which
+        ;; is when our scheduled command will run.
+        (top-level))
+    ;; If no minibuffer is active, just run it normally
+    (call-interactively command)))
+
 (defun my/swiper-thing-or-region ()
   "Call `swiper-isearch-thing-at-point' or `swiper-isearch'.
 If the region is active and contains more than one character, call
@@ -2224,10 +2243,10 @@ If the region is active and contains more than one character, call
     (swiper-isearch)))
 
 (use-package swiper
-  :bind (("C-s" . my/swiper-thing-or-region)
-         ("C-r" . swiper-isearch-backward)
-         ("C-c C-r" . ivy-resume)
-         ("C-x C-f" . counsel-find-file))
+  :bind (("C-c C-r" . ivy-resume)
+         ("C-r" . (lambda () (interactive) (my/clear-minibuffer-and-run #'swiper-isearch-backward)))
+         ("C-s" . (lambda () (interactive) (my/clear-minibuffer-and-run #'my/swiper-thing-or-region)))
+         ("C-x C-f" . (lambda () (interactive) (my/clear-minibuffer-and-run #'counsel-find-file))))
   :config
   (progn
     (ivy-mode 1)
