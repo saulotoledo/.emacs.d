@@ -5922,7 +5922,7 @@ Otherwise, use our custom configuration string."
   "Global storage for the buffer that started a debug compile.")
 
 ;; 2. Updated Sentinel with better matching
-(defun my/compilation-sentinel (_buf str)
+(defun my/cpp-compilation-sentinel (_buf str)
   "Triggered when compilation finishes with status STR."
   (message "Sentinel checking buffer: %s" my/dap-compilation-source-buffer)
   ;; We use string-match-p to find "finished" anywhere in the status string
@@ -5942,7 +5942,7 @@ Otherwise, use our custom configuration string."
   (interactive)
   (setq my/dap-compilation-source-buffer (current-buffer))
   (message "Source buffer saved: %s" (buffer-name my/dap-compilation-source-buffer))
-  (add-hook 'compilation-finish-functions #'my/compilation-sentinel)
+  (add-hook 'compilation-finish-functions #'my/cpp-compilation-sentinel)
   (my/smart-compile t))
 
 (add-hook 'c++-ts-mode-hook
