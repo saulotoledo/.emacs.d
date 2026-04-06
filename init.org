@@ -2748,7 +2748,8 @@ With the system utilities installed, we can configure the package on Emacs:
   (setq dirvish-preview-dispatchers '(dired image gif audio epub archive font pdf video))
   (setq dirvish-cache-dir
         (expand-file-name "dirvish/" user-emacs-directory))
-  (setq dirvish-subtree-listing-switches "-Ah --group-directories-first"))
+  ;; "-l" is required for showing icons in subtrees. See note on `dired-listing-switches`:
+  (setq dirvish-subtree-listing-switches "-Ahl --group-directories-first"))
 #+end_src
 
 
