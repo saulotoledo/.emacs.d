@@ -7717,6 +7717,32 @@ treesit (~*-ts-mode~):
 (add-to-list 'auto-mode-alist '("\\.[cm]?ts\\'" . typescript-ts-mode))
 #+end_src
 
+And now debugging features:
+
+#+begin_src emacs-lisp
+(defun my/dap-js--start-debug ()
+  "Launch a JS/TS DAP session for the current project.
+Uses .vscode/launch.json when present; falls back to a basic
+pwa-node launch for the current file otherwise."
+  (let* ((file (buffer-file-name))
+         (root (or (and file (locate-dominating-file file "package.json"))
+                   default-directory)))
+    (if (and root (file-exists-p (expand-file-name ".vscode/launch.json" root)))
+        (call-interactively 'dap-debug)
+      (when file
+        (dap-debug (list :type "pwa-node"
+                         :request "launch"
+                         :name (format "Node::%s" (file-name-nondirectory file))
+                         :program file
+                         :cwd root
+                         :console "integratedTerminal"))))))
+
+(dolist (hook '(typescript-ts-mode-hook js-ts-mode-hook tsx-ts-mode-hook))
+  (add-hook hook
+            (lambda ()
+              (setq-local my/dap-start-debug #'my/dap-js--start-debug))))
+#+end_src
+
 
 *** General Web development (HTML, CSS)
 
