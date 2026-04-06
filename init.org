@@ -52,6 +52,7 @@
         - [[#conflict-buttons][Conflict buttons]]
     - [[#ediff-configuration][Ediff configuration]]
     - [[#blamerel][Blamer.el]]
+    - [[#configuring-git-modes-for-git-configuration-files][Configuring git-modes for Git configuration files]]
 - [[#other-useful-packages][Other useful packages]]
     - [[#try-a-new-package-without-installing-it][Try a new package without installing it]]
     - [[#restart-emacs-from-within-emacs][Restart Emacs from within Emacs]]
@@ -2523,6 +2524,22 @@ overlays.
 #+end_src
 
 
+** Configuring git-modes for Git configuration files
+
+The =git-modes= package provides major modes for editing Git configuration files
+like ~.gitconfig~, ~.gitattributes~, and ~.gitignore~. It offers syntax
+highlighting, indentation, and other editing features tailored to these file
+types.
+
+#+begin_src emacs-lisp
+(use-package git-modes
+  :mode (("/\\.gitattributes\\'"  . gitattributes-mode)
+         ("/\\.gitconfig\\'"      . gitconfig-mode)
+         ("/\\.git/config\\'"     . gitconfig-mode)
+         ("/\\.dockerignore\\'"   . gitignore-mode)
+         ("/\\.gitignore\\'"      . gitignore-mode)
+         ("/\\.npmignore\\'"      . gitignore-mode)
+         ("/\\.prettierignore\\'" . gitignore-mode)))
 #+end_src
 
 
