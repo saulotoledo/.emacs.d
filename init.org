@@ -7578,6 +7578,26 @@ test functions on the fly.
 #+end_src
 
 
+**** =npm.el= for npm script execution
+
+=npm-el= is a feature-rich Transient UI popup menu for all NPM-related tasks.
+
+#+begin_src emacs-lisp
+(use-package npm
+  :bind ("C-c n" . npm)
+  :config
+  (defun my/npm-fix-command-for-package-manager (args)
+    "Replace 'npm' with the detected package manager in npm-common--compile ARGS."
+    (let* ((manager (my/nodejs-get-project-package-manager))
+           (npm-command (car args))
+           (rest (cdr args)))
+      (if (string-equal manager "npm")
+          args
+        (cons (replace-regexp-in-string "^npm\\b" manager npm-command) rest))))
+
+  (advice-add 'npm-common--compile :filter-args #'my/npm-fix-command-for-package-manager))
+#+end_src
+
 
 **** JavaScript
 
