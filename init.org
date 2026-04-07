@@ -61,6 +61,7 @@
         - [[#basic-package-configuration][Basic package configuration]]
         - [[#dirvish][Dirvish]]
         - [[#dired-faces][Dired faces]]
+        - [[#integrating-with-rg-for-searching-in-subtrees][Integrating with ~rg~ for searching in subtrees]]
     - [[#snippets][Snippets]]
     - [[#undo-tree][Undo tree]]
     - [[#scrollbar-on-the-terminal][Scrollbar on the terminal]]
@@ -2215,7 +2216,7 @@ the cursor anywhere on the screen without using the mouse or arrow keys.
 (defun my/clear-minibuffer-and-run (command)
   "Execute COMMAND after clearing any existing minibuffer layers.
 This ensures that starting a new search or finding a file
-never 'piles up' on an old session."
+never \"piles up\" on an old session."
   (if (> (minibuffer-depth) 0)
       (progn
         ;; "top-level" is an interrupt, anything after it will not run.
@@ -2844,6 +2845,34 @@ making the buffer much easier to parse.
          (dirvish-directory-view-mode . diredfl-mode))
   :init
   (my/apply-diredfl-faces))
+#+end_src
+
+
+*** Integrating with ~rg~ for searching in subtrees
+
+This requires the ~rg~ pacakge installed, which is configured somewhere else in
+this file.
+
+#+begin_src emacs-lisp
+(defun my/rg-search-in-subtree ()
+  "Prompt for a search string and run rg in the folder at point."
+  (interactive)
+  (require 'rg) ; Ensure the package and its variables are loaded
+  (defvar rg-custom-flags)
+  (let ((target-dir (dired-get-filename nil t))
+        (flags (if (boundp 'rg-custom-flags)
+                   (cons "--hidden" rg-custom-flags)
+                 '("--hidden"))))
+
+    (unless (and target-dir (file-directory-p target-dir))
+      (setq target-dir (file-name-directory (dired-get-filename))))
+
+    (let ((default-directory target-dir)
+          (rg-custom-flags flags))
+      (call-interactively #'rg))))
+
+(with-eval-after-load 'dired
+  (define-key dired-mode-map (kbd "C-c s") #'my/rg-search-in-subtree))
 #+end_src
 
 
