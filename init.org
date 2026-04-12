@@ -4671,8 +4671,9 @@ code completion, go-to-definition, diagnostics, and more.
 
   ;; Globally ignore large/irrelevant directories
   (dolist (dir '("[/\\\\]node_modules\\'"
-                 "[/\\\\]\\.git\\'"
                  "[/\\\\]\\.emacs\\.d\\'"
+                 "[/\\\\]\\.git\\'"
+                 "[/\\\\]\\.pnpm-store\\'"
                  "[/\\\\]build\\'"
                  "[/\\\\]dist\\'"
                  "[/\\\\]target\\'"   ; Maven/Gradle build output
