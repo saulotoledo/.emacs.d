@@ -789,6 +789,55 @@ uninstall_list_of_secrets() {
 
 register_action "Setup encrypted authinfo" "list-of-secrets" "secrets"
 
+is_installed_terraformls() {
+  is_system_package_installed "terraformls"
+}
+
+register_system_package "terraformls" \
+                        "alpine:terraform-ls" \
+                        "fedora:terraform-ls" \
+                        "linuxbrew:hashicorp/tap/terraform-ls" \
+                        "mac:hashicorp/tap/terraform-ls" \
+                        "debian-ubuntu:terraform-ls"
+
+install_terraformls() {
+  log_info "Starting Terraform Language Server..."
+
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    brew tap hashicorp/tap
+  elif [ -f /etc/debian_version ]; then
+    if [ ! -f /usr/share/keyrings/hashicorp-archive-keyring.gpg ] || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+    fi
+  elif [ -f /etc/fedora-release ] || command -v dnf >/dev/null 2>&1; then
+    if [ ! -f /etc/yum.repos.d/hashicorp.repo ] || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo --overwrite
+    fi
+  elif [ -f /etc/alpine-release ] || command -v apk >/dev/null 2>&1; then
+    # We need to enable the comunity repo on Alpine
+    VERSION=$(cut -d. -f1,2 /etc/alpine-release)
+    REPO_URL="https://dl-cdn.alpinelinux.org/alpine/v${VERSION}/community"
+
+    if ! grep -q "$REPO_URL" /etc/apk/repositories; then
+      echo "$REPO_URL" >> /etc/apk/repositories
+      apk update
+    fi
+  elif command -v brew >/dev/null 2>&1; then
+    brew tap hashicorp/tap
+  else
+    log_error "OS not supported for auto-installation."
+    return 1
+  fi
+
+  install_system_packages "terraformls"
+}
+
+uninstall_terraformls() {
+  log_skip "Terraform Language Server" "Terraform Language Server is system package and will not be uninstalled automatically"
+}
+
+register_action "Install Terraform Language Server" "terraformls" "Cloud"
+
 DIRVISH_UTILITIES=(
   "fd" "git"
   "mediainfo" "imagemagick" "ffmpegthumbnailer" "vipsthumbnail"

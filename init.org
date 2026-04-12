@@ -53,6 +53,8 @@
     - [[#ediff-configuration][Ediff configuration]]
     - [[#blamerel][Blamer.el]]
     - [[#configuring-git-modes-for-git-configuration-files][Configuring git-modes for Git configuration files]]
+- [[#cloud-development][Cloud development]]
+    - [[#terraform][Terraform]]
 - [[#other-useful-packages][Other useful packages]]
     - [[#try-a-new-package-without-installing-it][Try a new package without installing it]]
     - [[#restart-emacs-from-within-emacs][Restart Emacs from within Emacs]]
@@ -2544,6 +2546,77 @@ types.
 #+end_src
 
 
+* Cloud development
+
+** Terraform
+Terraform is an Infrastructure as Code (IaC) tool created by HashiCorp that
+enables users to safely and predictably build, change, and version cloud and
+on-premises infrastructure using declarative configuration files. Written in Go,
+it allows teams to define resources across 100+ providers (including AWS, Azure,
+and Google Cloud) using HashiCorp Configuration Language (HCL) or JSON, ensuring
+consistency and eliminating manual errors.
+
+First we need to install the Terraform Language Server on our system:
+
+#+begin_src sh :tangle setup.sh
+is_installed_terraformls() {
+  is_system_package_installed "terraformls"
+}
+
+register_system_package "terraformls" \
+                        "alpine:terraform-ls" \
+                        "fedora:terraform-ls" \
+                        "linuxbrew:hashicorp/tap/terraform-ls" \
+                        "mac:hashicorp/tap/terraform-ls" \
+                        "debian-ubuntu:terraform-ls"
+
+install_terraformls() {
+  log_info "Starting Terraform Language Server..."
+
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    brew tap hashicorp/tap
+  elif [ -f /etc/debian_version ]; then
+    if [ ! -f /usr/share/keyrings/hashicorp-archive-keyring.gpg ] || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+    fi
+  elif [ -f /etc/fedora-release ] || command -v dnf >/dev/null 2>&1; then
+    if [ ! -f /etc/yum.repos.d/hashicorp.repo ] || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo --overwrite
+    fi
+  elif [ -f /etc/alpine-release ] || command -v apk >/dev/null 2>&1; then
+    # We need to enable the comunity repo on Alpine
+    VERSION=$(cut -d. -f1,2 /etc/alpine-release)
+    REPO_URL="https://dl-cdn.alpinelinux.org/alpine/v${VERSION}/community"
+
+    if ! grep -q "$REPO_URL" /etc/apk/repositories; then
+      echo "$REPO_URL" >> /etc/apk/repositories
+      apk update
+    fi
+  elif command -v brew >/dev/null 2>&1; then
+    brew tap hashicorp/tap
+  else
+    log_error "OS not supported for auto-installation."
+    return 1
+  fi
+
+  install_system_packages "terraformls"
+}
+
+uninstall_terraformls() {
+  log_skip "Terraform Language Server" "Terraform Language Server is system package and will not be uninstalled automatically"
+}
+
+register_action "Install Terraform Language Server" "terraformls" "Cloud"
+#+end_src
+
+Then, we setup Emacs:
+
+#+begin_src emacs-lisp
+(use-package terraform-mode
+  :hook (terraform-mode . lsp-deferred))
+#+end_src
+
+
 * Other useful packages
 
 ** Try a new package without installing it
@@ -4623,6 +4696,7 @@ code completion, go-to-definition, diagnostics, and more.
   ;; Increase timeout for slow language servers
   :custom
   (lsp-response-timeout 20)
+  (lsp-completion-provider :capf)
 
   ;; Configure LSP to work with TRAMP/devcontainer
   ;; When using TRAMP to access files inside devcontainer, LSP should use
