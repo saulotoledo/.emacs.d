@@ -2613,6 +2613,7 @@ propagate to the other buffers when renaming a subtree in the main buffer."
 
   (advice-add 'wdired-finish-edit :after #'my/refresh-dired-and-children)
   (define-key dired-mode-map (kbd "C-<up>") #'dired-up-directory)
+  (define-key dired-mode-map (kbd "M-n") #'dired-create-empty-file)
   (add-hook 'dired-mode-hook (lambda () (setq-local line-spacing 0.1)))
   (global-auto-revert-mode 1)
   (setq auto-revert-check-vc-info t)
