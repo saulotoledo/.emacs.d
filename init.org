@@ -31,6 +31,7 @@
     - [[#themes][Themes]]
     - [[#tabs][Tabs]]
     - [[#icons][Icons]]
+    - [[#colors-highlight-and-preview][Colors highlight and preview]]
     - [[#trailing-newline][Trailing newline]]
     - [[#tree-navigation-sidebar][Tree navigation sidebar]]
     - [[#centering-text-in-the-buffer-c-c-o][Centering text in the buffer (C-c o)]]
@@ -1876,6 +1877,31 @@ is installed below.
   :config
   (unless (file-exists-p (expand-file-name "~/.local/share/fonts/all-the-icons.ttf"))
     (all-the-icons-install-fonts t)))
+#+end_src
+
+
+** Colors highlight and preview
+
+~colorful-mode~ is a minor mode that allow highlight and preview of colors
+(e.g., hex and color names) in the current buffer in real time. It is based on
+the classic =rainbow-mode.el=, but uses overlays instead and is more modern.
+
+#+begin_src emacs-lisp
+(use-package colorful-mode
+  :custom
+  (colorful-add-hex-colors t)
+  (colorful-add-color-names t)
+  (colorful-add-css-variables-colors t)
+  (colorful-add-rgb-colors t)
+  (colorful-add-oklab-oklch-colors t)
+  (colorful-add-hsl-colors t)
+  (colorful-add-latex-colors t)
+  (colorful-use-prefix t)
+  (colorful-only-strings 'only-prog)
+  (css-fontify-colors nil)
+  :config
+  (global-colorful-mode t)
+  (add-to-list 'global-colorful-modes 'helpful-mode))
 #+end_src
 
 
@@ -6813,7 +6839,7 @@ WORKSPACE is the lsp workspace, STATUS is the notification payload."
 
 ***** DAP Java setup, part 1: debug adapter installation
 
-Ensures the Java debug plugin jar is present. The jar ships with =dap-mode= and
+Ensures the Java debug plugin jar is present. The jar ships with ~dap-mode~ and
 is downloaded automatically on first use when opening a Java buffer.
 
 #+begin_src emacs-lisp
@@ -7178,10 +7204,10 @@ CONF is the launch configuration plist or hash-table."
 
 ***** DAP Java setup, part 4: project =.vscode/launch.json= configuration
 
-=dap-mode= is the Emacs client for the [[https://microsoft.github.io/debug-adapter-protocol/][Debug Adapter Protocol (DAP)]]. DAP is
+~dap-mode~ is the Emacs client for the [[https://microsoft.github.io/debug-adapter-protocol/][Debug Adapter Protocol (DAP)]]. DAP is
 the same wire protocol used by VS Code to communicate with language-specific
 debug adapters (such as the Microsoft Java Debug Extension). Emacs with
-=dap-mode= acts as a DAP client in the same way VS Code does, so the two share
+~dap-mode~ acts as a DAP client in the same way VS Code does, so the two share
 the same configuration file format: =.vscode/launch.json=.
 
 The connection is:
@@ -7204,13 +7230,13 @@ The connection is:
   JVM JDWP agent               (=-agentlib:jdwp=…,server=y,address=localhost:PORT=)
 #+end_example
 
-Because =dap-mode= understands the standard VS Code launch schema, the same
+Because ~dap-mode~ understands the standard VS Code launch schema, the same
 =.vscode/launch.json= you use with VS Code works in Emacs without
 modification. Fields prefixed with =dap-= (e.g. =dap-compilation=) are Emacs
-extensions understood only by =dap-mode= and ignored by VS Code.
+extensions understood only by ~dap-mode~ and ignored by VS Code.
 
 Therefore, each Java project that you want to debug must have a
-=.vscode/launch.json= file at the workspace root. =dap-mode= reads this file
+=.vscode/launch.json= file at the workspace root. ~dap-mode~ reads this file
 when you invoke =dap-debug= (=M-x dap-debug=) and selects a configuration by
 name. The=my/dap-java--debug-provider= installed in part 3 then routes any
 =launch= configuration that targets =integratedTerminal= through the
@@ -7246,7 +7272,7 @@ name. The=my/dap-java--debug-provider= installed in part 3 then routes any
 |                       | If omitted, defaults to =${workspaceFolder}=.                    |
 
 Fields prefixed with =dap-= (e.g. =dap-compilation=, =dap-compilation-dir=) are
-**optional** Emacs extensions. If omitted, our =dap-mode= helpers provide
+**optional** Emacs extensions. If omitted, our ~dap-mode~ helpers provide
 sensible fallbacks:
 
 - If =dap-compilation= is missing, we will attempt to auto-detect the build tool
