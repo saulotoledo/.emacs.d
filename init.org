@@ -18,7 +18,6 @@
     - [[#managing-the-path-variable][Managing the PATH variable]]
     - [[#general-interface-tweaks][General interface tweaks]]
     - [[#font-and-theme][Font and theme]]
-    - [[#interactive-do-settings][Interactive DO settings]]
     - [[#custom-key-bindings][Custom key bindings]]
     - [[#focus-mode][Focus mode]]
     - [[#other-configurations][Other configurations]]
@@ -1345,41 +1344,6 @@ incomplete command.
 (when (member "Source Sans Pro" (font-family-list))
   (set-face-attribute 'variable-pitch nil :family "Source Sans Pro" :height 1.18))
 ;; (set-face-attribute 'default nil :font "JetBrains Mono-11")
-#+end_src
-
-
-** Interactive DO settings
-
-IDO (Interactively DO things) replaces many minibuffer prompts with a
-compact interactive matcher that narrows candidates as you type. These
-options tune its behavior:
-
-- ~ido-enable-flex-matching~ - allow substring and flexible matching
-(not only prefix matches). Type parts of a name in any order and IDO
-will still find it.
-- ~ido-everywhere~ - use IDO's interface for most buffer/file
-minibuffer prompts (where sensible), giving a consistent
-completion experience across commands.
-- ~(ido-mode 1)~ - enable IDO globally.
-
-IDO is built into Emacs, lightweight, and improves the speed of file
-and buffer selection without external dependencies.
-
-However, not all commands use IDO by default. The package
-[[ido-completing-read+]] provides a more powerful interface for
-completing read commands using IDO.
-
-#+begin_src emacs-lisp
-(setq-default ido-enable-flex-matching t) ; better string matching on search
-(setq-default ido-everywhere t)           ; toggle use of Ido for all buffer/file reading
-(ido-mode 1)
-
-(use-package ido-completing-read+
-  ;; "defer" is needed to prevent errors during initialization in some systems
-  :defer t
-  :config
-  (declare-function ido-ubiquitous-mode "ido-completing-read+")
-  (ido-ubiquitous-mode 1))
 #+end_src
 
 
