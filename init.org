@@ -55,10 +55,12 @@
     - [[#configuring-git-modes-for-git-configuration-files][Configuring git-modes for Git configuration files]]
 - [[#cloud-development][Cloud development]]
     - [[#terraform][Terraform]]
+- [[#navigation][Navigation]]
+    - [[#go-to-line-preview][Go to line preview]]
+    - [[#mwim-move-where-i-mean][MWIM (Move Where I Mean)]]
 - [[#other-useful-packages][Other useful packages]]
     - [[#try-a-new-package-without-installing-it][Try a new package without installing it]]
     - [[#restart-emacs-from-within-emacs][Restart Emacs from within Emacs]]
-    - [[#mwim-move-where-i-mean][MWIM (Move Where I Mean)]]
     - [[#dired][Dired]]
         - [[#basic-package-configuration][Basic package configuration]]
         - [[#dirvish][Dirvish]]
@@ -2607,22 +2609,17 @@ Then, we setup Emacs:
 #+end_src
 
 
-* Other useful packages
+* Navigation
 
-** Try a new package without installing it
+** Go to line preview
 
-#+begin_src emacs-lisp
-(use-package try)
-#+end_src
-
-
-** Restart Emacs from within Emacs
-
-The following is a simple package to restart Emacs for within Emacs.
+A replacement for =goto-line= that shows a preview of the target line when
+typing it on the minibuffer.
 
 #+begin_src emacs-lisp
-(use-package restart-emacs
-  :bind ("C-c C-M-r" . restart-emacs))
+(use-package goto-line-preview
+  :config
+  (global-set-key [remap goto-line] 'goto-line-preview))
 #+end_src
 
 
@@ -2642,6 +2639,25 @@ behave more like modern IDEs.
    ("<home>" . mwim-beginning-of-code-or-line)
    ("C-e" . mwim-end-of-code-or-line)
    ("<end>" . mwim-end-of-code-or-line)))
+#+end_src
+
+
+* Other useful packages
+
+** Try a new package without installing it
+
+#+begin_src emacs-lisp
+(use-package try)
+#+end_src
+
+
+** Restart Emacs from within Emacs
+
+The following is a simple package to restart Emacs for within Emacs.
+
+#+begin_src emacs-lisp
+(use-package restart-emacs
+  :bind ("C-c C-M-r" . restart-emacs))
 #+end_src
 
 
