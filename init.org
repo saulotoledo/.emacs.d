@@ -46,6 +46,7 @@
     - [[#expand-region][Expand region]]
     - [[#move-text][Move Text]]
     - [[#multiple-cursors][Multiple cursors]]
+    - [[#smartparens][Smartparens]]
     - [[#undo-tree][Undo tree]]
 - [[#version-control][Version control]]
     - [[#magit-a-powerful-git-interface-for-emacs][Magit: a powerful Git interface for Emacs]]
@@ -2466,6 +2467,22 @@ a couple of convenient keybindings.
     (doom-modeline-def-segment my/mc-cursor-count
       "Display the number of active cursors in multiple-cursors mode."
       (my/mc-count-cursors))))
+#+end_src
+
+
+** Smartparens
+
+Smartparens is a minor mode for dealing with pairs in Emacs.
+
+#+begin_src elisp
+(use-package smartparens
+  :hook (after-init . smartparens-global-mode)
+  :config
+  (require 'smartparens-config)
+  (sp-use-smartparens-bindings)
+  (show-smartparens-global-mode t)
+  ;; Custom rules: Don't pair single quotes in lisp-mode (prevents 'foo')
+  (sp-pair "'" nil :unless '(sp-point-after-word-p sp-point-at-bol-p)))
 #+end_src
 
 
