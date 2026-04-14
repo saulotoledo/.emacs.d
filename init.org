@@ -8099,6 +8099,23 @@ indentation, and structural editing for these formats.
   (web-mode-enable-current-element-highlight t))
 #+end_src
 
+Finally, we install a package that allows us to automatically rename HTML/XML
+corresponding closing tags.
+
+#+begin_src elisp
+(use-package auto-rename-tag
+  :config
+  (dolist (hook '(html-mode-hook
+                  html-ts-mode-hook
+                  web-mode-hook
+                  mhtml-mode-hook
+                  tsx-ts-mode-hook
+                  typescript-ts-mode-hook
+                  xml-mode-hook
+                  nxml-mode-hook))
+    (add-hook hook #'auto-rename-tag-mode)))
+#+end_src
+
 
 *** Advanced shell development
 
