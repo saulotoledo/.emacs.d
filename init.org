@@ -6336,6 +6336,48 @@ register_action "Install Google Java Format" "google-java-format" "jvm"
 #+end_src
 
 
+***** Java Agent Loader
+
+**Java Agent Loader (JAL)** is a utility package I develop and maintain to
+streamline the detection, configuration, and management of Java Agents within
+your Java applications. Java Agents are special components that can instrument
+Java bytecode at runtime, enabling advanced features such as monitoring,
+profiling, code coverage analysis, security auditing, and more, without
+modifying your application's source code.
+
+With JAL, you can automatically discover and configure Java Agents for your
+projects, eliminating the need for manual setup. This ensures your applications
+are always instrumented with the necessary tools for observability, diagnostics,
+or specialized runtime enhancements.
+
+**Common examples of Java Agents include:**
+- **Monitoring tools** (e.g., New Relic, AppDynamics, Java Flight Recorder)
+- **Profilers** (e.g., YourKit, VisualVM)
+- **Code coverage analyzers** (e.g., JaCoCo)
+- **Security and tracing agents** (e.g., OpenTelemetry Java agent, Dynatrace)
+
+In addition to that, while not a traditional Java Agent, **Lombok** is often
+configured in a similar manner—using the `-javaagent` parameter in the JVM
+options. This means Lombok is specified on the command line or in IDE
+configurations as if it were a Java agent, even though it acts as an *annotation
+processor* at compile time rather than as a runtime bytecode modifier.
+
+JAL seamlessly integrates with popular build systems such as **Gradle** and
+**Maven**, making agent management part of your standard build pipeline.
+Additionally, it supports Java language servers like **LSP-java** and
+**eglot-java**, ensuring agent configuration works smoothly during development
+for in-editor tooling and code analysis.
+
+JAL must be configured **before** ~lsp-java~.
+
+#+begin_src emacs-lisp
+(use-package jal
+  :vc (:url "https://github.com/saulotoledo/java-agent-loader" :rev :newest)
+  :config
+  (setq jal-auto-setup t))
+#+end_src
+
+
 ***** ~lsp-java~ configuration
 
 The ~lsp-java~ package integrates the Java language server, providing rich
@@ -6348,10 +6390,6 @@ apply to all language servers:
 #+begin_src emacs-lisp
 ;; Register accepted extensions for workspace folder filtering
 (add-to-list 'my/lsp-server-file-extensions '(jdtls . ("java")))
-
-(add-to-list 'load-path "/home/saulo/java-agent-loader/")
-(load "/home/saulo/java-agent-loader/jal.el")
-(require 'jal)
 
 ;; Path to the google-java-format native binary installed by setup.sh.
 (defconst my/google-java-format-bin
@@ -6377,15 +6415,6 @@ apply to all language servers:
   :pin "MELPA Unstable"
   :after java-ts-mode
   :init
-  ;; These must be set BEFORE jal-lsp-java-setup runs, because jal calls
-  ;; (require 'lsp-java) which defines the defcustoms with defaults.
-  ;; use-package :custom runs too late (after :init), so we use setq here.
-  (setq lsp-java-server-install-dir
-        (expand-file-name "~/.emacs.d/lsp_language_servers/eclipse.jdt.ls/"))
-  (setq lsp-java-vmargs
-        '("-Xmx2G"
-          "-XX:+UseG1GC"
-          "-XX:+UseStringDeduplication"))
   ;; Disable jdtls auto-build to prevent it from overwriting Maven's
   ;; compiled output in target/classes with its own (sometimes incorrect)
   ;; class files. When auto-build is on, jdtls compiles in the background
@@ -6394,8 +6423,6 @@ apply to all language servers:
   ;; is the sole authority on target/classes and the DAP classpath is
   ;; always consistent with what `mvn compile' produced.
   (setq lsp-java-autobuild-enabled nil)
-
-  (jal-lsp-java-setup)
   (add-to-list 'auto-mode-alist '("\\.java.*\\'" . java-ts-mode))
 
   :hook
@@ -6407,6 +6434,13 @@ apply to all language servers:
         ("M-RET" . lsp-java-organize-imports))
 
   :config
+  (setq lsp-java-server-install-dir
+        (expand-file-name "~/.emacs.d/lsp_language_servers/eclipse.jdt.ls/"))
+  (setq lsp-java-vmargs
+        '("-Xmx2G"
+          "-XX:+UseG1GC"
+          "-XX:+UseStringDeduplication"))
+
   (declare-function dap--cur-session "dap-mode")
   (declare-function dap--session-running "dap-mode")
 
