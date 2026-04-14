@@ -41,6 +41,12 @@
         - [[#swiper-and-avy-fast-search-and-navigation][Swiper and Avy: Fast Search and Navigation]]
     - [[#maximize-frame-at-startup][Maximize frame at startup]]
     - [[#ansi-color-support-in-compilation-buffers][ANSI color support in compilation buffers]]
+- [[#editing-workflow--buffer-manipulation][Editing Workflow & Buffer Manipulation]]
+    - [[#editorconfig][EditorConfig]]
+    - [[#expand-region][Expand region]]
+    - [[#move-text][Move Text]]
+    - [[#multiple-cursors][Multiple cursors]]
+    - [[#undo-tree][Undo tree]]
 - [[#version-control][Version control]]
     - [[#magit-a-powerful-git-interface-for-emacs][Magit: a powerful Git interface for Emacs]]
         - [[#the-main-package][The main package]]
@@ -68,13 +74,9 @@
         - [[#dired-faces][Dired faces]]
         - [[#integrating-with-rg-for-searching-in-subtrees][Integrating with ~rg~ for searching in subtrees]]
     - [[#snippets][Snippets]]
-    - [[#undo-tree][Undo tree]]
     - [[#scrollbar-on-the-terminal][Scrollbar on the terminal]]
-    - [[#move-text][Move Text]]
     - [[#expanding-ripgrep][Expanding ripgrep]]
     - [[#vterm-a-fully-capable-terminal-emulator][~vterm~, a fully capable terminal emulator]]
-    - [[#expand-region][Expand region]]
-    - [[#multiple-cursors][Multiple cursors]]
     - [[#improved-help][Improved help]]
     - [[#hiding-secrets][Hiding secrets]]
 - [[#org-mode-packages][Org-mode packages]]
@@ -114,7 +116,6 @@
         - [[#yaml-json-and-typescript][YAML, JSON and TypeScript]]
         - [[#xml][XML]]
         - [[#markdown][Markdown]]
-    - [[#editorconfig][EditorConfig]]
     - [[#dotenv][Dotenv]]
     - [[#plantuml][PlantUML]]
         - [[#installation][Installation]]
@@ -2303,6 +2304,192 @@ correctly.
 #+end_src
 
 
+* Editing Workflow & Buffer Manipulation
+
+** EditorConfig
+
+Using [[https://editorconfig.org/][EditorConfig]] is a must when collaborating with others. It is also a way
+of having multiple tools that want to format your buffer to agree (e.g. both
+the language's Emacs mode and some external formatter/prettifier).
+
+#+begin_src emacs-lisp
+(use-package editorconfig
+  :config
+  ;; Ensure JSON modes respect EditorConfig indentation
+  (add-to-list 'editorconfig-indentation-alist '(json-mode json-indent-level))
+  (add-to-list 'editorconfig-indentation-alist '(json-ts-mode json-ts-mode-indent-level))
+  (add-to-list 'editorconfig-indentation-alist '(js-json-mode js-indent-level))
+
+  (editorconfig-mode 1))
+#+end_src
+
+
+** Expand region
+
+Expand region increases the selected region by semantic units when you keep
+pressing the key until it selects what you want.
+
+#+begin_src emacs-lisp
+(use-package expand-region
+  :custom
+  ;; Global optimization: disabling state-save prevents UI lag in large buffers
+  (er/save-state-before-expand nil)
+  (er/history-is-kept-at-point nil)
+  :bind (("C-=" . er/expand-region)
+         ("C--" . er/contract-region))
+  :config
+
+  (defun my/er-mark-org-code-block-fast ()
+    "Mark an org-code-block, searching at most 10KB to prevent lag."
+    (interactive)
+    (let ((case-fold-search t)
+          (re "#\\+begin_\\(\\sw+\\)")
+          (limit (max (point-min) (- (point) 10000))))
+      (when (or (looking-at re)
+                (search-backward-regexp re limit t))
+        (set-mark (point))
+        (search-forward (concat "#+end_" (match-string 1))
+                        (min (point-max) (+ (point) 20000)) t)
+        (exchange-point-and-mark))))
+
+  (defun my/er-expand-region-large-buffer-advice (orig-fun &rest args)
+    "Dynamically override `er/try-expand-list' in large Org buffers.
+When the buffer exceeds 50,000 characters, this advice overrides the
+standard expansion list with a high-performance subset, disabling
+heavy semantic analysis (like class/function detection) to prevent lag.
+ORIG-FUN is the advised function. ARGS are its arguments."
+    (if (and (derived-mode-p 'org-mode)
+             (> (buffer-size) 50000))
+        (let ((er/try-expand-list
+               '(er/mark-word
+                 er/mark-symbol
+                 er/mark-sentence
+                 er/mark-paragraph
+                 my/er-mark-org-code-block-fast))
+              (er/save-mode-excursion nil))
+          (message "Expand-region: Optimized for large buffer.")
+          (apply orig-fun args))
+      (apply orig-fun args)))
+
+  (advice-add 'er/expand-region :around #'my/er-expand-region-large-buffer-advice)
+  (advice-add 'er/contract-region :around #'my/er-expand-region-large-buffer-advice))
+#+end_src
+
+
+** Move Text
+
+For moving lines up and down, we use the
+[Move Text](https://github.com/emacsfodder/move-text) package.
+
+#+begin_src emacs-lisp
+(use-package move-text
+  :bind (:map custom-bindings-map
+              ("C-M-<down>" . move-text-down)
+              ("C-M-<up>" . move-text-up)))
+#+end_src
+
+
+** Multiple cursors
+
+Multiple Cursors lets you edit many places at once: mark the next or
+previous occurrence and type to edit them all simultaneously. Below are
+a couple of convenient keybindings.
+
+#+begin_src emacs-lisp
+(use-package multiple-cursors
+  :bind
+  ("C->"   . mc/mark-next-like-this)
+  ("C-<"   . mc/mark-previous-like-this)
+  ("C-M-#" . mc/mark-all-dwim)
+  :init
+  ;; Set list file location explicitly
+  (setq mc/list-file (concat user-emacs-directory ".mc-lists.el"))
+
+  ;; Eagerly require mc-core at start so we can load, inject and save directly
+  (require 'multiple-cursors-core)
+  (mc/load-lists)
+  (dolist (cmd '(back-to-indentation
+                 backward-char
+                 backward-kill-word
+                 backward-word
+                 c-electric-backspace
+                 capitalize-word
+                 cycle-spacing
+                 delete-forward-char
+                 delete-horizontal-space
+                 downcase-word
+                 er/contract-region
+                 er/mark-inside-quotes
+                 er/mark-symbol
+                 er/mark-word
+                 er/expand-region
+                 exchange-point-and-mark
+                 forward-char
+                 forward-word
+                 indent-for-tab-command
+                 just-one-space
+                 kill-line
+                 kill-region
+                 mark-word
+                 move-beginning-of-line
+                 move-end-of-line
+                 mwim-beginning-of-code-or-line
+                 mwim-beginning-of-line
+                 mwim-end-of-code-or-line
+                 mwim-end-of-line
+                 newline
+                 org-self-insert-command
+                 org-yank
+                 reindent-then-newline-and-indent
+                 set-rectangular-region-anchor
+                 subword-backward
+                 subword-forward
+                 upcase-word
+                 yank
+                 yank-pop
+                 zap-to-char))
+    (add-to-list 'mc/cmds-to-run-for-all cmd)
+    (when (boundp 'mc/cmds-to-run-once)
+      (setq mc/cmds-to-run-once (delq cmd mc/cmds-to-run-once))))
+  (mc/save-lists))
+
+(declare-function mc/num-cursors "multiple-cursors")
+(declare-function my/mc-count-cursors "multiple-cursors")
+(with-eval-after-load 'multiple-cursors
+  (defun my/mc-count-cursors ()
+    "Return the number of active cursors for the mode line."
+    (if (and (boundp 'multiple-cursors-mode) multiple-cursors-mode)
+        (format " MC:%d" (1+ (mc/num-cursors)))
+      ""))
+
+  (with-eval-after-load 'doom-modeline
+    (doom-modeline-def-segment my/mc-cursor-count
+      "Display the number of active cursors in multiple-cursors mode."
+      (my/mc-count-cursors))))
+#+end_src
+
+
+** Undo tree
+
+Undo-Tree preserves and visualizes your undo history as a tree, making it
+easier to navigate complex edits and to revert to earlier states.
+
+#+begin_src emacs-lisp
+(defvar undo-tree-incompatible-major-modes
+  nil
+  "List of major modes incompatible with undo-tree.
+Declared here so tangling this file defines the variable before the
+package is loaded.")
+
+(use-package undo-tree
+  :config
+  (add-to-list 'undo-tree-incompatible-major-modes #'nxml-mode)
+  (global-undo-tree-mode)
+  :custom
+  (undo-tree-history-directory-alist '(("." . "~/.emacs.d/undo-tree"))))
+#+end_src
+
+
 * Version control
 
 ** Magit: a powerful Git interface for Emacs
@@ -2995,27 +3182,6 @@ for many languages; the two packages below will enable snippets in relevant mode
 #+end_src
 
 
-** Undo tree
-
-Undo-Tree preserves and visualizes your undo history as a tree, making it
-easier to navigate complex edits and to revert to earlier states.
-
-#+begin_src emacs-lisp
-(defvar undo-tree-incompatible-major-modes
-  nil
-  "List of major modes incompatible with undo-tree.
-Declared here so tangling this file defines the variable before the
-package is loaded.")
-
-(use-package undo-tree
-  :config
-  (add-to-list 'undo-tree-incompatible-major-modes #'nxml-mode)
-  (global-undo-tree-mode)
-  :custom
-  (undo-tree-history-directory-alist '(("." . "~/.emacs.d/undo-tree"))))
-#+end_src
-
-
 ** Scrollbar on the terminal
 
 Yascroll provides a scrollbar for Emacs running in terminal mode (tty).
@@ -3066,19 +3232,6 @@ in the buffer.
 
   ;; If starting Emacs as a server, enable mlscroll for new frames
   ;; :hook (server-after-make-frame . mlscroll-mode)
-#+end_src
-
-
-** Move Text
-
-For moving lines up and down, we use the
-[Move Text](https://github.com/emacsfodder/move-text) package.
-
-#+begin_src emacs-lisp
-(use-package move-text
-  :bind (:map custom-bindings-map
-              ("C-M-<down>" . move-text-down)
-              ("C-M-<up>" . move-text-up)))
 #+end_src
 
 
@@ -3288,138 +3441,6 @@ And below the Emacs setup:
 
 (with-eval-after-load 'vterm
   (set-frame-font "JetBrainsMono Nerd Font" nil t))
-#+end_src
-
-
-** Expand region
-
-Expand region increases the selected region by semantic units when you keep
-pressing the key until it selects what you want.
-
-#+begin_src emacs-lisp
-(use-package expand-region
-  :custom
-  ;; Global optimization: disabling state-save prevents UI lag in large buffers
-  (er/save-state-before-expand nil)
-  (er/history-is-kept-at-point nil)
-  :bind (("C-=" . er/expand-region)
-         ("C--" . er/contract-region))
-  :config
-
-  (defun my/er-mark-org-code-block-fast ()
-    "Mark an org-code-block, searching at most 10KB to prevent lag."
-    (interactive)
-    (let ((case-fold-search t)
-          (re "#\\+begin_\\(\\sw+\\)")
-          (limit (max (point-min) (- (point) 10000))))
-      (when (or (looking-at re)
-                (search-backward-regexp re limit t))
-        (set-mark (point))
-        (search-forward (concat "#+end_" (match-string 1))
-                        (min (point-max) (+ (point) 20000)) t)
-        (exchange-point-and-mark))))
-
-  (defun my/er-expand-region-large-buffer-advice (orig-fun &rest args)
-    "Dynamically override `er/try-expand-list' in large Org buffers.
-When the buffer exceeds 50,000 characters, this advice overrides the
-standard expansion list with a high-performance subset, disabling
-heavy semantic analysis (like class/function detection) to prevent lag.
-ORIG-FUN is the advised function. ARGS are its arguments."
-    (if (and (derived-mode-p 'org-mode)
-             (> (buffer-size) 50000))
-        (let ((er/try-expand-list
-               '(er/mark-word
-                 er/mark-symbol
-                 er/mark-sentence
-                 er/mark-paragraph
-                 my/er-mark-org-code-block-fast))
-              (er/save-mode-excursion nil))
-          (message "Expand-region: Optimized for large buffer.")
-          (apply orig-fun args))
-      (apply orig-fun args)))
-
-  (advice-add 'er/expand-region :around #'my/er-expand-region-large-buffer-advice)
-  (advice-add 'er/contract-region :around #'my/er-expand-region-large-buffer-advice))
-#+end_src
-
-
-** Multiple cursors
-
-Multiple Cursors lets you edit many places at once: mark the next or
-previous occurrence and type to edit them all simultaneously. Below are
-a couple of convenient keybindings.
-
-#+begin_src emacs-lisp
-(use-package multiple-cursors
-  :bind
-  ("C->"   . mc/mark-next-like-this)
-  ("C-<"   . mc/mark-previous-like-this)
-  ("C-M-#" . mc/mark-all-dwim)
-  :init
-  ;; Set list file location explicitly
-  (setq mc/list-file (concat user-emacs-directory ".mc-lists.el"))
-
-  ;; Eagerly require mc-core at start so we can load, inject and save directly
-  (require 'multiple-cursors-core)
-  (mc/load-lists)
-  (dolist (cmd '(back-to-indentation
-                 backward-char
-                 backward-kill-word
-                 backward-word
-                 c-electric-backspace
-                 capitalize-word
-                 cycle-spacing
-                 delete-forward-char
-                 delete-horizontal-space
-                 downcase-word
-                 er/contract-region
-                 er/mark-inside-quotes
-                 er/mark-symbol
-                 er/mark-word
-                 er/expand-region
-                 exchange-point-and-mark
-                 forward-char
-                 forward-word
-                 indent-for-tab-command
-                 just-one-space
-                 kill-line
-                 kill-region
-                 mark-word
-                 move-beginning-of-line
-                 move-end-of-line
-                 mwim-beginning-of-code-or-line
-                 mwim-beginning-of-line
-                 mwim-end-of-code-or-line
-                 mwim-end-of-line
-                 newline
-                 org-self-insert-command
-                 org-yank
-                 reindent-then-newline-and-indent
-                 set-rectangular-region-anchor
-                 subword-backward
-                 subword-forward
-                 upcase-word
-                 yank
-                 yank-pop
-                 zap-to-char))
-    (add-to-list 'mc/cmds-to-run-for-all cmd)
-    (when (boundp 'mc/cmds-to-run-once)
-      (setq mc/cmds-to-run-once (delq cmd mc/cmds-to-run-once))))
-  (mc/save-lists))
-
-(declare-function mc/num-cursors "multiple-cursors")
-(declare-function my/mc-count-cursors "multiple-cursors")
-(with-eval-after-load 'multiple-cursors
-  (defun my/mc-count-cursors ()
-    "Return the number of active cursors for the mode line."
-    (if (and (boundp 'multiple-cursors-mode) multiple-cursors-mode)
-        (format " MC:%d" (1+ (mc/num-cursors)))
-      ""))
-
-  (with-eval-after-load 'doom-modeline
-    (doom-modeline-def-segment my/mc-cursor-count
-      "Display the number of active cursors in multiple-cursors mode."
-      (my/mc-count-cursors))))
 #+end_src
 
 
@@ -3951,7 +3972,6 @@ Skips if file exists and is identical, backups if different."
                          "")))))
       (message "ECA [x]: Source eca-config.json not found!"))))
 #+end_src
-
 
 Finally, we setup the ECA package and its completion mode:
 
@@ -8437,25 +8457,6 @@ Adding support for editing Markdown files with ~markdown-mode~.
 (use-package markdown-mode
   :defer t
   :hook (markdown-mode . (lambda () (setq fill-column 72))))
-#+end_src
-
-
-** EditorConfig
-
-Using [[https://editorconfig.org/][EditorConfig]] is a must when collaborating with others. It is also a way
-of having multiple tools that want to format your buffer to agree (e.g. both
-the language's Emacs mode and some external formatter/prettifier).
-
-
-#+begin_src emacs-lisp
-(use-package editorconfig
-  :config
-  ;; Ensure JSON modes respect EditorConfig indentation
-  (add-to-list 'editorconfig-indentation-alist '(json-mode json-indent-level))
-  (add-to-list 'editorconfig-indentation-alist '(json-ts-mode json-ts-mode-indent-level))
-  (add-to-list 'editorconfig-indentation-alist '(js-json-mode js-indent-level))
-
-  (editorconfig-mode 1))
 #+end_src
 
 
