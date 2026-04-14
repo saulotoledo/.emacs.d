@@ -31,6 +31,7 @@
     - [[#tabs][Tabs]]
     - [[#icons][Icons]]
     - [[#colors-highlight-and-preview][Colors highlight and preview]]
+    - [[#colors-on-csv-and-tsv-files][Colors on CSV and TSV files]]
     - [[#trailing-newline][Trailing newline]]
     - [[#tree-navigation-sidebar][Tree navigation sidebar]]
     - [[#centering-text-in-the-buffer-c-c-o][Centering text in the buffer (C-c o)]]
@@ -1868,6 +1869,24 @@ the classic =rainbow-mode.el=, but uses overlays instead and is more modern.
   :config
   (global-colorful-mode t)
   (add-to-list 'global-colorful-modes 'helpful-mode))
+#+end_src
+
+
+** Colors on CSV and TSV files
+
+The package below highlights CSV and TSV spreadsheet files in different colors,
+making it easier to identify the columns:
+
+#+begin_src emacs-lisp
+(use-package rainbow-csv
+  :config
+  (defun my/rainbow-csv-setup ()
+    "Enable rainbow-csv-mode and set up local refresh on save."
+    (rainbow-csv-mode 1)
+    (add-hook 'after-save-hook #'rainbow-csv-highlight nil t))
+
+  (add-hook 'csv-mode-hook #'my/rainbow-csv-setup)
+  (add-hook 'tsv-mode-hook #'my/rainbow-csv-setup))
 #+end_src
 
 
