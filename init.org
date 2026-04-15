@@ -3758,7 +3758,7 @@ doc popups and nicer candidate grouping without changing Company backends.
   :if (display-graphic-p)
   :custom
   (company-box-frame-behavior 'point)
-  (company-box-show-single-candidate t)
+  (company-box-show-single-candidate 'always)
   (company-box-doc-delay 1)
 
   :hook
@@ -8089,7 +8089,71 @@ pwa-node launch for the current file otherwise."
 
 *** General Web development (HTML, CSS)
 
-We start by adding CSS/SASS inline documentation with eldoc.
+**** Auto-renaming HTML/XML corresponding tags
+
+This package provides automatic renaming of corresponding closing tags. This is
+essential for maintaining tag consistency in web templates and UI components.
+
+#+begin_src elisp
+(use-package auto-rename-tag
+  :config
+  (dolist (hook '(html-mode-hook
+                  html-ts-mode-hook
+                  web-mode-hook
+                  mhtml-mode-hook
+                  tsx-ts-mode-hook
+                  typescript-ts-mode-hook
+                  xml-mode-hook
+                  nxml-mode-hook))
+    (add-hook hook #'auto-rename-tag-mode)))
+#+end_src
+
+
+**** Emmet
+
+Emmet is a high-speed workflow tool for web developers that transforms short,
+CSS-like abbreviations into full blocks of HTML or CSS code. By using a
+specialized syntax for nesting, attributes, and text, it allows you to generate
+complex structures with just a few keystrokes.
+
+#+begin_src elisp
+(use-package emmet-mode
+  :hook ((html-mode . emmet-mode)
+         (html-ts-mode . emmet-mode)
+         (mhtml-mode . emmet-mode)
+         (web-mode . emmet-mode)
+         (css-mode . emmet-mode)
+         (css-ts-mode . emmet-mode)
+         (tsx-ts-mode . emmet-mode))
+  :config
+  (setq emmet-indentation 2))
+#+end_src
+
+Below we integrate Emmet's shorthand expansion into the Company completion menu.
+It allows for rapid HTML and CSS development by suggesting full tag structures
+from brief abbreviations (e.g., typing =ul>li*3= and seeing the expanded
+preview.
+
+#+begin_src emacs-lisp
+(use-package company-emmet
+  :after company
+  :init
+  (defun my/inject-company-emmet ()
+    "Inject company-emmet at the front of company-backends."
+    (setq-local company-backends
+                (append '(company-emmet)
+                        (remove 'company-emmet company-backends))))
+  (dolist (hook '(html-mode-hook
+                  html-ts-mode-hook
+                  mhtml-mode-hook
+                  web-mode-hook
+                  css-mode-hook
+                  tsx-ts-mode-hook))
+    (add-hook hook #'my/inject-company-emmet)))
+#+end_src
+
+
+**** SASS/CSS and eldoc
 
 Eldoc is a built-in Emacs minor mode that displays function signatures, variable
 documentation, or other context-sensitive help in the minibuffer as you type or
@@ -8104,7 +8168,8 @@ easier to remember valid values and arguments without leaving your editor.
   (scss-mode . turn-on-css-eldoc))
 #+end_src
 
-Then, we setup web-mode for web templates:
+
+**** ~web-mode~ for web templates:
 
 ~web-mode~ is a major mode for editing web templates and component files, such as
 HTML, Vue, EJS, Nunjucks, Jinja, Twig, and ERB. It provides syntax highlighting,
@@ -8117,23 +8182,6 @@ indentation, and structural editing for these formats.
   :mode ("\\.html?\\'" "\\.ejs\\'" "\\.vue\\'" "\\.njk\\'" "\\.jinja\\'" "\\.twig\\'" "\\.erb\\'")
   :custom
   (web-mode-enable-current-element-highlight t))
-#+end_src
-
-Finally, we install a package that allows us to automatically rename HTML/XML
-corresponding closing tags.
-
-#+begin_src elisp
-(use-package auto-rename-tag
-  :config
-  (dolist (hook '(html-mode-hook
-                  html-ts-mode-hook
-                  web-mode-hook
-                  mhtml-mode-hook
-                  tsx-ts-mode-hook
-                  typescript-ts-mode-hook
-                  xml-mode-hook
-                  nxml-mode-hook))
-    (add-hook hook #'auto-rename-tag-mode)))
 #+end_src
 
 
