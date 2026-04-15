@@ -311,9 +311,9 @@ menu_select_actions() {
       local space_count
       space_count=$(echo "$extra" | tr -cd ' ' | wc -c)
       if (( space_count > 0 )); then
-         # This part is tricky; usually we don't want to "burst" toggle
-         # but we can toggle the current cursor if spaces were found.
-         ((selected[cursor] ^= (space_count % 2)))
+        # This part is tricky; usually we don't want to "burst" toggle
+        # but we can toggle the current cursor if spaces were found.
+        ((selected[cursor] ^= (space_count % 2)))
       fi
 
       # Immediately drop everything else in the hardware buffer.
