@@ -1517,31 +1517,37 @@ document inside Emacs.
 
 ** Faster startup
 
-A common startup speed-up is to disable the garbage collection during
-Emacs initialization, and enable it back after it. The code below
-temporarily raises ~gc-cons-threshold~ to an extremely large value and
-clears file.
+A common and effective way to speed up Emacs startup is to defer garbage
+collection and file-name handler processing during initialization. Garbage
+collection can run frequently while Emacs is loading packages and configuration,
+and ~file-name-handler-alist~ adds overhead to every file operation (for example,
+Tramp checks). Both are useful during normal operation, but unnecessarily slow
+down startup. The configuration below temporarily:
 
-A common startup speed-up is to defer garbage collection and file-name
-handler processing while Emacs initializes. The code below temporarily
-raises ~gc-cons-threshold~ to an extremely large value and clears
-file-name-handler-alist before init so GC cycles and file-handler
-overhead are avoided during startup. It then restores the original
-file-name-handler-alist and a reasonable gc-cons-threshold in an
-emacs-startup-hook after initialization completes. Finally,
-~inhibit-default-init~ prevents loading your environment's default
-global settings together with your init file (adapted from
-[[https://github.com/larstvei/dot-emacs/blob/main/init.org][the dot-emacs-repository]]).
+- raises ~gc-cons-threshold~ to an extremely large value, effectively disabling
+garbage collection.
+- clears ~file-name-handler-alist~, eliminating file handler
+checks during initialization.
+
+Once Emacs has finished starting, an ~emacs-startup-hook~ restores the original
+~file-name-handler-alist~ and sets ~gc-cons-threshold~ to a reasonable post-startup
+value, balancing performance and memory usage. Finally, ~inhibit-default-init~
+prevents Emacs from loading system-wide default initialization files in addition
+to your own configuration. (Adapted from [[https://github.com/larstvei/dot-emacs/blob/main/init.org][Larstvei's Emacs config]] repository)
 
 #+begin_src emacs-lisp :tangle early-init.el
 (let ((file-name-handler-alist-old file-name-handler-alist))
   (add-hook 'emacs-startup-hook
             (lambda ()
-              (setq gc-cons-threshold (* 1024 1024 20))
+              ;; Restore reasonable defaults after startup
+              (setq gc-cons-threshold (* 100 1024 1024)) ;; 100 MB
+              (setq gc-cons-percentage 0.1)
               (setq file-name-handler-alist file-name-handler-alist-old)))
+  ;; During startup, minimize overhead
   (setq gc-cons-threshold most-positive-fixnum)
   (setq file-name-handler-alist nil))
 
+;; Do not load default system-wide init files
 (setq inhibit-default-init t)
 #+end_src
 
@@ -3731,7 +3737,16 @@ interactions.
         company-minimum-prefix-length 1
         company-show-quick-access t
         company-tooltip-align-annotations t
-        company-require-match nil)
+        company-require-match nil
+        ;; The following makes company-mode more responsive by preventing it from waiting for
+        ;; delayed backends to respond before showing the completion menu. This is especially
+        ;; important for lsp-mode, which can have slow backends.
+        company-async-timeout 1.0
+        company-require-match nil
+        company-tooltip-limit 20
+        ;; Disable Company’s post-completion actions, which can interfere with
+        ;; LSP completion (e.g. triggering blocking executeCommand calls).
+        company-post-completion-hook nil)
 
   ;; Prefer completion-at-point functions (capf) which integrates with LSP/treesit
   (setq company-backends '((company-capf company-files company-dabbrev-code company-dabbrev)))
@@ -3746,7 +3761,6 @@ interactions.
   (dolist (m '(org-mode shell-mode term-mode vterm-mode))
     (add-hook (intern (concat (symbol-name m) "-hook")) (lambda () (company-mode -1)))))
 #+end_src
-
 
 Company-box provides a lightweight, frame-based UI for Company popups
 in GUI Emacs sessions. It enhances the visual presentation with icons,
@@ -4778,12 +4792,16 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-use-plists t)
 
   :config
-  (setq lsp-idle-delay 0.5
-        lsp-enable-symbol-highlighting t
-        lsp-signature-auto-activate t
+  (setq lsp-enable-indentation t
         lsp-enable-on-type-formatting nil
-        lsp-enable-indentation t
-        lsp-format-on-save nil)
+        lsp-enable-symbol-highlighting t
+        lsp-format-on-save nil
+        lsp-log-io nil
+        lsp-semantic-tokens-enable nil ; Performance improvement, it avoids constant text-property updates
+        lsp-enable-completion-command nil ; This prevents company from executing expensive workspace/executeCommand and
+                                          ; blocking Emacs after selection
+        lsp-signature-auto-activate t
+        lsp-idle-delay 0.6)
 
   ;; When using TRAMP with devcontainer, LSP servers run inside the container.
   ;; The container should have Node.js and language server extensions installed.
@@ -4799,8 +4817,10 @@ code completion, go-to-definition, diagnostics, and more.
   ;; Strategy: Disable the default `eslint` client (which hardcodes local paths)
   ;; and register a specialized `eslint-remote` client that uses the global server.
 
-  ;; Performance tuning
-  (setq read-process-output-max (* 1024 1024))
+  ;; Performance tuning: read-process-output-max limits how much data Emacs reads from an external process in a single
+  ;; chunk; increasing it allows Emacs to consume large outputs (e.g. from LSP servers) more efficiently and with less
+  ;; overhead.
+  (setq read-process-output-max (* 4 1024 1024))
 
   ;; Prevent noisy language servers (like semgrep-ls) from prompting
   ;; to restart if they crash due to pipe breakage during Emacs shutdown.
@@ -5159,10 +5179,15 @@ The helper below, copied from https://github.com/themkat/.emacs.d/blob/master/in
   :custom
   (lsp-ui-doc-enable t)
   (lsp-ui-doc-position 'at-point)
-  (lsp-ui-sideline-enable t)
+  (lsp-ui-sideline-enable nil)
   (lsp-ui-sideline-show-hover t)
   (lsp-ui-peek-always-show t)
   (lsp-ui-sideline-show-code-actions t)
+  ;; The following are important for performance:
+  (lsp-ui-doc-delay 0.5) ; reduces the number of requests when typing
+  (lsp-ui-doc-show-with-cursor nil) ; cursor motion is extremely frequent, leading to redisplays
+  (lsp-ui-sideline-enable nil) ; too many overlays, so we disable it
+
   :bind
   (:map lsp-mode-map ("M-s M-d" . lsp-ui-show-doc-helper)))
 #+end_src
@@ -5643,9 +5668,13 @@ This is important because Flycheck does not support TRAMP yet."
 (use-package flycheck
   :custom
   (flycheck-indication-mode nil)
-  (flycheck-highlighting-mode 'lines)
+  (flycheck-highlighting-mode 'symbols)
+  (flycheck-overlay-margin-spec nil)
   ;; Raise the error threshold to avoid missing diagnostics from language servers.
   (flycheck-checker-error-threshold 9999)
+  ;; Flycheck behavior:
+  (flycheck-check-syntax-automatically '(save mode-enabled idle-change))
+  (flycheck-idle-change-delay 2)
 
   ;; Enable Flycheck globally. Disabled for now. I am trying prog-mode hook instead.
   ;; (global-flycheck-mode t)
@@ -6490,14 +6519,16 @@ apply to all language servers:
   :pin "MELPA Unstable"
   :after java-ts-mode
   :init
-  ;; Disable jdtls auto-build to prevent it from overwriting Maven's
-  ;; compiled output in target/classes with its own (sometimes incorrect)
-  ;; class files. When auto-build is on, jdtls compiles in the background
-  ;; and can write error-stub class files (e.g. "Unresolved compilation
-  ;; problem") on top of a clean Maven build. With auto-build off, Maven
-  ;; is the sole authority on target/classes and the DAP classpath is
-  ;; always consistent with what `mvn compile' produced.
+  ;; Disable jdtls auto-build to prevent it from overwriting Maven's compiled output in target/classes with its own
+  ;; (sometimes incorrect) class files. When auto-build is on, jdtls compiles in the background and can write error-stub
+  ;; class files (e.g. "Unresolved compilation problem") on top of a clean Maven build. With auto-build off, Maven is
+  ;; the sole authority on target/classes and the DAP classpath is always consistent with what `mvn compile' produced.
   (setq lsp-java-autobuild-enabled nil)
+
+  ;; Performance tuning: Expensive logic (imports, deep resolution) is deferred until you explicitly invoke completion
+  ;; (e.g. M-TAB, company-complete)
+  (setq lsp-java-completion-on-demand t)
+
   (add-to-list 'auto-mode-alist '("\\.java.*\\'" . java-ts-mode))
 
   :hook
@@ -6512,9 +6543,15 @@ apply to all language servers:
   (setq lsp-java-server-install-dir
         (expand-file-name "~/.emacs.d/lsp_language_servers/eclipse.jdt.ls/"))
   (setq lsp-java-vmargs
-        '("-Xmx2G"
+        '("-Xms1G"
+          "-Xmx6G"
           "-XX:+UseG1GC"
-          "-XX:+UseStringDeduplication"))
+          "-XX:MaxGCPauseMillis=200"
+          "-XX:+UseStringDeduplication"
+          "-XX:InitiatingHeapOccupancyPercent=45"
+          "-XX:+UnlockExperimentalVMOptions"
+          "-XX:G1NewSizePercent=20"
+          "-XX:G1MaxNewSizePercent=60"))
 
   (declare-function dap--cur-session "dap-mode")
   (declare-function dap--session-running "dap-mode")
