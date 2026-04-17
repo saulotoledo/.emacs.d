@@ -88,6 +88,9 @@
     - [[#org-modern][Org Modern]]
 - [[#programming-ide-and-related][Programming, IDE and related]]
     - [[#code-completion][Code completion]]
+        - [[#corfu][Corfu]]
+        - [[#adding-icons-to-corfu-menu-with-kind-icon][Adding icons to Corfu menu with kind-icon]]
+        - [[#cape-completion-at-point-extensions][CAPE: Completion At Point Extensions]]
     - [[#static-analysis-with-semgrep][Static Analysis with Semgrep]]
     - [[#general-ai-assistant-configuration][General AI Assistant Configuration]]
         - [[#encrypted-api-keys-for-the-ai-providers][Encrypted API Keys for the AI providers]]
@@ -1819,7 +1822,6 @@ is installed below.
        (string-prefix-p "*Helm" name)
        (string-prefix-p "*Compile-Log*" name)
        (string-prefix-p "*lsp" name)
-       (string-prefix-p "*company" name)
        (string-prefix-p "*Flycheck" name)
        (string-prefix-p "*tramp" name)
        (string-prefix-p " *Mini" name)
@@ -3707,76 +3709,89 @@ I disable ~org-modern-block-fringe~ due to [[https://github.com/minad/org-modern
 * Programming, IDE and related
 
 ** Code completion
+*** Corfu
 
-Company (COMPLete ANY) provides in-buffer completion popups - automatic
-suggestions that appear *while you type* in your code buffers (not in the
-minibuffer). This is different from Ivy/Counsel which handle minibuffer
-prompts when Emacs asks you for input.
+Corfu (Completions in Region FUnction) provides in-buffer completion popups --
+automatic completion menus that appear while you type in regular buffers (not
+the minibuffer). This is distinct from Ivy/Vertico, which focus on minibuffer
+interaction when Emacs prompts for input. Corfu is deliberately minimal and
+CAPF-native: it acts purely as a user interface on top of Emacs’ built-in
+completion-at-point-functions (CAPF). This means language servers (LSP/eglot),
+tree-sitter (treesit) providers, and other completion sources all integrate
+through a single, standard API. Using CAPF as the canonical completion source:
 
-Prefer ~completion-at-point-functions~ (CAPF) as a single, canonical source:
-it lets language servers (LSP/eglot), built-in ~treesit~ capf providers, and
-other backends expose candidates through Emacs' standard API so Company
-becomes a thin, reliable UI on top of those sources. Using CAPF reduces
-backend duplication, simplifies ordering, and improves snippet/expand
-interactions.
+eliminates backend duplication, simplifies candidate ordering and composition,
+avoids blocking post-completion hooks, and improves performance and correctness
+for modern LSP workflows.
+
+Corfu does not manage backends itself; instead, it reliably presents whatever
+candidates CAPF providers expose, keeping completion fast, predictable, and
+non-blocking.
 
 #+begin_src emacs-lisp
-(use-package company
+(use-package corfu
   :demand t
-
+  :init
+  (global-corfu-mode)
   :bind
-  ;; List of choices even when nothing is typed.
-  ;; CTRL-ENTER. Because C-RET does not work.
-  ([(control return)] . company-complete)
+  ([(control return)] . completion-at-point)
+
+  :custom
+  (corfu-auto t)
+  ;; Keep popup responsive and predictable:
+  (corfu-cycle t)
+  (corfu-preselect 'prompt)
+  (corfu-quit-no-match t)
+  ;; Reasonable popup limits:
+  (corfu-scroll-margin 3)
+  (corfu-count 20)
 
   :config
-  (global-company-mode 1)
-  ;; sensible defaults
-  (setq company-idle-delay 0
-        company-echo-delay 0
-        company-minimum-prefix-length 1
-        company-show-quick-access t
-        company-tooltip-align-annotations t
-        company-require-match nil
-        ;; The following makes company-mode more responsive by preventing it from waiting for
-        ;; delayed backends to respond before showing the completion menu. This is especially
-        ;; important for lsp-mode, which can have slow backends.
-        company-async-timeout 1.0
-        company-require-match nil
-        company-tooltip-limit 20
-        ;; Disable Company’s post-completion actions, which can interfere with
-        ;; LSP completion (e.g. triggering blocking executeCommand calls).
-        company-post-completion-hook nil)
+  (define-key corfu-map (kbd "TAB") #'corfu-complete)
+  (define-key corfu-map (kbd "<tab>") #'corfu-complete)
+  (define-key corfu-map (kbd "C-n") #'corfu-next)
+  (define-key corfu-map (kbd "C-p") #'corfu-previous)
+  (define-key corfu-map (kbd "S-TAB") #'corfu-previous)
+  (define-key corfu-map (kbd "<backtab>") #'corfu-previous)
+  ;; Prevent accidental completion on RET
+  (define-key corfu-map (kbd "RET") nil)
 
-  ;; Prefer completion-at-point functions (capf) which integrates with LSP/treesit
-  (setq company-backends '((company-capf company-files company-dabbrev-code company-dabbrev)))
-
-  ;; Use TAB/RET sensibly
-  (define-key company-active-map (kbd "<tab>") 'company-complete-selection)
-  (define-key company-active-map (kbd "TAB") 'company-complete-selection)
-  (define-key company-active-map (kbd "C-n") 'company-select-next)
-  (define-key company-active-map (kbd "C-p") 'company-select-previous)
-
-  ;; Disable company in some modes where it is noisy
+  ;; Disable corfu in some modes where it is noisy
   (dolist (m '(org-mode shell-mode term-mode vterm-mode))
-    (add-hook (intern (concat (symbol-name m) "-hook")) (lambda () (company-mode -1)))))
+    (add-hook (intern (concat (symbol-name m) "-hook"))
+              (lambda () (corfu-mode -1)))))
 #+end_src
 
-Company-box provides a lightweight, frame-based UI for Company popups
-in GUI Emacs sessions. It enhances the visual presentation with icons,
-doc popups and nicer candidate grouping without changing Company backends.
+
+*** Adding icons to Corfu menu with kind-icon
+
+~kind-icon~ adds a small icon in the Corfu completion margin representing the
+option in the list.
 
 #+begin_src emacs-lisp
-(use-package company-box
-  :after company
-  :if (display-graphic-p)
+(use-package kind-icon
+  :after corfu
   :custom
-  (company-box-frame-behavior 'point)
-  (company-box-show-single-candidate 'always)
-  (company-box-doc-delay 1)
+  (kind-icon-default-face 'corfu-default)
+  :config
+  (add-to-list 'corfu-margin-formatters #'kind-icon-margin-formatter))
+#+end_src
 
-  :hook
-  (company-mode . company-box-mode))
+
+*** CAPE: Completion At Point Extensions
+
+CAPE provides CAPF-based replacements for common Company backends, exposing file
+names, buffer words, and language keywords through Emacs' standard
+~completion-at-point-functions~ API. This allows Corfu (and other CAPF
+frontends) to consume these sources natively, without Company-specific backends
+or blocking behavior.
+
+#+begin_src emacs-lisp
+(use-package cape
+  :init
+  (add-to-list 'completion-at-point-functions #'cape-file) ; File and directory completion
+  (add-to-list 'completion-at-point-functions #'cape-dabbrev) ; Word-based completion from open buffers
+  (add-to-list 'completion-at-point-functions #'cape-keyword)) ; Language keyword completion
 #+end_src
 
 
@@ -4053,12 +4068,12 @@ Finally, we setup the ECA package and its completion mode:
   (defvar my/eca-initialized-p nil
     "Non-nil when `my/eca-init' has run this session.")
 
-  ;; Define completion setup function after ECA is fully loaded
-  ;; ECA uses eca-completion-mode (overlay-based), not company-mode
+  ;; Define completion setup function after ECA is fully loaded.
+  ;; ECA uses eca-completion-mode (overlay-based).
   (with-eval-after-load 'eca
     (defun my/eca-setup-completion (&optional _arg)
       "Enable ECA completion mode only if Copilot is disabled.
-ECA uses its own overlay-based completion system, not company-mode.
+ECA uses its own overlay-based completion system.
 Optional _ARG is ignored (for compatibility with advice)."
       (interactive)
 
@@ -4620,13 +4635,14 @@ Returns non-nil if buffer contains Kubernetes Secrets or ConfigMaps."
   (defun my/tab-indent-or-complete ()
     (interactive)
     (cond
-     ;; 1. If Company menu is open, select the completion
-     ((company-tooltip-visible-p)
-      (company-complete-selection))
+     ;; 1. If Corfu menu is open, complete the current candidate
+     ((bound-and-true-p corfu--frame)
+      (corfu-complete))
      ;; 2. If Copilot has a suggestion, accept it
-     ((copilot-accept-completion)
+     ((and (fboundp 'copilot-accept-completion)
+           (copilot-accept-completion))
       (copilot-accept-completion))
-     ;; 3. Otherwise, do the default Emacs indentation
+     ;; 3. Otherwise, fall back to normal indentation
      (t
       (indent-for-tab-command))))
 
@@ -4760,9 +4776,13 @@ code completion, go-to-definition, diagnostics, and more.
 (use-package lsp-mode
   :pin "MELPA Unstable"
   :init
-  ;; Needed for TRAMP performance
-  (setq lsp-auto-register-remote-clients t)
-  (setq lsp-auto-require-clients nil) ; Do not load unnecessary clients
+  (setq
+   ;; Needed for TRAMP performance:
+   lsp-auto-register-remote-clients t
+   ;; Do not load unnecessary clients:
+   lsp-auto-require-clients nil
+   ;; Use the standard completion-at-point mechanism, which Corfu and other completion frameworks integrate with.
+   lsp-completion-provider :capf)
 
   :bind
   (:map lsp-mode-map ("M-RET" . lsp-execute-code-action))
@@ -4772,10 +4792,16 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-after-apply-edits . save-buffer)
   (prog-mode . lsp-deferred)
 
-  ;; Increase timeout for slow language servers
   :custom
-  (lsp-response-timeout 20)
-  (lsp-completion-provider :capf)
+  (lsp-response-timeout 20) ; Increase timeout for slow language servers
+  (lsp-enable-indentation t)
+  (lsp-enable-on-type-formatting nil)
+  (lsp-enable-symbol-highlighting t)
+  (lsp-format-on-save nil)
+  (lsp-log-io nil)
+  (lsp-semantic-tokens-enable nil) ; Performance improvement, it avoids constant text-property updates
+  (lsp-signature-auto-activate t)
+  (lsp-idle-delay 0.6)
 
   ;; Configure LSP to work with TRAMP/devcontainer
   ;; When using TRAMP to access files inside devcontainer, LSP should use
@@ -4792,17 +4818,6 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-use-plists t)
 
   :config
-  (setq lsp-enable-indentation t
-        lsp-enable-on-type-formatting nil
-        lsp-enable-symbol-highlighting t
-        lsp-format-on-save nil
-        lsp-log-io nil
-        lsp-semantic-tokens-enable nil ; Performance improvement, it avoids constant text-property updates
-        lsp-enable-completion-command nil ; This prevents company from executing expensive workspace/executeCommand and
-                                          ; blocking Emacs after selection
-        lsp-signature-auto-activate t
-        lsp-idle-delay 0.6)
-
   ;; When using TRAMP with devcontainer, LSP servers run inside the container.
   ;; The container should have Node.js and language server extensions installed.
   ;; LSP-mode automatically handles TRAMP, but ESLint extension must be installed in the container.
@@ -6513,7 +6528,31 @@ apply to all language servers:
 ;; Disable LSP-based Java formatting. Apheleia with
 ;; google-java-format handles formatting instead.
 (with-eval-after-load 'lsp-java
-  (setq lsp-java-format-enabled nil))
+  (setq lsp-java-format-enabled nil)
+
+  ;; JDTLS handles java.completion.onDidSelect by sending a workspace/applyEdit
+  ;; back to the client with the resolved method signature (parentheses, params).
+  ;; The default lsp--execute-command path uses lsp-workspace-command-execute
+  ;; which calls lsp-request (blocking). lsp-mode blocks inside accept-process-output
+  ;; waiting for the executeCommand response; the workspace/applyEdit arrives during
+  ;; that wait and is processed, inserting the params. But the wait itself is the
+  ;; multi-second freeze visible in corfu--prepare.
+  ;;
+  ;; By sending the executeCommand asynchronously, lsp-mode no longer blocks.
+  ;; JDTLS still sends workspace/applyEdit through the normal event loop, so the
+  ;; method signature is inserted without stalling Emacs.
+  (cl-defmethod lsp-execute-command
+    ((_server  (eql jdtls))
+     (_command (eql java.completion.onDidSelect))
+     args)
+    (lsp-request-async
+     "workspace/executeCommand"
+     (if args
+         (list :command "java.completion.onDidSelect" :arguments args)
+       (list :command "java.completion.onDidSelect"))
+     #'ignore
+     :error-handler #'ignore
+     :mode 'detached)))
 
 (use-package lsp-java
   :pin "MELPA Unstable"
@@ -6525,8 +6564,10 @@ apply to all language servers:
   ;; the sole authority on target/classes and the DAP classpath is always consistent with what `mvn compile' produced.
   (setq lsp-java-autobuild-enabled nil)
 
-  ;; Performance tuning: Expensive logic (imports, deep resolution) is deferred until you explicitly invoke completion
-  ;; (e.g. M-TAB, company-complete)
+  ;; Performance tuning: Defer expensive Java completion work (e.g. imports and
+  ;; deep type resolution) until completion is explicitly requested via
+  ;; `completion-at-point` (e.g. M-TAB or a manual Corfu trigger), avoiding costly
+  ;; background completion on every trigger character.
   (setq lsp-java-completion-on-demand t)
 
   (add-to-list 'auto-mode-alist '("\\.java.*\\'" . java-ts-mode))
@@ -8166,29 +8207,6 @@ complex structures with just a few keystrokes.
   (setq emmet-indentation 2))
 #+end_src
 
-Below we integrate Emmet's shorthand expansion into the Company completion menu.
-It allows for rapid HTML and CSS development by suggesting full tag structures
-from brief abbreviations (e.g., typing =ul>li*3= and seeing the expanded
-preview.
-
-#+begin_src emacs-lisp
-(use-package company-emmet
-  :after company
-  :init
-  (defun my/inject-company-emmet ()
-    "Inject company-emmet at the front of company-backends."
-    (setq-local company-backends
-                (append '(company-emmet)
-                        (remove 'company-emmet company-backends))))
-  (dolist (hook '(html-mode-hook
-                  html-ts-mode-hook
-                  mhtml-mode-hook
-                  web-mode-hook
-                  css-mode-hook
-                  tsx-ts-mode-hook))
-    (add-hook hook #'my/inject-company-emmet)))
-#+end_src
-
 
 **** SASS/CSS and eldoc
 
@@ -8224,9 +8242,11 @@ indentation, and structural editing for these formats.
 
 *** Advanced shell development
 
-To enable advanced shell scripting development in Emacs, we enable IDE features
-(completion, go-to-definition, linting) through ~lsp-mode~,
-~bash-language-server~ and ~company-shell~ for shell completion.
+To enable advanced shell-script development in Emacs, we use lsp-mode together
+with ~bash-language-server~ to provide IDE-like features such as completion,
+navigation, and diagnostics. Completion is exposed through Emacs' standard CAPF
+interface and rendered by Corfu, ensuring responsive, non-blocking shell
+editing.
 
 #+begin_src sh :tangle setup.sh
 LSP_BASH_LANGUAGE_SERVER_PATH="$HOME/.emacs.d/.cache/lsp/npm/bash-language-server"
@@ -8284,14 +8304,7 @@ Finally, we setup the Emacs packages:
   :ensure nil
   :mode ("\\.sh\\'" . sh-mode)
   :hook ((sh-mode . lsp-deferred)
-         (sh-mode . company-mode)
          (sh-mode . flycheck-mode)))
-
-(use-package company-shell
-  :after company
-  :defer t
-  :hook (sh-mode . (lambda ()
-                     (add-to-list (make-local-variable 'company-backends) 'company-shell))))
 
 (use-package bash-completion
   :defer t
