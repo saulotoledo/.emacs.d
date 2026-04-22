@@ -4633,18 +4633,31 @@ Returns non-nil if buffer contains Kubernetes Secrets or ConfigMaps."
            (re-search-forward "^kind:\\s-*\\(Secret\\|ConfigMap\\)\\s-*$" nil t))))
 
   (defun my/tab-indent-or-complete ()
-    (interactive)
+    "Handle TAB key with a priority-based dispatch system.
+The priority order is as follows:
+1. Copilot: If a ghost-text overlay is active, accept the completion.
+2. ECA: If an ECA completion overlay is present, accept the ECA completion.
+2. Corfu: If the Corfu completion popup is visible, select the current candidate.
+3. Default: Fall back to standard indentation."
+  (interactive)
+  (let* ((at-point (overlays-at (point)))
+         (copilot-ov (and (bound-and-true-p copilot--overlay)
+                          (overlay-buffer copilot--overlay)
+                          copilot--overlay))
+         (eca-ov (cl-find-if (lambda (ov) (overlay-get ov 'completion)) at-point)))
     (cond
-     ;; 1. If Corfu menu is open, complete the current candidate
-     ((bound-and-true-p corfu--frame)
-      (corfu-complete))
-     ;; 2. If Copilot has a suggestion, accept it
-     ((and (fboundp 'copilot-accept-completion)
-           (copilot-accept-completion))
+     (copilot-ov
       (copilot-accept-completion))
-     ;; 3. Otherwise, fall back to normal indentation
+     (eca-ov
+      (if (fboundp 'eca-completion-accept)
+          (eca-completion-accept)
+        (indent-for-tab-command)))
+     ((and (bound-and-true-p corfu-mode)
+           (or (and (bound-and-true-p corfu--frame) (frame-visible-p corfu--frame))
+               (and (featurep 'corfu-terminal) (corfu-terminal--visible-p))))
+      (corfu-complete))
      (t
-      (indent-for-tab-command))))
+      (indent-for-tab-command)))))
 
   (defun my/copilot-excluded-file-p ()
     "Check if current file should be excluded from Copilot."
@@ -4682,6 +4695,11 @@ Defers activation to ensure Copilot server is ready."
                   ;; Only report errors if copilot is loaded (real errors)
                   (when (featurep 'copilot)
                     (message "Copilot activation failed: %S" err)))))))))))
+
+  (with-eval-after-load 'corfu
+    ;; Force Corfu to use your dispatcher instead of its default completion
+    (define-key corfu-map (kbd "TAB") #'my/tab-indent-or-complete)
+    (define-key corfu-map (kbd "<tab>") #'my/tab-indent-or-complete))
 
   :hook ((prog-mode . my/safe-copilot-mode)
          (text-mode . my/safe-copilot-mode)
