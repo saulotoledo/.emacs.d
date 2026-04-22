@@ -8333,11 +8333,8 @@ your =.editorconfig= uses ~indent_style = tab~ for ~[Makefile]~ or remove
 conflicting settings.
 
 #+begin_src emacs-lisp
-(add-hook 'makefile-mode-hook
-          (lambda () (setq indent-tabs-mode t)))
-
-(add-hook 'makefile-gmake-mode-hook
-          (lambda () (setq indent-tabs-mode t)))
+(add-hook 'makefile-mode-hook (lambda ()
+                                (setq-local indent-tabs-mode t)))
 #+end_src
 
 We also need to configure LSP to support it properly:
