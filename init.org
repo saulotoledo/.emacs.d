@@ -8405,7 +8405,6 @@ to be triggered from any source file within a project.
 #+begin_src emacs-lisp
 (use-package makefile-executor
   :bind ("C-c c m" . my/makefile-executor-smart-run)
-  :hook (makefile-mode . makefile-executor-mode)
   :config
   (defun my/makefile-executor-smart-run ()
     "Find the closest Makefile and run an executor command."
