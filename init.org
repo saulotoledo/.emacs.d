@@ -6590,6 +6590,54 @@ apply to all language servers:
 
   (add-to-list 'auto-mode-alist '("\\.java.*\\'" . java-ts-mode))
 
+  (defun my/java-ts-chained-argument-list-p (_node parent _bol)
+    "Return non-nil if PARENT is an `argument_list' of a chained method.
+This handles chains like `obj.method()', `obj.method().method()', or
+`some.field.method()'. It detects the chain by checking for an 'object'
+field or a dot node in the parent `method_invocation'."
+    (and (equal (treesit-node-type parent) "argument_list")
+         (let* ((method-node (treesit-node-parent parent)))
+           (and (equal (treesit-node-type method-node) "method_invocation")
+                ;; If it has an object field, it's called on an object
+                (or (treesit-node-child-by-field-name method-node "object")
+                    ;; Fallback for partial ASTs: check if any child is "."
+                    (let ((has-dot nil))
+                      (dolist (child (treesit-node-children method-node))
+                        (when (equal (treesit-node-type child) ".")
+                          (setq has-dot t)))
+                      has-dot))))))
+
+  (defun my/java-ts-indent-fix ()
+    "Prepend Google-style continuation rules to `java-ts-mode'.
+Specifically ensures that argument lists and chained methods receive
+a 4-space or 8-space offset relative to the statement start."
+    (setq-local java-ts-mode-indent-offset 2)
+    (setq-local treesit-simple-indent-rules
+                (let ((style (alist-get 'java treesit-simple-indent-rules)))
+                  `((java
+                     ;; Priority Rules: Match these before the defaults
+                     ;;
+                     ;; 1. Handle chained methods arguments (e.g. val1 in .values(val1))
+                     ;; Using standalone-parent ensures it's an absolute +8 from the start of the whole statement.
+                     (my/java-ts-chained-argument-list-p standalone-parent 8)
+                     ;; 2. Standard continuations
+                     ((parent-is "argument_list") standalone-parent 4)
+                     ((parent-is "formal_parameters") standalone-parent 4)
+                     ((parent-is "binary_expression") standalone-parent 4)
+                     ;; 3. Handle chained method calls (the .values part)
+                     ;; Using standalone-parent ensures it's +4 from the start of the chain.
+                     ((parent-is "method_invocation") standalone-parent 4)
+                     ;; Splice in the rest of the existing rules
+                     ,@style))))
+    ;; Refresh the indentation engine
+    (treesit-major-mode-setup))
+
+  ;; Execute on hack-local-variables-hook to guarantee java-ts-mode has fully populated
+  ;; its default treesit-simple-indent-rules before we append our custom rules.
+  (add-hook 'java-ts-mode-hook
+            (lambda ()
+              (add-hook 'hack-local-variables-hook #'my/java-ts-indent-fix nil t)))
+
   :hook
   (java-ts-mode . lsp-deferred)
 
@@ -6690,8 +6738,8 @@ it emits an \"Invalid runtime\" warning which is intercepted by
           (let (runtime-list)
             (maphash (lambda (major path)
                        (let ((env-name (if (= major 8)
-                                          "JavaSE-1.8"
-                                        (format "JavaSE-%d" major))))
+                                           "JavaSE-1.8"
+                                         (format "JavaSE-%d" major))))
                          (push `(:name ,env-name :path ,path) runtime-list)))
                      major->path)
             (vconcat runtime-list))))))
