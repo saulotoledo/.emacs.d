@@ -2493,7 +2493,24 @@ Smartparens is a minor mode for dealing with pairs in Emacs.
   (define-key smartparens-mode-map (kbd "C-<left>") #'left-word)
   (define-key smartparens-mode-map (kbd "C-<right>") #'right-word)
   ;; Custom rules: Don't pair single quotes in lisp-mode (prevents 'foo')
-  (sp-pair "'" nil :unless '(sp-point-after-word-p sp-point-at-bol-p)))
+  (sp-pair "'" nil :unless '(sp-point-after-word-p sp-point-at-bol-p))
+
+  (defun my/sp-lower-overlay-priority (&rest _)
+    "Lower smartparens overlay priority so it doesn't hide the region."
+    (when (boundp 'sp-show-pair-overlays)
+      (when (car sp-show-pair-overlays)
+        (overlay-put (car sp-show-pair-overlays) 'priority -10))
+      (when (cdr sp-show-pair-overlays)
+        (overlay-put (cdr sp-show-pair-overlays) 'priority -10)))
+    (when (boundp 'sp-show-pair-enc-overlays)
+      (when (car sp-show-pair-enc-overlays)
+        (overlay-put (car sp-show-pair-enc-overlays) 'priority -10))
+      (when (cdr sp-show-pair-enc-overlays)
+        (overlay-put (cdr sp-show-pair-enc-overlays) 'priority -10))))
+
+  (advice-add 'sp-show--pair-create-overlays :after #'my/sp-lower-overlay-priority)
+  (advice-add 'sp-show--pair-create-enc-overlays :after #'my/sp-lower-overlay-priority)
+  (advice-add 'sp-show--pair-create-mismatch-overlay :after #'my/sp-lower-overlay-priority))
 #+end_src
 
 
