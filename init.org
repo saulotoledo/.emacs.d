@@ -4872,6 +4872,12 @@ code completion, go-to-definition, diagnostics, and more.
   ;; overhead.
   (setq read-process-output-max (* 4 1024 1024))
 
+  ;; Slightly (but insignificantly) more costly, but it prevents Emacs from triggering lsp--on-rename-file ->
+  ;; workspace/willRenameFiles, which eventually freezes Emacs when backup (filename~) files are written by Emacs:
+  (setq backup-by-copying t)
+  (setq backup-by-copying-when-linked t)
+  (setq backup-by-copying-when-mismatch t)
+
   ;; Prevent noisy language servers (like semgrep-ls) from prompting
   ;; to restart if they crash due to pipe breakage during Emacs shutdown.
   (add-hook 'kill-emacs-query-functions
