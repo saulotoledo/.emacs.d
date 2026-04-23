@@ -3750,9 +3750,11 @@ non-blocking.
   :demand t
   :init
   (global-corfu-mode)
-  :bind
-  ([(control return)] . completion-at-point)
-
+  :bind (("C-<return>" . completion-at-point) ; Global binding (menu not open)
+         :map corfu-map ; When the menu is opened
+         ("C-<return>" . corfu-insert)
+         ("RET" . nil) ; Clear the default RET behavior (prevents unwanted newline)
+         ([return] . corfu-insert))
   :custom
   (corfu-auto t)
   ;; Keep popup responsive and predictable:
