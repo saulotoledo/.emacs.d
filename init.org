@@ -6101,6 +6101,34 @@ navigate complex hierarchies with the same ease as an Org-mode document.
   ;; Enable folding for all programming modes
   (add-hook 'prog-mode-hook #'treesit-fold-mode)
 
+  ;; --- Performance: Idle-timer debounce for fringe indicators ---
+  ;;
+  ;; Problem: treesit-fold-indicators--post-command runs synchronously on
+  ;; *every* keystroke via post-command-hook.  While typing broken/incomplete
+  ;; code (common in TS/Next.js), the Tree-sitter parser repeatedly rebuilds
+  ;; the CST and Emacs re-renders fringe markers, causing ~11 % CPU usage and
+  ;; input lag (see profiler reports).
+  ;;
+  ;; Fix: Replace the synchronous call with a buffer-local idle timer.
+  ;; Each keystroke cancels the pending timer and schedules a fresh one.
+  ;; The real update only fires after the user pauses for 0.5 s, meaning
+  ;; *zero* indicator overhead while actively typing.
+  (defvar-local my/treesit-fold-idle-timer nil
+    "Buffer-local idle timer for deferred treesit-fold indicator updates.")
+
+  (define-advice treesit-fold-indicators--post-command
+      (:around (orig-fn &rest args) idle-debounce)
+    "Defer indicator updates to idle time; cancel-on-type for zero typing overhead."
+    (when (timerp my/treesit-fold-idle-timer)
+      (cancel-timer my/treesit-fold-idle-timer))
+    (let ((buf (current-buffer)))
+      (setq my/treesit-fold-idle-timer
+            (run-with-idle-timer 0.5 nil
+              (lambda ()
+                (when (buffer-live-p buf)
+                  (with-current-buffer buf
+                    (ignore-errors (apply orig-fn args)))))))))
+
   (defun my/treesit-fold-toggle-all ()
     "Toggle all folds in the current buffer."
     (interactive)
