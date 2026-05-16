@@ -3861,6 +3861,19 @@ non-blocking.
          ([return] . corfu-insert))
   :custom
   (corfu-auto t)
+  ;; --- Performance: delay auto-completion to reduce LSP server load ---
+  ;;
+  ;; The default 0.2 s fires completion requests almost every keystroke.
+  ;; When a language server receives a request while the buffer contains
+  ;; incomplete or syntactically invalid code, it can crash internally and
+  ;; return a JSON-RPC error, which cascades back through lsp-mode into
+  ;; corfu's error handler (corfu--debug), dumping a full backtrace to
+  ;; *Messages* and occasionally freezing the UI.
+  ;;
+  ;; Raising the delay to 0.5 s (matching the treesit-fold idle timer) means
+  ;; completion only fires when the user has naturally paused, dramatically
+  ;; reducing spurious requests to an unstable server.
+  (corfu-auto-delay 0.5)
   ;; Keep popup responsive and predictable:
   (corfu-cycle t)
   (corfu-preselect 'prompt)
