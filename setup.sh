@@ -1037,7 +1037,7 @@ uninstall_copilot() {
 register_action "Install GitHub Copilot" "copilot" "node"
 
 is_installed_prettier() {
-  [ -f "$TOOLS_DIR/node_modules/.bin/typescript-language-server" ] || command -v typescript-language-server >/dev/null 2>&1
+  [ -f "$TOOLS_DIR/node_modules/.bin/prettier" ] || command -v prettier >/dev/null 2>&1
 }
 
 install_prettier() {
@@ -1352,19 +1352,19 @@ uninstall_kotlin() {
 
 register_action "Install Kotlin" "kotlin" "jvm"
 
-is_installed_typescript_language_server() {
-  [ -f "$TOOLS_DIR/node_modules/.bin/typescript-language-server" ] || command -v typescript-language-server >/dev/null 2>&1
+is_installed_vtsls_language_server() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/vtsls" ] || command -v vtsls >/dev/null 2>&1
 }
 
-install_typescript_language_server() {
+install_vtsls_language_server() {
   install_nodejs_tools
 }
 
-uninstall_typescript_language_server() {
+uninstall_vtsls_language_server() {
   uninstall_nodejs_tools
 }
 
-register_action "Install TypeScript Language Server" "typescript-language-server" "node"
+register_action "Install vtsls Language Server" "vtsls-language-server" "node"
 
 LSP_BASH_LANGUAGE_SERVER_PATH="$HOME/.emacs.d/.cache/lsp/npm/bash-language-server"
 

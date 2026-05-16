@@ -5969,7 +5969,7 @@ your settings. It is especially useful for JavaScript and TypeScript projects.
 
 #+begin_src sh :tangle setup.sh
 is_installed_prettier() {
-  [ -f "$TOOLS_DIR/node_modules/.bin/typescript-language-server" ] || command -v typescript-language-server >/dev/null 2>&1
+  [ -f "$TOOLS_DIR/node_modules/.bin/prettier" ] || command -v prettier >/dev/null 2>&1
 }
 
 install_prettier() {
@@ -8234,25 +8234,23 @@ Major mode for editing JavaScript:
 **** TypeScript
 
 To enable IDE features for TypeScript, you need to install both the TypeScript
-compiler (typescript) and the TypeScript Language Server (TSLS), and configure
-Emacs to use them.
+compiler (typescript) and a TypeScript Language Server, and configure Emacs to
+use them.
 
-Why two packages? The typescript npm package provides the compiler and tsserver,
-but not the Language Server Protocol (LSP). The typescript-language-server
-package wraps tsserver and exposes its features via LSP, which is required for
-lsp-mode and dap-mode in Emacs. This separation allows editors to Emacs. This
-separation allows editors to use a standard protocol for IDE features across
-many languages.
+This setup uses =@vtsls/language-server= (=vtsls=), a modern LSP wrapper
+around the VS Code TypeScript extension. It provides close feature parity with
+VS Code's TypeScript experience and handles edge cases (such as URI encoding for
+folder names with parentheses) more robustly than the older
+=typescript-language-server=.
 
 This repository contains a local setup for TypeScript tools under
 =~/.emacs.d/nodejs_tools/= to ensure a consistent version is used regardless of
 the project. However, if a project has its own local installation of
-=typescript-language-server= in =node_modules/.bin/=, that version will be
-preferred.
+=vtsls= in =node_modules/.bin/=, that version will be preferred.
 
 #+begin_src sh :tangle setup.sh
 is_installed_typescript_language_server() {
-  [ -f "$TOOLS_DIR/node_modules/.bin/typescript-language-server" ] || command -v typescript-language-server >/dev/null 2>&1
+  [ -f "$TOOLS_DIR/node_modules/.bin/vtsls" ] || command -v vtsls >/dev/null 2>&1
 }
 
 install_typescript_language_server() {
@@ -8263,7 +8261,20 @@ uninstall_typescript_language_server() {
   uninstall_nodejs_tools
 }
 
-register_action "Install TypeScript Language Server" "typescript-language-server" "node"
+# Keep backwards compatible installer wrapper names but register vtsls instead
+install_vtsls_language_server() {
+  install_nodejs_tools
+}
+
+uninstall_vtsls_language_server() {
+  uninstall_nodejs_tools
+}
+
+is_installed_vtsls_language_server() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/vtsls" ] || command -v vtsls >/dev/null 2>&1
+}
+
+register_action "Install vtsls Language Server" "vtsls-language-server" "node"
 #+end_src
 
 Note that you need to install [[https://nodejs.org/][Node.js]] before proceeding.
@@ -8307,7 +8318,61 @@ treesit (~*-ts-mode~):
 (with-eval-after-load 'dap-mode
   (my/typescript-register-debug-templates))
 
-(defvar lsp-typescript-server-path nil)
+;; --- vtsls lsp-mode client registration ---
+;; vtsls wraps the VS Code TypeScript extension. There is no lsp-vtsls package
+;; on MELPA, and upstream lsp-javascript.el has no vtsls entry as of 2026-05.
+;; We register it manually at priority 0, beating ts-ls (-2) so vtsls is always
+;; used for TypeScript/JavaScript buffers.
+;;
+;; lsp-typescript-tsdk points at the TypeScript SDK vtsls should use.
+;; lsp-mode's built-in `typescript.tsdk' setting forwards it automatically via
+;; lsp-register-custom-settings → (lsp-configuration-section "typescript").
+;;
+;; DAP (dap-js / pwa-node / vscode-js-debug) is fully independent of the LSP
+;; server and works unchanged with either ts-ls or vtsls.
+
+;; Point lsp-typescript-tsdk at our emacs-local typescript installation.
+;; Projects that have their own typescript in node_modules will override this
+;; automatically because vtsls.autoUseWorkspaceTsdk is enabled below.
+(setq lsp-typescript-tsdk
+      (expand-file-name "nodejs_tools/node_modules/typescript/lib"
+                        user-emacs-directory))
+
+(defun my/vtsls-server-command ()
+  "Return the command to start vtsls, preferring the project-local binary."
+  (let* ((file      (or (buffer-file-name) default-directory))
+         (proj-root (or (locate-dominating-file file "node_modules")
+                        user-emacs-directory))
+         (proj-bin  (expand-file-name "node_modules/.bin/vtsls" proj-root))
+         (local-bin (expand-file-name "nodejs_tools/node_modules/.bin/vtsls"
+                                      user-emacs-directory))
+         (binary    (cond
+                     ((file-executable-p proj-bin)  proj-bin)
+                     ((file-executable-p local-bin) local-bin)
+                     (t (executable-find "vtsls")))))
+    (list binary "--stdio")))
+
+(with-eval-after-load 'lsp-mode
+  (lsp-register-client
+   (make-lsp-client
+    :new-connection (lsp-stdio-connection #'my/vtsls-server-command)
+    :activation-fn 'lsp-typescript-javascript-tsx-jsx-activate-p
+    :priority 0    ;; beats ts-ls (-2); vtsls is always preferred
+    :server-id 'vtsls
+    :initialized-fn
+    (lambda (workspace)
+      (with-lsp-workspace workspace
+        ;; lsp-configuration-section "typescript" picks up lsp-typescript-tsdk
+        ;; and all other lsp-typescript-* customization variables automatically.
+        (lsp--set-configuration
+         (ht-merge
+          (lsp-configuration-section "javascript")
+          (lsp-configuration-section "typescript")
+          (ht ("vtsls" (ht ("autoUseWorkspaceTsdk" t))))))))
+    ;; initialization-options are sent at the LSP initialize handshake.
+    ;; autoUseWorkspaceTsdk tells vtsls to prefer project-local typescript
+    ;; over its bundled version when a workspace typescript is detected.
+    :initialization-options '(:vtsls (:autoUseWorkspaceTsdk t)))))
 
 (use-package typescript-ts-mode
   :defer t
@@ -8315,22 +8380,16 @@ treesit (~*-ts-mode~):
          ("\\.tsx\\'" . tsx-ts-mode))
   :after (lsp-mode dap-mode yasnippet)
   :config
-  ;; Ensure dap-js is loaded for TypeScript/Node.js debugging
+  ;; dap-js (pwa-node / vscode-js-debug) is the DAP adapter for Node.js/TS.
+  ;; It operates independently of the LSP server -- no LSP calls are made
+  ;; during debugging. Requiring it here ensures the adapter is ready when
+  ;; TypeScript mode activates.
   (require 'dap-js)
-
-  ;; Prefer project-local typescript-language-server, fallback to ~/.emacs.d/nodejs_tools.
-  ;; Optimization: The remote-TSLS path is now handled by connection-local variables.
-  (if (file-remote-p (or (buffer-file-name) default-directory))
-      (setq lsp-typescript-server-path "typescript-language-server")
-    (let* ((project-root (or (locate-dominating-file (or (buffer-file-name) default-directory) "node_modules") (or (buffer-file-name) default-directory)))
-           (project-tsls (expand-file-name "node_modules/.bin/typescript-language-server" project-root))
-           (fallback-tsls (executable-find "typescript-language-server")))
-      (setq lsp-typescript-server-path (if (file-exists-p project-tsls) project-tsls fallback-tsls))))
   :hook (((typescript-ts-mode tsx-ts-mode) . lsp-deferred)
          ((typescript-ts-mode tsx-ts-mode) . yas-minor-mode)))
 
 ;; Register accepted extensions for workspace folder filtering
-(add-to-list 'my/lsp-server-file-extensions '(ts-ls . ("ts" "tsx" "cts" "mts" "js" "jsx" "mjs" "cjs")))
+(add-to-list 'my/lsp-server-file-extensions '(vtsls . ("ts" "tsx" "cts" "mts" "js" "jsx" "mjs" "cjs")))
 #+end_src
 
 And now debugging features:
