@@ -47,6 +47,7 @@
     - [[#move-text][Move Text]]
     - [[#multiple-cursors][Multiple cursors]]
     - [[#smartparens][Smartparens]]
+    - [[#smart-ret-for-xml--html--jsx--tsx-tags][Smart RET for XML / HTML / JSX / TSX tags]]
     - [[#undo-tree][Undo tree]]
 - [[#version-control][Version control]]
     - [[#magit-a-powerful-git-interface-for-emacs][Magit: a powerful Git interface for Emacs]]
@@ -2495,6 +2496,51 @@ Smartparens is a minor mode for dealing with pairs in Emacs.
   ;; Custom rules: Don't pair single quotes in lisp-mode (prevents 'foo')
   (sp-pair "'" nil :unless '(sp-point-after-word-p sp-point-at-bol-p))
 
+  ;; RET inside an empty paired delimiter or between tags expands into an
+  ;; indented block:
+  ;;
+  ;;   {|}  →  {          <h1>|</h1>  →  <h1>
+  ;;               |                           |
+  ;;           }                          </h1>
+  ;;
+  ;; Covers: {}, (), [] (all prog-mode languages) and JSX/TSX inline tags
+  ;; (typescript-ts-mode, tsx-ts-mode, etc.).
+  ;;
+  ;; We avoid `indent-according-to-mode' here because tree-sitter modes
+  ;; (typescript-ts-mode, etc.) haven't reparsed the buffer yet at the
+  ;; moment the newline is inserted, causing them to return column 0.
+  ;; Instead, we snapshot the current line's indentation and apply it
+  ;; manually with `indent-to', which is instant and always correct.
+  (defun my/prog-smart-ret ()
+    "Smart RET for prog-mode.
+Expands {|}, (|), [|], and >|</ into indented blocks.
+Falls through to newline-and-indent otherwise."
+    (interactive)
+    (let ((base (current-indentation)))
+      (cond
+       ;; Empty bracket pair: {|}, (|), [|]
+       ((and (memq (char-before) '(?{ ?\( ?\[))
+             (memq (char-after)  '(?} ?\) ?\])))
+        (newline)
+        (indent-to (+ base tab-width))
+        (save-excursion
+          (newline)
+          (indent-to base)))
+       ;; Between JSX/HTML tags: <h1>|</h1>
+       ((and (eq (char-before) ?>)
+             (looking-at "</"))
+        (newline)
+        (indent-to (+ base tab-width))
+        (save-excursion
+          (newline)
+          (indent-to base)))
+       (t
+        (newline-and-indent)))))
+
+  (add-hook 'prog-mode-hook
+            (lambda ()
+              (local-set-key (kbd "RET") #'my/prog-smart-ret)))
+
   (defun my/sp-lower-overlay-priority (&rest _)
     "Lower smartparens overlay priority so it doesn't hide the region."
     (when (boundp 'sp-show-pair-overlays)
@@ -2511,6 +2557,65 @@ Smartparens is a minor mode for dealing with pairs in Emacs.
   (advice-add 'sp-show--pair-create-overlays :after #'my/sp-lower-overlay-priority)
   (advice-add 'sp-show--pair-create-enc-overlays :after #'my/sp-lower-overlay-priority)
   (advice-add 'sp-show--pair-create-mismatch-overlay :after #'my/sp-lower-overlay-priority))
+#+end_src
+
+
+** Smart RET for XML / HTML / JSX / TSX tags
+
+Two tag-aware RET behaviors:
+
+1. *Between tags* (~<h1>|</h1>~ → indented block, closing tag on its own line).
+   ~web-mode~ provides this natively. ~nxml-mode~ does not, so we add it there.
+
+2. *Inside a tag's attribute zone* (~<h1 class="foo"|>~ → break to a new indented line
+   inside the tag, keeping ~>~ in place).
+   Neither ~nxml-mode~ nor ~tsx-ts-mode~ provide this, so we add it for both.
+
+#+begin_src emacs-lisp
+(defun my/tag-point-in-attribute-zone-p ()
+  "Return non-nil when point is inside an open tag's attribute zone.
+That is: after a tag name (<word) and before its closing >."
+  (save-excursion
+    (let ((pos (point)))
+      (and (re-search-backward "<[a-zA-Z]" nil t)
+           (not (re-search-forward ">" pos t))))))
+
+(defun my/tag-smart-ret ()
+  "Smart RET for tag-based modes.
+- Between tags  <h1>|</h1>  : open indented block, closing tag on its own line.
+- In attribute  <h1 foo|>   : break to a new indented line inside the tag.
+- Otherwise                 : plain newline-and-indent."
+  (interactive)
+  ;; If the cursor is between a simple bracket pair, delegate to the
+  ;; general prog-mode handler so ()/[]/{} are handled uniformly.
+  (if (and (memq (char-before) '(?{ ?\( ?\[))
+           (memq (char-after)  '(?} ?\) ?\])))
+      (call-interactively #'my/prog-smart-ret)
+    (let ((base (current-indentation)))
+      (cond
+       ;; Between tags: <h1>|</h1>
+       ((and (eq (char-before) ?>) (looking-at "</"))
+        (newline)
+        (indent-to (+ base tab-width))
+        (save-excursion
+          (newline)
+          (indent-to base)))
+       ;; Inside tag attributes: <h1 class="foo"|>
+       ((my/tag-point-in-attribute-zone-p)
+        (newline)
+        (indent-to (+ base tab-width)))
+       (t
+        (newline-and-indent))))))
+
+;; nxml-mode (XML): needs both behaviors.
+;; tsx-ts-mode / web-mode: content-block (case 1) is built-in; we only add the
+;; attribute-break (case 2) by binding the same function -- it safely falls
+;; through to newline-and-indent when not in an attribute zone.
+(dolist (hook '(nxml-mode-hook
+                tsx-ts-mode-hook
+                web-mode-hook))
+  (add-hook hook (lambda ()
+                   (local-set-key (kbd "RET") #'my/tag-smart-ret))))
 #+end_src
 
 
