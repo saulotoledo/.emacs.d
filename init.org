@@ -4993,16 +4993,18 @@ code completion, go-to-definition, diagnostics, and more.
               t))
 
   ;; Globally ignore large/irrelevant directories
-  (dolist (dir '("[/\\\\]node_modules\\'"
-                 "[/\\\\]\\.emacs\\.d\\'"
+  (dolist (dir '("[/\\\\]\\.emacs\\.d\\'"
                  "[/\\\\]\\.git\\'"
+                 "[/\\\\]\\.gradle\\'"
+                 "[/\\\\]\\.mvn\\'"
+                 "[/\\\\]\\.next\\'"
                  "[/\\\\]\\.pnpm-store\\'"
+                 "[/\\\\]\\.vercel\\'"
                  "[/\\\\]build\\'"
                  "[/\\\\]dist\\'"
-                 "[/\\\\]target\\'"   ; Maven/Gradle build output
-                 "[/\\\\]\\.mvn\\'"
-                 "[/\\\\]\\.gradle\\'"
-                 "[/\\\\]out\\'"))
+                 "[/\\\\]node_modules\\'"
+                 "[/\\\\]out\\'"
+                 "[/\\\\]target\\'"))
     (add-to-list 'lsp-file-watch-ignored-directories dir))
 
   ;; Kill workspaces when their last buffer closes.
