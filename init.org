@@ -4972,6 +4972,9 @@ code completion, go-to-definition, diagnostics, and more.
   ;;   Possible readon: dockerfile-ls requires plists.
   (lsp-use-plists t)
 
+  ;; Other settings
+  (lsp-completion-enable-additional-text-edit t) ; Enable auto-imports and extra code snippets on completion
+
   :config
   ;; When using TRAMP with devcontainer, LSP servers run inside the container.
   ;; The container should have Node.js and language server extensions installed.
