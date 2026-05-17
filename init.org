@@ -4938,9 +4938,7 @@ code completion, go-to-definition, diagnostics, and more.
   :bind
   (:map lsp-mode-map ("M-RET" . lsp-execute-code-action))
 
-  ;; Save automatically after edits such as lsp-rename
   :hook
-  (lsp-after-apply-edits . save-buffer)
   (prog-mode . lsp-deferred)
 
   :custom
