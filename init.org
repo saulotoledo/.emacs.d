@@ -3861,7 +3861,8 @@ non-blocking.
          ([return] . corfu-insert))
   :custom
   (corfu-auto t)
-  (corfu-auto-delay 0.2)
+  (corfu-auto-delay 0.3)
+  (corfu-auto-prefix 2)
   ;; Keep popup responsive and predictable:
   (corfu-cycle t)
   (corfu-preselect 'prompt)
@@ -4951,6 +4952,10 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-semantic-tokens-enable nil) ; Performance improvement, it avoids constant text-property updates
   (lsp-signature-auto-activate t)
   (lsp-idle-delay 0.6)
+  ;; Prevent corfu's auto-completion from re-entering itself: lsp-request-while-no-input loops on
+  ;; sit-for while waiting for the LSP response; sit-for processes timers which fire more corfu
+  ;; completions, creating an 80%+-CPU recursive storm. nil makes LSP skip the blocking wait.
+  (lsp-request-while-no-input nil)
 
   ;; Configure LSP to work with TRAMP/devcontainer
   ;; When using TRAMP to access files inside devcontainer, LSP should use
