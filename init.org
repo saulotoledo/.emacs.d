@@ -8377,6 +8377,12 @@ treesit (~*-ts-mode~):
                      (t (executable-find "vtsls")))))
     (list binary "--stdio")))
 
+;; Enable snippet completions for TS function calls.
+;; lsp-typescript-suggest-complete-function-calls defaults to nil but must be t
+;; so that typescript.suggest.completeFunctionCalls is included when
+;; lsp-configuration-section "typescript" is serialised below.
+(setq lsp-typescript-suggest-complete-function-calls t)
+
 (with-eval-after-load 'lsp-mode
   (lsp-register-client
    (make-lsp-client
@@ -8393,6 +8399,9 @@ treesit (~*-ts-mode~):
          (ht-merge
           (lsp-configuration-section "javascript")
           (lsp-configuration-section "typescript")
+          ;; "completions" section sends completions.completeFunctionCalls (t by default)
+          ;; which tells vtsls to insert function parameter snippets on completion.
+          (lsp-configuration-section "completions")
           (ht ("vtsls" (ht ("autoUseWorkspaceTsdk" t))))))))
     ;; initialization-options are sent at the LSP initialize handshake.
     ;; autoUseWorkspaceTsdk tells vtsls to prefer project-local typescript
