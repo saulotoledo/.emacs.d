@@ -4950,7 +4950,11 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-format-on-save nil)
   (lsp-log-io nil)
   (lsp-semantic-tokens-enable nil) ; Performance improvement, it avoids constant text-property updates
-  (lsp-signature-auto-activate t)
+  ;; Do NOT include :on-trigger-char: that fires on every ( and , in TypeScript, recreating
+  ;; the posframe child frame each time and occasionally disrupting input routing (producing
+  ;; "( is undefined" / "= is undefined" in *Messages*). Keep :after-execute so signature
+  ;; still shows when you pick a completion, and :on-server-request for server-pushed help.
+  (lsp-signature-auto-activate '(:after-execute :on-server-request))
   (lsp-idle-delay 0.6)
   ;; Prevent corfu's auto-completion from re-entering itself: lsp-request-while-no-input loops on
   ;; sit-for while waiting for the LSP response; sit-for processes timers which fire more corfu
@@ -5359,6 +5363,8 @@ The helper below, copied from https://github.com/themkat/.emacs.d/blob/master/in
   :custom
   (lsp-ui-doc-enable t)
   (lsp-ui-doc-position 'top) ; 'at-point causes infinite redisplay_internal loop (child frame repositions during redisplay)
+  ;; Ensure the doc child frame never steals keyboard focus from the editing buffer.
+  (lsp-ui-doc-frame-parameters '((no-accept-focus . t) (min-width . 0) (width . 0) (min-height . 0) (height . 0)))
   (lsp-ui-sideline-enable nil)
   (lsp-ui-sideline-show-hover t)
   (lsp-ui-peek-always-show t)
@@ -5369,7 +5375,9 @@ The helper below, copied from https://github.com/themkat/.emacs.d/blob/master/in
   (lsp-ui-sideline-enable nil) ; too many overlays, so we disable it
 
   :bind
-  (:map lsp-mode-map ("M-s M-d" . lsp-ui-show-doc-helper)))
+  (:map lsp-mode-map
+        ("M-s M-d" . lsp-ui-show-doc-helper)
+        ("M-s M-s" . lsp-signature-activate))) ; Manual trigger since :on-trigger-char is disabled
 #+end_src
 
 
