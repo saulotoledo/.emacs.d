@@ -4945,7 +4945,7 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-response-timeout 20) ; Increase timeout for slow language servers
   (lsp-enable-indentation t)
   (lsp-enable-on-type-formatting nil)
-  (lsp-enable-symbol-highlighting t)
+  (lsp-enable-symbol-highlighting nil) ; Constant overlay updates trigger extra redisplay passes
   (lsp-format-on-save nil)
   (lsp-log-io nil)
   (lsp-semantic-tokens-enable nil) ; Performance improvement, it avoids constant text-property updates
@@ -5353,7 +5353,7 @@ The helper below, copied from https://github.com/themkat/.emacs.d/blob/master/in
 
   :custom
   (lsp-ui-doc-enable t)
-  (lsp-ui-doc-position 'at-point)
+  (lsp-ui-doc-position 'top) ; 'at-point causes infinite redisplay_internal loop (child frame repositions during redisplay)
   (lsp-ui-sideline-enable nil)
   (lsp-ui-sideline-show-hover t)
   (lsp-ui-peek-always-show t)
