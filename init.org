@@ -3915,8 +3915,16 @@ or blocking behavior.
   :init
   (add-to-list 'completion-at-point-functions #'cape-file) ; File and directory completion
   (add-to-list 'completion-at-point-functions #'cape-dabbrev) ; Word-based completion from open buffers
-  (add-to-list 'completion-at-point-functions #'cape-keyword) ; Language keyword completion
-  (add-to-list 'completion-at-point-functions #'cape-yasnippet)) ; Code Snippets
+  (add-to-list 'completion-at-point-functions #'cape-keyword)) ; Language keyword completion
+#+end_src
+
+For yasnippet integration with CAPE, we need the ~yasnippet-capf~ package:
+
+#+begin_src emacs-lisp
+(use-package yasnippet-capf
+  :after (cape yasnippet)
+  :init
+  (add-to-list 'completion-at-point-functions #'yasnippet-capf)) ; Code Snippets
 #+end_src
 
 
@@ -8392,6 +8400,13 @@ treesit (~*-ts-mode~):
     ;; autoUseWorkspaceTsdk tells vtsls to prefer project-local typescript
     ;; over its bundled version when a workspace typescript is detected.
     :initialization-options '(:vtsls (:autoUseWorkspaceTsdk t)))))
+
+;; Disable lsp-mode's `textDocument/documentColor' integration globally.
+;; `vtsls' advertises colorProvider, which 'triggers lsp-mode to send
+;; `textDocument/documentColor' requests. `lsp-mode' has no UI handler for
+;; color responses, causing "Unhandled method" errors that freeze Corfu.
+;; Setting this variable to nil suppresses the feature at the source.
+(setq lsp-enable-text-document-color nil)
 
 (use-package typescript-ts-mode
   :defer t
