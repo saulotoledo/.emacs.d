@@ -4950,6 +4950,12 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-format-on-save nil)
   (lsp-log-io nil)
   (lsp-semantic-tokens-enable nil) ; Performance improvement, it avoids constant text-property updates
+  ;; Both fire LSP requests on every after-change-functions call. While typing fast, each request
+  ;; is immediately cancelled by the next keystroke, producing a storm of "Cancelling
+  ;; textDocument/codeAction(N) in hook after-change-functions" messages and repeated modeline
+  ;; redraws. Disable both; use M-RET for code actions.
+  (lsp-modeline-code-actions-enable nil)
+  (lsp-lens-enable nil)
   ;; Do NOT include :on-trigger-char: that fires on every ( and , in TypeScript, recreating
   ;; the posframe child frame each time and occasionally disrupting input routing (producing
   ;; "( is undefined" / "= is undefined" in *Messages*). Keep :after-execute so signature
