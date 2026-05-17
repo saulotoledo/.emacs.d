@@ -8290,29 +8290,16 @@ the project. However, if a project has its own local installation of
 =vtsls= in =node_modules/.bin/=, that version will be preferred.
 
 #+begin_src sh :tangle setup.sh
-is_installed_typescript_language_server() {
+is_installed_vtsls_language_server() {
   [ -f "$TOOLS_DIR/node_modules/.bin/vtsls" ] || command -v vtsls >/dev/null 2>&1
 }
 
-install_typescript_language_server() {
-  install_nodejs_tools
-}
-
-uninstall_typescript_language_server() {
-  uninstall_nodejs_tools
-}
-
-# Keep backwards compatible installer wrapper names but register vtsls instead
 install_vtsls_language_server() {
   install_nodejs_tools
 }
 
 uninstall_vtsls_language_server() {
   uninstall_nodejs_tools
-}
-
-is_installed_vtsls_language_server() {
-  [ -f "$TOOLS_DIR/node_modules/.bin/vtsls" ] || command -v vtsls >/dev/null 2>&1
 }
 
 register_action "Install vtsls Language Server" "vtsls-language-server" "node"
