@@ -809,6 +809,9 @@ install_terraformls() {
     if [ ! -f /usr/share/keyrings/hashicorp-archive-keyring.gpg ] || [[ "$FORCE_REINSTALL" == "true" ]]; then
       wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
     fi
+    if [ ! -f /etc/apt/sources.list.d/hashicorp.list ] || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list > /dev/null
+    fi
   elif [ -f /etc/fedora-release ] || command -v dnf >/dev/null 2>&1; then
     if [ ! -f /etc/yum.repos.d/hashicorp.repo ] || [[ "$FORCE_REINSTALL" == "true" ]]; then
       sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo --overwrite
