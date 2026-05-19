@@ -1418,6 +1418,11 @@ The following variables are global:
       visible-bell t                  ; Visual flash instead of audible bell
       )
 
+;; Disable jit-lock anti-blink: it fires a post-command hook on every
+;; keystroke to suppress redisplay inside strings/comments. The cost
+;; outweighs the minor visual benefit.
+(setq jit-lock-antiblink-grace nil)
+
 ;; The following variables are buffer-local and require setq-default
 ;; to prevent warnings with assignment to free variables:
 (setq-default recentf-max-saved-items 10000   ; Show more recent files
@@ -2170,8 +2175,7 @@ Other useful shortcuts for the extension are:
            dirtrack-mode            ; directory tracking in *shell*
            global-auto-revert-mode  ; Revert files when changed on disk
            global-so-long-mode      ; Mitigate performance for long lines
-           recentf-mode             ; Recently opened files
-           show-paren-mode))        ; Highlight matching parentheses
+           recentf-mode))           ; Recently opened files
   (funcall mode 1))
 #+end_src
 
@@ -6252,16 +6256,20 @@ navigate complex hierarchies with the same ease as an Org-mode document.
 
   (define-advice treesit-fold-indicators--post-command
       (:around (orig-fn &rest args) idle-debounce)
-    "Defer indicator updates to idle time; cancel-on-type for zero typing overhead."
-    (when (timerp my/treesit-fold-idle-timer)
-      (cancel-timer my/treesit-fold-idle-timer))
-    (let ((buf (current-buffer)))
-      (setq my/treesit-fold-idle-timer
-            (run-with-idle-timer 0.5 nil
-              (lambda ()
-                (when (buffer-live-p buf)
-                  (with-current-buffer buf
-                    (ignore-errors (apply orig-fn args)))))))))
+    "Defer indicator updates to idle time; cancel-on-type for zero typing overhead.
+Skip entirely when indicators are not active in this buffer."
+    ;; Fast-path: avoid timer churn in buffers where indicators aren't on
+    ;; (minibuffer, org-mode, etc.).
+    (when (bound-and-true-p treesit-fold-indicators-mode)
+      (when (timerp my/treesit-fold-idle-timer)
+        (cancel-timer my/treesit-fold-idle-timer))
+      (let ((buf (current-buffer)))
+        (setq my/treesit-fold-idle-timer
+              (run-with-idle-timer 0.8 nil
+                (lambda ()
+                  (when (buffer-live-p buf)
+                    (with-current-buffer buf
+                      (ignore-errors (apply orig-fn args))))))))))
 
   (defun my/treesit-fold-toggle-all ()
     "Toggle all folds in the current buffer."
