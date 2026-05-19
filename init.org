@@ -5043,6 +5043,10 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-completion-enable-additional-text-edit t) ; Enable auto-imports and extra code snippets on completion
 
   :config
+  ;; makes `lsp-completion-at-point` return the last cached list when a request is interrupted
+  ;; (:interrupted catch).
+  (setq lsp-completion-use-last-result t)
+
   (defvar my/lsp--completing-p nil
     "Non-nil while an lsp-request-while-no-input call is already in progress.")
   (advice-add 'lsp-request-while-no-input :around
@@ -5050,6 +5054,30 @@ code completion, go-to-definition, diagnostics, and more.
                 (unless my/lsp--completing-p
                   (let ((my/lsp--completing-p t))
                     (funcall orig method params)))))
+
+  (defvar-local my/lsp-completion--last-cancel-time nil
+    "Float-time of the last interrupted `textDocument/completion' request.")
+  (defconst my/lsp-completion--cancel-debounce 0.5
+    "Seconds to skip `textDocument/completion' after a cancellation.")
+  (define-advice lsp-request-while-no-input
+      (:around (orig method params) my/lsp-completion-cancel-debounce)
+    "During the cooldown after a cancelled completion, skip the server round-trip.
+Throws `input :interrupted' so lsp-completion returns the last cached list."
+    (if (and (equal method "textDocument/completion")
+             my/lsp-completion--last-cancel-time
+             (< (- (float-time) my/lsp-completion--last-cancel-time)
+                my/lsp-completion--cancel-debounce))
+        ;; Inside lsp-completion-at-point's (lsp--catch 'input …) stack;
+        ;; throwing :interrupted returns lsp-completion--last-result.
+        (throw 'input :interrupted)
+      (let ((result (funcall orig method params)))
+        (when (equal method "textDocument/completion")
+          (if (and (null result) (input-pending-p))
+              ;; Request was aborted - start cooldown.
+              (setq my/lsp-completion--last-cancel-time (float-time))
+            ;; Successful response - clear cooldown.
+            (setq my/lsp-completion--last-cancel-time nil)))
+        result)))
 
   ;; When using TRAMP with devcontainer, LSP servers run inside the container.
   ;; The container should have Node.js and language server extensions installed.
