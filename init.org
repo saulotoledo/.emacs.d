@@ -1413,6 +1413,8 @@ The following variables are global:
       ring-bell-function 'ignore      ; Quiet
       scroll-margin 1                 ; Space between cursor and top/bottom
       sentence-end-double-space nil   ; No double space
+      vc-handled-backends '(Git)      ; Avoid probing every VC backend every time.
+                                      ; We can add more backends here if needed.
       visible-bell t                  ; Visual flash instead of audible bell
       )
 
