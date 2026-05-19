@@ -6116,13 +6116,60 @@ package).
   :custom
   (cognitive-complexity-complexity-threshold 15)
   (cognitive-complexity-maintainability-threshold 50)
+  ;; Wait 2 s of idle time before (re)running the expensive analysis.
+  (cognitive-complexity-delay 2.0)
   :config
   ;; Fix: cognitive-complexity--delete-ovs never resets the overlay list to nil.
   ;; See https://github.com/emacs-vs/cognitive-complexity/issues/4
   (advice-add 'cognitive-complexity--enable :before
               (lambda ()
                 (remove-overlays (point-min) (point-max) 'cognitive-complexity t)
-                (setq cognitive-complexity--ovs nil))))
+                (setq cognitive-complexity--ovs nil)))
+
+  ;; CPU throttle: guard against re-entry and back-pressure:
+  ;; Buffer-local flag: non-nil while a synchronous parse is in progress.
+  (defvar-local my/cognitive-complexity--running-p nil)
+  ;; Buffer-local flag: non-nil if a recalculation was requested while one
+  ;; was already running (i.e. the result will be stale when it finishes).
+  (defvar-local my/cognitive-complexity--pending-p nil)
+
+  ;; Intercept the heavy display function: set the running flag, and when done
+  ;; schedule one more pass if the buffer changed during our run.
+  (define-advice cognitive-complexity--display-start
+      (:around (orig buffer) my/cognitive-complexity-running-guard)
+    "Prevent re-entry; reschedule once if a request arrived while running."
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (if my/cognitive-complexity--running-p
+            ;; Another call arrived while we are busy - remember it.
+            (setq my/cognitive-complexity--pending-p t)
+          (setq my/cognitive-complexity--running-p t
+                my/cognitive-complexity--pending-p nil)
+          (unwind-protect
+              (funcall orig buffer)
+            (setq my/cognitive-complexity--running-p nil)
+            ;; Buffer changed while we were running - kick off one more pass.
+            (when my/cognitive-complexity--pending-p
+              (setq my/cognitive-complexity--pending-p nil
+                    cognitive-complexity--display-timer
+                    (run-with-idle-timer cognitive-complexity-delay nil
+                                        #'cognitive-complexity--display-start
+                                        buffer))))))))
+
+  ;; Intercept the change hook: when a run is already in progress just raise the
+  ;; pending flag instead of piling up another timer on top.
+  (define-advice cognitive-complexity--after-change
+      (:override (&rest _) my/cognitive-complexity-debounce)
+    "Debounce with a longer delay; skip new timers while a run is in progress."
+    (if my/cognitive-complexity--running-p
+        ;; Calculation is live right now - flag it and let the guard reschedule.
+        (setq my/cognitive-complexity--pending-p t)
+      (when (timerp cognitive-complexity--display-timer)
+        (cancel-timer cognitive-complexity--display-timer))
+      (setq cognitive-complexity--display-timer
+            (run-with-idle-timer cognitive-complexity-delay nil
+                                 #'cognitive-complexity--display-start
+                                 (current-buffer))))))
 #+end_src
 
 
