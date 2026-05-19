@@ -3924,7 +3924,7 @@ non-blocking.
   :custom
   (corfu-auto t)
   (corfu-auto-delay 0.3)
-  (corfu-auto-prefix 2)
+  (corfu-auto-prefix 3)
   ;; Keep popup responsive and predictable:
   (corfu-cycle t)
   (corfu-preselect 'prompt)
@@ -5024,10 +5024,6 @@ code completion, go-to-definition, diagnostics, and more.
   ;; still shows when you pick a completion, and :on-server-request for server-pushed help.
   (lsp-signature-auto-activate '(:after-execute :on-server-request))
   (lsp-idle-delay 0.6)
-  ;; Prevent corfu's auto-completion from re-entering itself: lsp-request-while-no-input loops on
-  ;; sit-for while waiting for the LSP response; sit-for processes timers which fire more corfu
-  ;; completions, creating an 80%+-CPU recursive storm. nil makes LSP skip the blocking wait.
-  (lsp-request-while-no-input nil)
 
   ;; Configure LSP to work with TRAMP/devcontainer
   ;; When using TRAMP to access files inside devcontainer, LSP should use
@@ -5047,6 +5043,14 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-completion-enable-additional-text-edit t) ; Enable auto-imports and extra code snippets on completion
 
   :config
+  (defvar my/lsp--completing-p nil
+    "Non-nil while an lsp-request-while-no-input call is already in progress.")
+  (advice-add 'lsp-request-while-no-input :around
+              (lambda (orig method params)
+                (unless my/lsp--completing-p
+                  (let ((my/lsp--completing-p t))
+                    (funcall orig method params)))))
+
   ;; When using TRAMP with devcontainer, LSP servers run inside the container.
   ;; The container should have Node.js and language server extensions installed.
   ;; LSP-mode automatically handles TRAMP, but ESLint extension must be installed in the container.
