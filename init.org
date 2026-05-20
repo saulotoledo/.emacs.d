@@ -3963,6 +3963,10 @@ non-blocking.
   (define-key corfu-map (kbd "<backtab>") #'corfu-previous)
   ;; Prevent accidental completion on RET
   (define-key corfu-map (kbd "RET") nil)
+  (set-face-attribute 'corfu-current nil
+                      :background "#3e4451"
+                      :foreground "#ffffff"
+                      :weight 'bold)
 
   ;; Disable corfu in some modes where it is noisy
   (dolist (m '(org-mode shell-mode term-mode vterm-mode))
