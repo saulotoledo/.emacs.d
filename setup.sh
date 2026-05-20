@@ -1369,6 +1369,20 @@ uninstall_vtsls_language_server() {
 
 register_action "Install vtsls Language Server" "vtsls-language-server" "node"
 
+is_installed_tailwindcss_language_server() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/tailwindcss-language-server" ]
+}
+
+install_tailwindcss_language_server() {
+  install_nodejs_tools
+}
+
+uninstall_tailwindcss_language_server() {
+  uninstall_nodejs_tools
+}
+
+register_action "Install Tailwind CSS Language Server" "tailwindcss-language-server" "node"
+
 LSP_BASH_LANGUAGE_SERVER_PATH="$HOME/.emacs.d/.cache/lsp/npm/bash-language-server"
 
 is_installed_bash_language_server() {
