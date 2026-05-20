@@ -3391,7 +3391,23 @@ for many languages; the two packages below will enable snippets in relevant mode
   :demand t
   :config
   (yas-reload-all)
-  (yas-global-mode 1))
+  (yas-global-mode 1)
+  ;; After an LSP snippet expands (e.g. parseInt(${1:string})), corfu's
+  ;; auto-delay timer fires 0.3 s later, reopens the popup, and corfu-map's
+  ;; TAB binding wins over yas-keymap, making field navigation impossible.
+  ;; We fix this scenario below by disabling corfu-auto locally for the
+  ;; duration of the snippet session.
+  (add-hook 'yas-before-expand-snippet-hook
+            (lambda ()
+              (when (bound-and-true-p corfu-mode)
+                ;; Cancel a timer that was already queued before the expansion.
+                (when (and (boundp 'corfu--auto-timer) corfu--auto-timer)
+                  (cancel-timer corfu--auto-timer)
+                  (setq corfu--auto-timer nil)))
+              (setq-local corfu-auto nil)))
+  (add-hook 'yas-after-exit-snippet-hook
+            (lambda ()
+              (kill-local-variable 'corfu-auto))))
 
 (use-package yasnippet-snippets
   :after yasnippet)
