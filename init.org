@@ -3113,7 +3113,12 @@ Dirvish subtrees do not populate.  We therefore fall back to
   (define-key dired-mode-map (kbd "M-n") #'dired-create-empty-file)
   (add-hook 'dired-mode-hook (lambda () (setq-local line-spacing 0.1)))
   (global-auto-revert-mode 1)
-  (setq auto-revert-check-vc-info t)
+  ;; Do NOT set auto-revert-check-vc-info to t: the auto-revert timer fires
+  ;; periodically even during normal editing (no external file changes) and
+  ;; with that flag set it calls vc-refresh-state -> vc-registered -> heavy
+  ;; filesystem checks on every tick. diff-hl and magit already keep VC state
+  ;; current, so this polling is redundant and wastes ~4% of CPU.
+  (setq auto-revert-check-vc-info nil)
   (setq dired-auto-revert-buffer t))
 #+end_src
 
@@ -5041,43 +5046,66 @@ code completion, go-to-definition, diagnostics, and more.
 
   ;; Other settings
   (lsp-completion-enable-additional-text-edit t) ; Enable auto-imports and extra code snippets on completion
+  (lsp-enable-snippet t) ; Allow LSP completion items to expand yasnippet parameter placeholders
 
   :config
   ;; makes `lsp-completion-at-point` return the last cached list when a request is interrupted
   ;; (:interrupted catch).
   (setq lsp-completion-use-last-result t)
 
-  (defvar my/lsp--completing-p nil
-    "Non-nil while an lsp-request-while-no-input call is already in progress.")
-  (advice-add 'lsp-request-while-no-input :around
-              (lambda (orig method params)
-                (unless my/lsp--completing-p
-                  (let ((my/lsp--completing-p t))
-                    (funcall orig method params)))))
+  ;; workspace/executeCommand is used by language servers in two very different ways:
+  ;;
+  ;;   1. Automatic side-effects during completion, code-lens, or typing --
+  ;;      e.g. vtsls _vtsls.completionCacheCommand fired after a completion item
+  ;;      is resolved. These are optimisation hints; if they block and time out
+  ;;      (lsp-response-timeout = 20 s) Emacs freezes for no user-visible reason.
+  ;;
+  ;;   2. Interactive code actions (M-RET -> lsp-execute-code-action) that apply
+  ;;      WorkspaceEdits and MUST complete synchronously so the edits land before
+  ;;      the user types again.
+  ;;
+  ;; lsp-mode has no native setting that distinguishes these two cases; the only
+  ;; native lever is lsp-response-timeout, which caps the freeze duration but
+  ;; does not eliminate it.
+  ;;
+  ;; Two small, general advices handle both cases cleanly:
+  ;;   - my/lsp--in-code-action: a flag that is non-nil only while
+  ;;     lsp-execute-code-action is on the call stack (case 2 above).
+  ;;   - lsp-request advice: fires workspace/executeCommand asynchronously
+  ;;     (zero blocking) unless that flag is set. Errors are logged to
+  ;;     *Messages* so they remain visible.
+  (defvar my/lsp--in-code-action nil
+    "Non-nil while `lsp-execute-code-action' is on the call stack.
+Prevents the async redirect below from applying to interactive code actions,
+which need to complete synchronously to apply their edits.")
 
-  (defvar-local my/lsp-completion--last-cancel-time nil
-    "Float-time of the last interrupted `textDocument/completion' request.")
-  (defconst my/lsp-completion--cancel-debounce 0.5
-    "Seconds to skip `textDocument/completion' after a cancellation.")
-  (define-advice lsp-request-while-no-input
-      (:around (orig method params) my/lsp-completion-cancel-debounce)
-    "During the cooldown after a cancelled completion, skip the server round-trip.
-Throws `input :interrupted' so lsp-completion returns the last cached list."
-    (if (and (equal method "textDocument/completion")
-             my/lsp-completion--last-cancel-time
-             (< (- (float-time) my/lsp-completion--last-cancel-time)
-                my/lsp-completion--cancel-debounce))
-        ;; Inside lsp-completion-at-point's (lsp--catch 'input …) stack;
-        ;; throwing :interrupted returns lsp-completion--last-result.
-        (throw 'input :interrupted)
-      (let ((result (funcall orig method params)))
-        (when (equal method "textDocument/completion")
-          (if (and (null result) (input-pending-p))
-              ;; Request was aborted - start cooldown.
-              (setq my/lsp-completion--last-cancel-time (float-time))
-            ;; Successful response - clear cooldown.
-            (setq my/lsp-completion--last-cancel-time nil)))
-        result)))
+  (advice-add 'lsp-execute-code-action :around
+              (lambda (orig &rest args)
+                (let ((my/lsp--in-code-action t))
+                  (apply orig args))))
+
+  (advice-add 'lsp-request :around
+              (lambda (orig method params &rest args)
+                (if (and (equal method "workspace/executeCommand")
+                         (not my/lsp--in-code-action))
+                    ;; Automatic context: fire async so sit-for never blocks.
+                    (lsp-request-async method params
+                                       (lambda (_) nil)
+                                       :error-handler
+                                       (lambda (err)
+                                         (message "LSP: workspace/executeCommand: %s" err)))
+                  (apply orig method params args))))
+
+  ;; lsp-mode only calls completionItem/resolve before snippet expansion for ts-ls
+  ;; (see lsp-completion--exit-fn). vtsls has the same limitation: the initial
+  ;; completion list omits insertText/textEdit with snippet format; those fields
+  ;; are populated only after completionItem/resolve. Without this advice,
+  ;; selecting a function like parseInt inserts only the bare label with no params.
+  (advice-add 'lsp-completion--exit-fn :before
+              (lambda (candidate &rest _)
+                (when (and lsp-enable-snippet
+                           (lsp-completion--find-workspace 'vtsls))
+                  (lsp-completion--resolve candidate))))
 
   ;; When using TRAMP with devcontainer, LSP servers run inside the container.
   ;; The container should have Node.js and language server extensions installed.
