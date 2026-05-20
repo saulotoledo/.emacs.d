@@ -3092,7 +3092,7 @@ Appended to `dirvish-after-revert-hook' so it runs after
 `dirvish-subtree--revert' has already re-expanded all subtrees.
 
 `dired-goto-file' (Emacs 30) searches text via `dired-subdir-alist', which
-Dirvish subtrees do not populate.  We therefore fall back to
+Dirvish subtrees do not populate. We therefore fall back to
 `dirvish-subtree-expand-to', which navigates the overlay tree correctly."
     (when (and my/dired-last-created
                (eq (current-buffer) (car my/dired-last-created)))
@@ -3971,7 +3971,18 @@ non-blocking.
   ;; Disable corfu in some modes where it is noisy
   (dolist (m '(org-mode shell-mode term-mode vterm-mode))
     (add-hook (intern (concat (symbol-name m) "-hook"))
-              (lambda () (corfu-mode -1)))))
+              (lambda () (corfu-mode -1))))
+
+  ;; `corfu-auto--complete-deferred` fires the capf chain directly via
+  ;; run-hook-wrapped, bypassing `corfu--exhibit` which is the only place
+  ;; corfu binds `(non-essential t)`. Without this, our lsp completion
+  ;; debounce (and lsp-mode itself) cannot distinguish auto-completion
+  ;; background requests from interactive ones.
+  (with-eval-after-load 'corfu-auto
+    (advice-add 'corfu-auto--complete-deferred :around
+                (lambda (orig &rest args)
+                  (let ((non-essential t))
+                    (apply orig args))))))
 #+end_src
 
 
@@ -5049,6 +5060,15 @@ code completion, go-to-definition, diagnostics, and more.
   ;; still shows when you pick a completion, and :on-server-request for server-pushed help.
   (lsp-signature-auto-activate '(:after-execute :on-server-request))
   (lsp-idle-delay 0.6)
+  ;; kind-icon already renders kind icons in the Corfu margin; disable LSP's
+  ;; own kind annotation string (kind-icon handles it visually).
+  (lsp-completion-show-kind nil)
+  (lsp-completion-show-detail t)
+  ;; Show partial results immediately when the server flags isIncomplete=true.
+  ;; Combined with the debounce advice in :config, this gives VSCode-like
+  ;; responsiveness: the first tick fires the real request; subsequent ticks
+  ;; within the debounce window filter the cached response client-side.
+  (lsp-completion-filter-on-incomplete t)
 
   ;; Configure LSP to work with TRAMP/devcontainer
   ;; When using TRAMP to access files inside devcontainer, LSP should use
@@ -5072,6 +5092,171 @@ code completion, go-to-definition, diagnostics, and more.
   ;; makes `lsp-completion-at-point` return the last cached list when a request is interrupted
   ;; (:interrupted catch).
   (setq lsp-completion-use-last-result t)
+
+  ;; Some language servers (TypeScript, Pyright, clangd, etc.) frequently return
+  ;; isIncomplete=true in their textDocument/completion responses. When that
+  ;; happens lsp-mode stores :incomplete in lsp-completion--cache, and the
+  ;; (listp :incomplete) guard always fails, forcing a new server request on
+  ;; every corfu-auto tick; even within the same session. The result:
+  ;; lsp-request-while-no-input -> sit-for leading to very high CPU usage.
+  ;;
+  ;; Fix: within `my/lsp-completion-debounce-delay' seconds and the same
+  ;; bounds-start, return the last raw LSP response without a server round-trip;
+  ;; `lsp-completion--filter-candidates' still applies prefix filtering locally.
+  ;; When the server returns a complete list, lsp-mode's own cache already
+  ;; avoids the round-trip, so this debounce only activates for incomplete
+  ;; results. Manual completion (`non-essential = nil`) is never throttled.
+  (with-eval-after-load 'lsp-completion
+    (defvar-local my/lsp-completion--last-resp nil
+      "Cached raw LSP textDocument/completion response for auto-completion reuse.")
+    (defvar-local my/lsp-completion--last-resp-time 0
+      "Float-time of the last cached LSP completion response.")
+    (defvar-local my/lsp-completion--last-resp-bounds nil
+      "bounds-start of the last cached LSP completion response.")
+    (defcustom my/lsp-completion-debounce-delay 0.8
+      "Seconds to reuse a cached LSP textDocument/completion response.
+Applies only in non-essential (auto-completion) context and only when
+bounds-start is unchanged (same completion session)."
+      :type 'number
+      :group 'lsp-completion)
+
+    (defun my/lsp-request-while-no-input--debounce (orig method params)
+      "Return last LSP completion response for repeated auto-completion ticks.
+Language servers that return isIncomplete=true cause lsp-mode to bypass its
+cache on every corfu-auto tick, calling lsp-request-while-no-input (and its
+sit-for wait) for each one. This applies generically to any LSP server for
+any language. Returns the cached raw response instead of contacting the
+server when all of the following hold:
+  - non-essential is t  (auto-completion context, not a manual trigger)
+  - method is textDocument/completion
+  - bounds-start (current token start) matches the cached value
+  - the cached response is younger than `my/lsp-completion-debounce-delay' s.
+For servers that return complete results, lsp-mode's own cache already avoids
+the round-trip, so this advice is a no-op in those cases."
+      (let ((bounds-start (or (car (bounds-of-thing-at-point 'symbol)) (point))))
+        (if (and non-essential
+                 (equal method "textDocument/completion")
+                 my/lsp-completion--last-resp
+                 (equal my/lsp-completion--last-resp-bounds bounds-start)
+                 (< (- (float-time) my/lsp-completion--last-resp-time)
+                    my/lsp-completion-debounce-delay))
+            my/lsp-completion--last-resp
+          (let ((result (funcall orig method params)))
+            (when (and result (equal method "textDocument/completion"))
+              (setq-local my/lsp-completion--last-resp        result
+                          my/lsp-completion--last-resp-time   (float-time)
+                          my/lsp-completion--last-resp-bounds bounds-start))
+            result))))
+
+    (advice-add 'lsp-request-while-no-input
+                :around
+                #'my/lsp-request-while-no-input--debounce)
+
+    ;; Async-resolve completion items to show `labelDetails.description` inline
+    ;; in the corfu annotation list (the module/import source for a candidate).
+    ;; Many language servers omit this field from the initial
+    ;; `textDocument/completion` response and populate it only after
+    ;; `completionItem/resolve` (LSP 3.17 §3.16.3).
+    ;;
+    ;; We store resolved LabelDetails in a buffer-local hash-table keyed by
+    ;; "label|sortText" (stable across re-renders without touching the
+    ;; server-supplied item, so this works with both `lsp-use-plists t` (plists)
+    ;; and nil (hash-tables)). After any resolve completes, the next corfu
+    ;; render (triggered by navigation, typing, or the auto-timer) picks up
+    ;; the cached description without an extra server round-trip.
+    (defvar-local my/lsp-completion--ld-cache (make-hash-table :test 'equal)
+      "label|sortText -> resolved module source for inline annotations.")
+
+    (defun my/lsp-completion--ld-key (item)
+      "Return a string cache key for CompletionItem ITEM."
+      (format "%s|%s"
+              (or (lsp-get item :label) "")
+              (or (lsp-get item :sortText) "")))
+
+    (defun my/lsp-completion--annotation-description (item)
+      "Extract `labelDetails.description` from CompletionItem ITEM.
+This is the module/import source (e.g. \"next/link\"), NOT the verbose
+type detail.  Returns nil when unavailable."
+      (when-let* ((ld (lsp:completion-item-label-details? item))
+                  (desc (lsp:label-details-description? ld)))
+        (unless (lsp-falsy? desc) desc)))
+
+    (defun my/lsp-completion--import-source-from-buffer (symbol-name)
+      "Search buffer imports for SYMBOL-NAME and return the module path.
+Handles ES import patterns: `import X from \"mod\"`, `import { X } from \"mod\"`,
+`import { Y as X } from \"mod\"`.  Returns nil if not found."
+      (save-excursion
+        (save-restriction
+          (widen)
+          (goto-char (point-min))
+          (let ((pattern (concat "\\bimport\\b[^;]*\\b"
+                                 (regexp-quote symbol-name)
+                                 "\\b[^;]*from\\s-+[\"']\\([^\"']+\\)[\"']")))
+            (when (re-search-forward pattern nil t)
+              (match-string-no-properties 1))))))
+
+    (defun my/lsp-completion--resolve-description (resolved-item)
+      "Extract module source from RESOLVED-ITEM, using multiple strategies.
+1. `labelDetails.description` (auto-import items provide this directly).
+2. Buffer import lookup when detail indicates an imported symbol."
+      (or
+       ;; Strategy 1: labelDetails.description (best: auto-import items)
+       (my/lsp-completion--annotation-description resolved-item)
+       ;; Strategy 2: detail ends with \"\\nimport SYMBOL\" or
+       ;; \"\\nexport default SYMBOL\" → look up the import in the buffer
+       (when-let* ((detail (lsp-get resolved-item :detail))
+                   (label (lsp-get resolved-item :label)))
+         (when (string-match
+                (concat "\n\\(?:import\\|export default\\)\\s-+"
+                        (regexp-quote label) "\\s-*$")
+                detail)
+           (my/lsp-completion--import-source-from-buffer label)))))
+
+    (defun my/lsp-completion--annotate-with-resolve (orig cand)
+      "Annotate CAND with module source (e.g. \"next/link\") via async resolve.
+Fires one background `completionItem/resolve` per candidate that lacks a
+description and caches the result."
+      (let* ((raw (get-text-property 0 'lsp-completion-unresolved-item cand))
+             (base-ann (funcall orig cand)))
+        (when raw
+          (let* ((key (my/lsp-completion--ld-key raw))
+                 (pkey (concat "P:" key))
+                 (raw-desc (my/lsp-completion--annotation-description raw))
+                 (has-raw (not (null raw-desc)))
+                 (cached-desc (gethash key my/lsp-completion--ld-cache))
+                 (has-cached (not (null cached-desc))))
+            ;; Trigger a single background resolve if description is missing and not cached
+            (when (and (not has-raw)
+                       (not has-cached)
+                       (not (gethash pkey my/lsp-completion--ld-cache))
+                       (lsp-feature? "completionItem/resolve"))
+              (puthash pkey t my/lsp-completion--ld-cache)
+              (let ((cache my/lsp-completion--ld-cache)
+                    (buf (current-buffer)))
+                (lsp-completion--resolve-async
+                 cand
+                 (lambda (resolved-item)
+                   (when (buffer-live-p buf)
+                     (with-current-buffer buf
+                       (when-let* ((desc (my/lsp-completion--resolve-description resolved-item)))
+                         (puthash key desc cache))
+                       (remhash pkey cache))))
+                 (lambda ()
+                   (when (buffer-live-p buf)
+                     (with-current-buffer buf
+                       (remhash pkey cache)))))))
+            ;; Append cached description (module source) to the annotation
+            (when (and lsp-completion-show-detail (not has-raw) has-cached)
+              (setq base-ann (concat (or base-ann "") " " cached-desc)))))
+        base-ann))
+
+    ;; Flush the resolve cache at the same time lsp-mode clears its own.
+    (advice-add 'lsp-completion--clear-cache :after
+                (lambda (&rest _)
+                  (setq my/lsp-completion--ld-cache (make-hash-table :test 'equal))))
+
+    (advice-add 'lsp-completion--annotate :around
+                #'my/lsp-completion--annotate-with-resolve))
 
   ;; workspace/executeCommand is used by language servers in two very different ways:
   ;;
@@ -6322,7 +6507,7 @@ navigate complex hierarchies with the same ease as an Org-mode document.
   ;; --- Performance: Idle-timer debounce for fringe indicators ---
   ;;
   ;; Problem: treesit-fold-indicators--post-command runs synchronously on
-  ;; *every* keystroke via post-command-hook.  While typing broken/incomplete
+  ;; *every* keystroke via post-command-hook. While typing broken/incomplete
   ;; code (common in TS/Next.js), the Tree-sitter parser repeatedly rebuilds
   ;; the CST and Emacs re-renders fringe markers, causing ~11 % CPU usage and
   ;; input lag (see profiler reports).
@@ -8391,7 +8576,7 @@ Below we add some general helper functions and settings to our setup:
   ;;   1. the env vars (NODE_OPTIONS / VSCODE_INSPECTOR_OPTIONS) in the child
   ;;      process so the bootloader is loaded, and
   ;;   2. the shell PID in the response body so it can track/auto-attach to the
-  ;;      node process.  Without the PID the adapter crashes immediately after
+  ;;      node process. Without the PID the adapter crashes immediately after
   ;;      receiving the success response ("connection broken by remote peer").
   (defun my/dap--start-process-with-env (debug-session parsed-msg)
     "Override `dap--start-process' to pass env and return shellProcessId.
