@@ -5382,6 +5382,21 @@ which need to complete synchronously to apply their edits.")
                            (lsp-completion--find-workspace 'vtsls))
                   (lsp-completion--resolve candidate))))
 
+  ;; After LSP snippet expansion, re-verify cursor is inside the snippet's
+  ;; active field. With certain servers (e.g. vtsls JSX/TSX attribute
+  ;; completions like className="$1"), the cursor sometimes ends up at the
+  ;; snippet start (before the attribute name) rather than inside the value
+  ;; field. Silently re-navigate to the active field when that happens.
+  (advice-add 'lsp-completion--exit-fn :after
+              (lambda (&rest _)
+                (when (and (bound-and-true-p yas-minor-mode)
+                           (yas-active-snippets))
+                  (let* ((snippet (car (yas-active-snippets)))
+                         (active-field (yas--snippet-active-field snippet)))
+                    (when (and active-field
+                               (not (yas--field-contains-point-p active-field)))
+                      (yas--move-to-field snippet active-field))))))
+
   ;; When using TRAMP with devcontainer, LSP servers run inside the container.
   ;; The container should have Node.js and language server extensions installed.
   ;; LSP-mode automatically handles TRAMP, but ESLint extension must be installed in the container.
