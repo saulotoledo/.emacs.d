@@ -5167,6 +5167,9 @@ the round-trip, so this advice is a no-op in those cases."
     (defvar-local my/lsp-completion--ld-cache (make-hash-table :test 'equal)
       "label|sortText -> resolved module source for inline annotations.")
 
+    (defvar-local my/lsp-completion--refresh-timer nil
+      "Timer to debounce corfu refresh after async resolve completes.")
+
     (defun my/lsp-completion--ld-key (item)
       "Return a string cache key for CompletionItem ITEM."
       (format "%s|%s"
@@ -5239,7 +5242,19 @@ description and caches the result."
                    (when (buffer-live-p buf)
                      (with-current-buffer buf
                        (when-let* ((desc (my/lsp-completion--resolve-description resolved-item)))
-                         (puthash key desc cache))
+                         (puthash key desc cache)
+                         ;; Schedule a debounced corfu refresh so annotations appear
+                         ;; without waiting for the next user keypress.
+                         (when (bound-and-true-p corfu-mode)
+                           (when (timerp my/lsp-completion--refresh-timer)
+                             (cancel-timer my/lsp-completion--refresh-timer))
+                           (setq my/lsp-completion--refresh-timer
+                                 (run-at-time 0.05 nil
+                                              (lambda ()
+                                                (when (and (buffer-live-p buf)
+                                                           (eq (current-buffer) buf)
+                                                           (bound-and-true-p corfu--candidates))
+                                                  (corfu--exhibit)))))))
                        (remhash pkey cache))))
                  (lambda ()
                    (when (buffer-live-p buf)
