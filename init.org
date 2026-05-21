@@ -5121,32 +5121,87 @@ bounds-start is unchanged (same completion session)."
       :group 'lsp-completion)
 
     (defun my/lsp-request-while-no-input--debounce (orig method params)
-      "Return last LSP completion response for repeated auto-completion ticks.
-Language servers that return isIncomplete=true cause lsp-mode to bypass its
-cache on every corfu-auto tick, calling lsp-request-while-no-input (and its
-sit-for wait) for each one. This applies generically to any LSP server for
-any language. Returns the cached raw response instead of contacting the
-server when all of the following hold:
-  - non-essential is t  (auto-completion context, not a manual trigger)
-  - method is textDocument/completion
-  - bounds-start (current token start) matches the cached value
-  - the cached response is younger than `my/lsp-completion-debounce-delay' s.
-For servers that return complete results, lsp-mode's own cache already avoids
-the round-trip, so this advice is a no-op in those cases."
+      "Prevent `lsp-request-while-no-input' from blocking for textDocument/completion.
+
+For any `textDocument/completion' request the advice operates in two modes,
+regardless of `non-essential':
+
+  1. Cache hit  – same bounds-start, recent response (<
+     `my/lsp-completion-debounce-delay' s old): return the cached LSP response
+     immediately without a server round-trip.
+
+  2. Cache miss – fire `lsp-request-async' and return nil immediately; the
+     sit-for loop inside `lsp-request-while-no-input' is never entered.
+     When the response arrives the cache is updated and a debounced (50 ms)
+     timer re-triggers completion so candidates appear without a keypress.
+
+The original blocking function is only called for non-completion methods.
+
+Rationale for dropping the `non-essential' guard on the cache-miss branch:
+The profiler showed `lsp-request-while-no-input' blocking for ~lsp-response-
+timeout (20 s) seconds via the `(t ...)' fallback even inside corfu-auto's
+timer callbacks, where `non-essential' should have been t.  Rather than rely
+on a dynamic binding that can silently fail, we intercept ALL
+`textDocument/completion' requests unconditionally."
       (let ((bounds-start (or (car (bounds-of-thing-at-point 'symbol)) (point))))
-        (if (and non-essential
-                 (equal method "textDocument/completion")
-                 my/lsp-completion--last-resp
-                 (equal my/lsp-completion--last-resp-bounds bounds-start)
-                 (< (- (float-time) my/lsp-completion--last-resp-time)
-                    my/lsp-completion-debounce-delay))
-            my/lsp-completion--last-resp
-          (let ((result (funcall orig method params)))
-            (when (and result (equal method "textDocument/completion"))
-              (setq-local my/lsp-completion--last-resp        result
-                          my/lsp-completion--last-resp-time   (float-time)
-                          my/lsp-completion--last-resp-bounds bounds-start))
-            result))))
+        (cond
+         ;; Cache hit: same bounds, recent response → return immediately.
+         ;; non-essential is NOT checked so manual completion (C-M-i/M-TAB)
+         ;; also benefits from the cache on repeated invocations.
+         ((and (equal method "textDocument/completion")
+               my/lsp-completion--last-resp
+               (equal my/lsp-completion--last-resp-bounds bounds-start)
+               (< (- (float-time) my/lsp-completion--last-resp-time)
+                  my/lsp-completion-debounce-delay))
+          my/lsp-completion--last-resp)
+
+         ;; textDocument/completion cache miss: ALWAYS fire async and return nil
+         ;; immediately — the sit-for loop is never entered. This is the core
+         ;; fix: the loop blocks whenever the user pauses typing because there is
+         ;; no input to interrupt `while-no-input', and lsp-response-timeout is
+         ;; 20 s. By firing async here for every context (auto and manual alike)
+         ;; we guarantee zero blocking for completion requests.
+         ;;
+         ;; When the response arrives the cache is updated. The refresh timer
+         ;; then re-triggers completion: if `completion-in-region-mode' is
+         ;; already active (popup visible) it re-renders the popup; otherwise it
+         ;; calls `corfu-auto--complete-deferred' which creates a fresh capf
+         ;; closure (done?=nil) and hits the newly-populated cache, making
+         ;; completions appear even when the user has stopped typing.
+         ((equal method "textDocument/completion")
+          (let ((buf (current-buffer))
+                (saved-bounds bounds-start))
+            (lsp-request-async
+             method params
+             (lambda (result)
+               (when (and result (buffer-live-p buf))
+                 (with-current-buffer buf
+                   (setq my/lsp-completion--last-resp        result
+                         my/lsp-completion--last-resp-time   (float-time)
+                         my/lsp-completion--last-resp-bounds saved-bounds)
+                   (when (bound-and-true-p corfu-mode)
+                     (when (timerp my/lsp-completion--refresh-timer)
+                       (cancel-timer my/lsp-completion--refresh-timer))
+                     (setq my/lsp-completion--refresh-timer
+                           (run-at-time 0.05 nil
+                                        (lambda ()
+                                          (when (and (buffer-live-p buf)
+                                                     (with-current-buffer buf
+                                                       (bound-and-true-p corfu-mode)))
+                                            (with-current-buffer buf
+                                              ;; Popup visible → re-render in place.
+                                              ;; Popup gone  → fresh capf call hits
+                                              ;;               the new cache entry.
+                                              (if (bound-and-true-p completion-in-region-mode)
+                                                  (corfu--exhibit)
+                                                (corfu-auto--complete-deferred)))))))))))
+             :mode 'alive
+             :error-handler #'ignore))
+          nil)
+
+         ;; All other methods (non-completion): call the original function.
+         (t
+          (funcall orig method params)))))
 
     (advice-add 'lsp-request-while-no-input
                 :around
