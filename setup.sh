@@ -1025,6 +1025,45 @@ uninstall_semgrep() {
 
 register_action "Install Semgrep" "semgrep" "standalone"
 
+register_system_package "jq" \
+                        "alpine:jq" \
+                        "fedora:jq" \
+                        "linuxbrew:jq" \
+                        "mac:jq" \
+                        "debian-ubuntu:jq"
+
+is_installed_jq() {
+  command -v jq >/dev/null 2>&1
+}
+
+is_installed_rtk() {
+  command -v rtk >/dev/null 2>&1
+}
+
+install_rtk() {
+  if ! is_installed_jq; then
+    install_system_packages "jq"
+  else
+    log_skip "jq is already installed."
+  fi
+  if ! is_installed_rtk; then
+    if curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh; then
+      return 0
+    else
+      log_error "RTK installation failed."
+      return 1
+    fi
+  else
+    log_skip "RTK is already installed."
+  fi
+}
+
+uninstall_rtk() {
+  log_skip "RTK" "RTK might be in use by another tool in the system. If required, please uninstall it manually."
+}
+
+register_action "Install Rust Token Killer (rtk)" "rtk" "RTK"
+
 is_installed_copilot() {
   [ -f "$TOOLS_DIR/node_modules/.bin/copilot-language-server" ] || command -v copilot-language-server >/dev/null 2>&1
 }

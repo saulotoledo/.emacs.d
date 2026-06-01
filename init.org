@@ -4763,6 +4763,105 @@ This avoids infinite recursion by not calling filesystem primitives like
 #+end_src
 
 
+**** Token optimization
+
+Rust Token Killer (=rtk=) is designed to filter and compress command outputs
+before they reach the LLM context. ECA does not support it by default, but here
+we make sure ECA uses it when invoking commands.
+
+We start by updating our setup script to support installing =rtk=:
+
+#+begin_src sh :tangle setup.sh
+register_system_package "jq" \
+                        "alpine:jq" \
+                        "fedora:jq" \
+                        "linuxbrew:jq" \
+                        "mac:jq" \
+                        "debian-ubuntu:jq"
+
+is_installed_jq() {
+  command -v jq >/dev/null 2>&1
+}
+
+is_installed_rtk() {
+  command -v rtk >/dev/null 2>&1
+}
+
+install_rtk() {
+  if ! is_installed_jq; then
+    install_system_packages "jq"
+  else
+    log_skip "jq is already installed."
+  fi
+  if ! is_installed_rtk; then
+    if curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh; then
+      return 0
+    else
+      log_error "RTK installation failed."
+      return 1
+    fi
+  else
+    log_skip "RTK is already installed."
+  fi
+}
+
+uninstall_rtk() {
+  log_skip "RTK" "RTK might be in use by another tool in the system. If required, please uninstall it manually."
+}
+
+register_action "Install Rust Token Killer (rtk)" "rtk" "RTK"
+#+end_src
+
+ECA's native hook system handles the wrapping via a ~preToolCall~ hook in
+~eca-config.json~. The hook runs before every ~eca__shell_command~ call. It
+delegates to =rtk rewrite= -- the single source of truth for all rewrite rules
+-- which handles compound commands, pipes, and 70+ command patterns correctly.
+=jq= is used for safe JSON parsing (no regex, handles any quoted value). The
+hook is fail-open: if =rtk= or =jq= is missing it exits silently.
+
+Examples of how =rtk rewrite= works:
+- =git status= → =rtk git status= (specific optimized command)
+- =cd folder && rg --files | grep test= → =cd folder && rtk grep --files | grep
+  test= (per-segment rewrite)
+- =grep -r "search term" .= → =rtk grep -r "search term" .= (quotes handled
+  safely)
+- =htop= → no rewrite (exits 1, passed through unchanged)
+- Already-RTK commands → no rewrite (idempotent)
+
+#+begin_example
+"hooks": {
+  "rtk-shell-command": {
+    "type": "preToolCall",
+    "matcher": "eca__shell_command",
+    "visible": false,
+    "actions": [
+      {
+        "type": "shell",
+        "shell": "if command -v jq >/dev/null 2>&1 && command -v rtk >/dev/null 2>&1; then INPUT=$(cat); CMD=$(printf '%s' \"$INPUT\" | jq -r '[.command?, .tool_input.command?, .input.command?, (.. | objects | .command?)] | map(select(type==\"string\" and length>0)) | .[0] // empty'); if [ -n \"$CMD\" ]; then REWRITTEN=$(rtk rewrite \"$CMD\" 2>/dev/null); EC=$?; if [ \"$EC\" -eq 0 ] || [ \"$EC\" -eq 3 ]; then if [ \"$CMD\" != \"$REWRITTEN\" ]; then UPDATED=$(printf '%s' \"$INPUT\" | jq -c --arg cmd \"$REWRITTEN\" 'if type==\"object\" and has(\"command\") then (.command=$cmd) elif type==\"object\" and (.tool_input|type==\"object\") and (.tool_input|has(\"command\")) then (.tool_input | .command=$cmd) elif type==\"object\" and (.input|type==\"object\") and (.input|has(\"command\")) then (.input | .command=$cmd) else {command:$cmd} end'); printf '{\"updatedInput\":%s}' \"$UPDATED\"; fi; fi; fi; fi"
+      }
+    ]
+  }
+}
+#+end_example
+
+The full hook is already embedded in ~eca-config.json~ and gets deployed to the
+global ECA config path automatically by ~my/eca-install-config~.
+
+The Emacs code below validates that =rtk= and =jq= are on PATH when ECA starts,
+so we get an early warning rather than a silent failure:
+
+#+begin_src emacs-lisp
+(defun my/eca-rtk-check ()
+  "Warn if `rtk' or `jq' are not on PATH (required by the ECA preToolCall hook)."
+  (unless (executable-find "rtk")
+    (message "ECA [!]: `rtk' not found on PATH. Shell commands will run without token optimization."))
+  (unless (executable-find "jq")
+    (message "ECA [!]: `jq' not found on PATH. The RTK hook requires jq for JSON parsing.")))
+
+(add-hook 'eca-before-initialize-hook #'my/eca-rtk-check)
+#+end_src
+
+
 *** GitHub Copilot
 
 GitHub Copilot integration for Emacs. It provides AI-powered code suggestions as

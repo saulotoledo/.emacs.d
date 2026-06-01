@@ -1,30 +1,30 @@
 {
-  "defaultBehavior" : "agent",
-  "defaultModel" : "github-copilot/gpt-4.1",
+  "defaultBehavior": "agent",
+  "defaultModel": "github-copilot/gpt-4.1",
   "completion": {
     "model": "ollama/qwen2.5:3b",
     "enabled": true
   },
-  "toolCall" : {
-    "approval" : {
-      "byDefault" : "ask",
-      "allow" : {
-        "eca__read_file" : {},
-        "eca__directory_tree" : {},
-        "eca__grep" : {},
-        "eca__preview_file_change" : {},
-        "eca__editor_diagnostics" : {}
+  "toolCall": {
+    "approval": {
+      "byDefault": "ask",
+      "allow": {
+        "eca__read_file": {},
+        "eca__directory_tree": {},
+        "eca__grep": {},
+        "eca__preview_file_change": {},
+        "eca__editor_diagnostics": {}
       },
-      "ask" : {
-        "eca__editor_append_content" : {},
-        "eca__edit_file" : {},
-        "eca__write_file" : {},
-        "eca__move_file" : {}
+      "ask": {
+        "eca__editor_append_content": {},
+        "eca__edit_file": {},
+        "eca__write_file": {},
+        "eca__move_file": {}
       },
-      "deny" : {
-        "eca__read_file" : {
-          "argsMatchers" : {
-            "path" : [
+      "deny": {
+        "eca__read_file": {
+          "argsMatchers": {
+            "path": [
               ".*\\.env$",
               ".*\\.env\\..*",
               ".*\\.secret$",
@@ -48,101 +48,126 @@
       }
     }
   },
-  "providers" : {
-    "anthropic" : {
-      "key" : "${env:ANTHROPIC_API_KEY}"
+  "providers": {
+    "anthropic": {
+      "key": "${env:ANTHROPIC_API_KEY}"
     },
-    "deepseek" : {
-      "api" : "deepseek",
-      "url" : "https://api.deepseek.com",
-      "key" : "${env:DEEPSEEK_API_KEY}",
-      "models" : {
-        "deepseek-reasoner" : { },
-        "deepseek-chat" : { }
+    "deepseek": {
+      "api": "deepseek",
+      "url": "https://api.deepseek.com",
+      "key": "${env:DEEPSEEK_API_KEY}",
+      "models": {
+        "deepseek-reasoner": {},
+        "deepseek-chat": {}
       }
     },
-    "google" : {
-      "key" : "${env:GEMINI_API_KEY}"
+    "google": {
+      "key": "${env:GEMINI_API_KEY}"
     },
-    "groq" : {
-      "api" : "groq",
-      "url" : "https://api.groq.com/openai/v1",
-      "key" : "${env:GROQ_API_KEY}",
-      "fetchModels" : true
+    "groq": {
+      "api": "groq",
+      "url": "https://api.groq.com/openai/v1",
+      "key": "${env:GROQ_API_KEY}",
+      "fetchModels": true
     },
-    "moonshot" : {
-      "api" : "moonshot",
-      "url" : "https://api.moonshot.ai/v1",
-      "key" : "${env:MOONSHOT_API_KEY}",
-      "models" : {
-        "moonshot-v1-8k" : { },
-        "moonshot-v1-32k" : { }
+    "moonshot": {
+      "api": "moonshot",
+      "url": "https://api.moonshot.ai/v1",
+      "key": "${env:MOONSHOT_API_KEY}",
+      "models": {
+        "moonshot-v1-8k": {},
+        "moonshot-v1-32k": {}
       }
     },
-    "novita" : {
-      "api" : "novita",
-      "url" : "https://api.novita.ai/v3/openai",
-      "key" : "${env:NOVITA_API_KEY}",
-      "fetchModels" : true
+    "novita": {
+      "api": "novita",
+      "url": "https://api.novita.ai/v3/openai",
+      "key": "${env:NOVITA_API_KEY}",
+      "fetchModels": true
     },
-    "openai" : {
-      "key" : "${env:OPENAI_API_KEY}"
+    "openai": {
+      "key": "${env:OPENAI_API_KEY}"
     },
-    "openrouter" : {
+    "openrouter": {
       "api": "openai-chat",
-      "url" : "https://openrouter.ai/api/v1",
-      "key" : "${env:OPENROUTER_API_KEY}",
-      "fetchModels" : true,
-      "models" : {
-        "qwen/qwen-2.5-vl-7b-instruct:free" : {
-          "extraPayload": { "max_tokens": 2048 }
+      "url": "https://openrouter.ai/api/v1",
+      "key": "${env:OPENROUTER_API_KEY}",
+      "fetchModels": true,
+      "models": {
+        "qwen/qwen-2.5-vl-7b-instruct:free": {
+          "extraPayload": {
+            "max_tokens": 2048
+          }
         }
       }
     },
-    "perplexity" : {
-      "api" : "perplexity",
-      "url" : "https://api.perplexity.ai",
-      "key" : "${env:PERPLEXITY_API_KEY}",
-      "models" : {
-        "sonar-reasoning-pro" : { },
-        "sonar-pro" : { }
+    "perplexity": {
+      "api": "perplexity",
+      "url": "https://api.perplexity.ai",
+      "key": "${env:PERPLEXITY_API_KEY}",
+      "models": {
+        "sonar-reasoning-pro": {},
+        "sonar-pro": {}
       }
     },
-    "mistral" : {
-      "api" : "openai-chat",
-      "url" : "https://api.mistral.ai",
+    "mistral": {
+      "api": "openai-chat",
+      "url": "https://api.mistral.ai",
       "completionUrlRelativePath": "/v1/chat/completions",
-      "key" : "${env:MISTRAL_API_KEY}",
-      "models" : {
-        "codestral-latest" : {
-          "extraPayload": { "max_completion_tokens": null }
+      "key": "${env:MISTRAL_API_KEY}",
+      "models": {
+        "codestral-latest": {
+          "extraPayload": {
+            "max_completion_tokens": null
+          }
         },
-        "codestral-2508" : {
-          "extraPayload": { "max_completion_tokens": null }
+        "codestral-2508": {
+          "extraPayload": {
+            "max_completion_tokens": null
+          }
         },
-        "devstral-latest" : {
-          "extraPayload": { "max_completion_tokens": null }
+        "devstral-latest": {
+          "extraPayload": {
+            "max_completion_tokens": null
+          }
         },
-        "devstral-2512" : {
-          "extraPayload": { "max_completion_tokens": null }
+        "devstral-2512": {
+          "extraPayload": {
+            "max_completion_tokens": null
+          }
         },
-        "devstral-2512:free" : {
-          "extraPayload": { "max_completion_tokens": null }
+        "devstral-2512:free": {
+          "extraPayload": {
+            "max_completion_tokens": null
+          }
         }
       }
     },
-    "huggingface" : {
-      "api" : "openapi-chat",
-      "url" : "https://router.huggingface.co/v1",
-      "key" : "${env:HUGGINGFACE_API_KEY}",
-      "fetchModels" : true
+    "huggingface": {
+      "api": "openapi-chat",
+      "url": "https://router.huggingface.co/v1",
+      "key": "${env:HUGGINGFACE_API_KEY}",
+      "fetchModels": true
     },
-    "ollama" : {
-      "api" : "openai-chat",
-      "url" : "http://localhost:11434",
-      "key" : "",
-      "fetchModels" : true
+    "ollama": {
+      "api": "openai-chat",
+      "url": "http://localhost:11434",
+      "key": "",
+      "fetchModels": true
     }
   },
-  "mcpServers" : { }
+  "mcpServers": {},
+  "hooks": {
+    "rtk-shell-command": {
+      "type": "preToolCall",
+      "matcher": "eca__shell_command",
+      "visible": false,
+      "actions": [
+        {
+          "type": "shell",
+          "shell": "if command -v jq >/dev/null 2>&1 && command -v rtk >/dev/null 2>&1; then INPUT=$(cat); CMD=$(printf '%s' \"$INPUT\" | jq -r '[.command?, .tool_input.command?, .input.command?, (.. | objects | .command?)] | map(select(type==\"string\" and length>0)) | .[0] // empty'); if [ -n \"$CMD\" ]; then REWRITTEN=$(rtk rewrite \"$CMD\" 2>/dev/null); EC=$?; if [ \"$EC\" -eq 0 ] || [ \"$EC\" -eq 3 ]; then if [ \"$CMD\" != \"$REWRITTEN\" ]; then UPDATED=$(printf '%s' \"$INPUT\" | jq -c --arg cmd \"$REWRITTEN\" 'if type==\"object\" and has(\"command\") then (.command=$cmd) elif type==\"object\" and (.tool_input|type==\"object\") and (.tool_input|has(\"command\")) then (.tool_input | .command=$cmd) elif type==\"object\" and (.input|type==\"object\") and (.input|has(\"command\")) then (.input | .command=$cmd) else {command:$cmd} end'); printf '{\"updatedInput\":%s}' \"$UPDATED\"; fi; fi; fi; fi"
+        }
+      ]
+    }
+  }
 }
