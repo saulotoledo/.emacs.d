@@ -9072,13 +9072,15 @@ complex structures with just a few keystrokes.
 
 #+begin_src elisp
 (use-package emmet-mode
-  :hook ((html-mode . emmet-mode)
+  :hook ((css-mode . emmet-mode)
+         (css-ts-mode . emmet-mode)
+         (html-mode . emmet-mode)
          (html-ts-mode . emmet-mode)
          (mhtml-mode . emmet-mode)
-         (web-mode . emmet-mode)
-         (css-mode . emmet-mode)
-         (css-ts-mode . emmet-mode)
-         (tsx-ts-mode . emmet-mode))
+         (nxml-mode . emmet-mode)
+         (sgml-mode . emmet-mode)
+         (tsx-ts-mode . emmet-mode)
+         (web-mode . emmet-mode))
   :config
   (setq emmet-indentation 2))
 #+end_src
