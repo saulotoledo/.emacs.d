@@ -5824,8 +5824,40 @@ unchanged.
             (funcall orig-fun workspace method
                      (my/lsp--rebuild-params params filtered-added removed))))))))
 
+(defun my/lsp--find-multiroot-workspace-filter
+    (orig-fun session client project-root)
+  "Block multi-root workspace expansion when PROJECT-ROOT has no matching files.
+
+SESSION is the current LSP session.
+CLIENT is the active LSP client.
+PROJECT-ROOT is the directory being considered for multiroot expansion.
+
+Return nil as if no multiroot workspace exists for this pairing.
+lsp-mode then skips both the `workspace/didChangeWorkspaceFolders'
+notification and the `server-id->folders' update that would otherwise be
+persisted to .lsp-session-v1.
+
+Without this guard, opening any directory, for example ~/.emacs.d or a
+React project, while jdtls is running silently adds that directory to
+jdtls's `server-id->folders'. On the next Emacs start jdtls restores all
+those folders, triggering the >1000-directory watch prompt and
+unnecessary project scanning.
+
+The `my/lsp--filter-workspace-change-for-server' advice on `lsp--notify'
+intercepts before `server-id->folders' is updated. Suppressing the
+notification does not prevent the hash-table update. This advice fixes
+that by returning nil before the update runs."
+  (let* ((server-id  (lsp--client-server-id client))
+         (extensions (alist-get server-id my/lsp-server-file-extensions)))
+    (if (and extensions
+             (not (my/lsp--folder-has-extensions-p project-root extensions)))
+        nil
+      (funcall orig-fun session client project-root))))
+
 (with-eval-after-load 'lsp-mode
-  (advice-add 'lsp--notify :around #'my/lsp--filter-workspace-change-for-server))
+  (advice-add 'lsp--notify :around #'my/lsp--filter-workspace-change-for-server)
+  (advice-add 'lsp--find-multiroot-workspace
+              :around #'my/lsp--find-multiroot-workspace-filter))
 #+end_src
 
 
