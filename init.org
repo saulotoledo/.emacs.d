@@ -7758,6 +7758,13 @@ WORKSPACE is the lsp workspace, STATUS is the notification payload."
         (let ((mod-dir (file-name-directory mod-pom)))
           (my/jdtls--write-compliance-prefs mod-dir java-version)
           (setq count (1+ count))))
+      ;; 1b. Patch every .classpath found anywhere under the project root.
+      ;; m2e writes .classpath files into dirs co-located with pom.xml AND
+      ;; occasionally into dirs without a pom.xml (generated-source dirs,
+      ;; synthetic Eclipse sub-projects). Scanning for .classpath directly
+      ;; covers both cases in a single pass with no redundancy.
+      (dolist (cp-file (directory-files-recursively root "\\`\\.classpath\\'"))
+        (my/jdtls--fix-classpath-jre (file-name-directory cp-file) env-name))
       ;; 2. Overwrite the jdtls workspace metadata .settings AND .classpath
       (let ((ws-projects (expand-file-name
                           ".metadata/.plugins/org.eclipse.core.resources/.projects"
@@ -7782,6 +7789,10 @@ WORKSPACE is the lsp workspace, STATUS is the notification payload."
                    (prefs (expand-file-name ".settings/org.eclipse.jdt.core.prefs" mod-dir)))
               (when (file-exists-p prefs)
                 (push (list :uri (lsp--path-to-uri prefs) :type 2) changes))))
+          ;; Notify about ALL .classpath files anywhere under the project root --
+          ;; deep scan so we catch files not co-located with a pom.xml too.
+          (dolist (cp-file (directory-files-recursively root "\\`\\.classpath\\'"))
+            (push (list :uri (lsp--path-to-uri cp-file) :type 2) changes))
           ;; Also notify about .classpath changes in workspace metadata
           (let ((ws-projects (expand-file-name
                               ".metadata/.plugins/org.eclipse.core.resources/.projects"
