@@ -5249,6 +5249,10 @@ on a dynamic binding that can silently fail, we intercept ALL
          ;; also benefits from the cache on repeated invocations.
          ((and (equal method "textDocument/completion")
                my/lsp-completion--last-resp
+               ;; Do not use the cache if the last response was incomplete,
+               ;; as the server expects a new request for further typing.
+               (not (and (listp my/lsp-completion--last-resp)
+                         (plist-get my/lsp-completion--last-resp :isIncomplete)))
                (equal my/lsp-completion--last-resp-bounds bounds-start)
                (< (- (float-time) my/lsp-completion--last-resp-time)
                   my/lsp-completion-debounce-delay))
@@ -5278,6 +5282,9 @@ on a dynamic binding that can silently fail, we intercept ALL
                    (setq my/lsp-completion--last-resp        result
                          my/lsp-completion--last-resp-time   (float-time)
                          my/lsp-completion--last-resp-bounds saved-bounds)
+                   ;; Clear lsp-mode's internal cache so the next capf call doesn't
+                   ;; return the empty result caused by our nil return earlier.
+                   (setq lsp-completion--cache nil)
                    (when (bound-and-true-p corfu-mode)
                      (when (timerp my/lsp-completion--refresh-timer)
                        (cancel-timer my/lsp-completion--refresh-timer))
@@ -9008,6 +9015,7 @@ treesit (~*-ts-mode~):
 ;; so that typescript.suggest.completeFunctionCalls is included when
 ;; lsp-configuration-section "typescript" is serialised below.
 (setq lsp-typescript-suggest-complete-function-calls t)
+(setq lsp-typescript-preferences-import-module-specifier "auto") ; other values: non-relative, relative
 
 (with-eval-after-load 'lsp-mode
   (lsp-register-client
