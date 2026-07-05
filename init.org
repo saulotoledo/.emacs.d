@@ -7303,7 +7303,6 @@ JAL must be configured **before** ~lsp-java~.
 
 #+begin_src emacs-lisp
 (use-package jal
-  :vc (:url "https://github.com/saulotoledo/java-agent-loader" :rev :newest)
   :custom
   (jal-auto-setup t)
   :config
