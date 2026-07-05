@@ -92,14 +92,7 @@
       "api": "openai-chat",
       "url": "https://openrouter.ai/api/v1",
       "key": "${env:OPENROUTER_API_KEY}",
-      "fetchModels": true,
-      "models": {
-        "qwen/qwen-2.5-vl-7b-instruct:free": {
-          "extraPayload": {
-            "max_tokens": 2048
-          }
-        }
-      }
+      "fetchModels": true
     },
     "perplexity": {
       "api": "perplexity",

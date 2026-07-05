@@ -4178,7 +4178,7 @@ directory to =~/.config/eca/config.json=. It supports overriding the
 ;; Set this to override the default model in eca-config.json
 ;; If nil or not set, uses copilot from eca-config.json
 ;; Example: (setq my/eca-default-model "mistral/devstral-2512")
-(setq my/eca-default-model "mistral/devstral-2512")
+(setq my/eca-default-model "openrouter/openrouter/free")
 #+end_example
 
 3. **Replacement process**: When ~my/eca-install-config~ runs:
