@@ -4073,7 +4073,7 @@ This section covers the configuration of encrypted API keys for the AI providers
 1. ~my/get-token-from-auth-source~ function:
    - Searches auth-source for a credential entry matching the given host
    - Looks for user ="apikey"= (common convention for API keys)
-   - Requires both =:user= and =:secret= to be present
+   - Requires =:secret= (password field) to be present
    - Returns the secret (API key) as a string, or signals an error if not found
 
 2. ~my/eca-setup-tokens~ function:
@@ -4126,21 +4126,22 @@ install the ECA config file to the global path.
 #+begin_src emacs-lisp
 (defun my/get-token-from-auth-source (host)
   "Find token in auth-source for HOST."
-  (let* ((found (auth-source-search
-                 :host host
-                 :user "apikey"
-                 :require '(:user :secret)
-                 :max 1))
-         (entry (car found))
+  (require 'epa-file)
+  ;; Per-spec cache holds stale nil results for ~2h after early-startup
+  ;; failures. Clearing all cached results before lookup ensures a fresh
+  ;; read from the GPG file (gpg-agent keeps the key in memory so repeated
+  ;; decryptions are fast and silent after the first unlock).
+  (auth-source-forget-all-cached)
+  (let* ((entry (car (auth-source-search :host host :user "apikey" :max 1)))
          (secret-fn (when entry (plist-get entry :secret))))
-
     (cond
-     ((null found)
+     ((null entry)
       (error "Token not found for host %s user %s" host "apikey"))
      ((null secret-fn)
-      (error "Secret not available for host %s user %s (backend may not support secrets)" host "apikey"))
+      (error "Token found for host %s user %s but no password field in ~/.authinfo.gpg"
+             host "apikey"))
      (t
-      (funcall secret-fn)))))
+      (if (functionp secret-fn) (funcall secret-fn) secret-fn)))))
 
 (defun my/ai-copilot-authorized-p ()
   "Check if this machine is authorized for GitHub Copilot.
@@ -4292,9 +4293,12 @@ Finally, we setup the ECA package and its completion mode:
               (when (and (file-exists-p local-file)
                          (not (boundp 'my/eca-default-model)))
                 (load-file local-file)))
-            (my/eca-setup-tokens)
             (my/eca-install-config)
-            (setq my/eca-initialized-p t))
+            (setq my/eca-initialized-p t)
+            ;; Defer token setup: gpg-agent may not be ready when eca is first
+            ;; invoked. Tokens are env vars read at call time, so setting them
+            ;; a few seconds later is safe.
+            (run-with-idle-timer 2 nil #'my/eca-setup-tokens))
         (error (message "ECA: Failed to load local.el: %s" (error-message-string err))))))
 
   (defvar my/eca-initialized-p nil
@@ -5239,7 +5243,7 @@ The original blocking function is only called for non-completion methods.
 Rationale for dropping the `non-essential' guard on the cache-miss branch:
 The profiler showed `lsp-request-while-no-input' blocking for ~lsp-response-
 timeout (20 s) seconds via the `(t ...)' fallback even inside corfu-auto's
-timer callbacks, where `non-essential' should have been t.  Rather than rely
+timer callbacks, where `non-essential' should have been t. Rather than rely
 on a dynamic binding that can silently fail, we intercept ALL
 `textDocument/completion' requests unconditionally."
       (let ((bounds-start (or (car (bounds-of-thing-at-point 'symbol)) (point))))
@@ -5340,7 +5344,7 @@ on a dynamic binding that can silently fail, we intercept ALL
     (defun my/lsp-completion--annotation-description (item)
       "Extract `labelDetails.description` from CompletionItem ITEM.
 This is the module/import source (e.g. \"next/link\"), NOT the verbose
-type detail.  Returns nil when unavailable."
+type detail. Returns nil when unavailable."
       (when-let* ((ld (lsp:completion-item-label-details? item))
                   (desc (lsp:label-details-description? ld)))
         (unless (lsp-falsy? desc) desc)))
@@ -5348,7 +5352,7 @@ type detail.  Returns nil when unavailable."
     (defun my/lsp-completion--import-source-from-buffer (symbol-name)
       "Search buffer imports for SYMBOL-NAME and return the module path.
 Handles ES import patterns: `import X from \"mod\"`, `import { X } from \"mod\"`,
-`import { Y as X } from \"mod\"`.  Returns nil if not found."
+`import { Y as X } from \"mod\"`. Returns nil if not found."
       (save-excursion
         (save-restriction
           (widen)
