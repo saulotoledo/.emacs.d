@@ -730,64 +730,396 @@ if [ ! -f "./init.el" ]; then
 fi
 
 is_installed_list_of_secrets() {
-  [ -f "$HOME/.authinfo.gpg" ]
+  false
 }
 
-install_list_of_secrets() {
-  AUTH_FILE="$HOME/.authinfo.gpg"
-  TEMP_FILE=$(mktemp)
-  chmod 600 "$TEMP_FILE"
+_secrets_wizard_gpg_key() {
+  echo -e "\nNo GPG keys found. Would you like to:"
+  echo "  1) Generate a new GPG key (Quick Setup)"
+  echo "  2) Use an existing GPG key (Ensure it's available via smartcard, etc.)"
+  echo "  3) Abort setup"
+  local gpg_opt
+  read -r -p "Select option [1-3]: " gpg_opt
+  case "$gpg_opt" in
+    1)
+      print_titled_header "GPG Key Generation Wizard"
+      local gpg_name gpg_email
+      read -r -p "Enter your full name: " gpg_name
+      read -r -p "Enter your email address: " gpg_email
+      if [ -z "$gpg_name" ] || [ -z "$gpg_email" ]; then
+        log_error "Name and email are required. Aborting."
+        return 1
+      fi
+      local gpg_passphrase=""
+      local use_passphrase
+      read -r -p "Protect key with a passphrase? (y/N): " use_passphrase
+      if [[ "$use_passphrase" =~ ^[yY]$ ]]; then
+        read -rs -p "Enter passphrase: " gpg_passphrase
+        echo ""
+        local gpg_passphrase_confirm
+        read -rs -p "Confirm passphrase: " gpg_passphrase_confirm
+        echo ""
+        if [[ "$gpg_passphrase" != "$gpg_passphrase_confirm" ]]; then
+          log_error "Passphrases do not match. Aborting."
+          return 1
+        fi
+      fi
+      if ! run_task "Generating GPG key" "gpg --batch --pinentry-mode loopback --passphrase \"$gpg_passphrase\" --quick-generate-key \"$gpg_name <$gpg_email>\" default default never"; then
+         log_error "Key generation failed."
+         return 1
+      fi
+      log_success "GPG key created successfully."
+      ;;
+    2)
+      log_info "Proceeding with the assumption that a key will be available."
+      ;;
+    *)
+      log_info "Aborting secrets setup."
+      rm -f "$TEMP_FILE"
+      return 1
+      ;;
+  esac
+  return 0
+}
 
+_secrets_init_vault() {
   if [ -f "$AUTH_FILE" ]; then
-    if ! run_task "Decrypting existing credentials" "gpg --quiet --decrypt $AUTH_FILE > $TEMP_FILE"; then
+    if ! SECRETS_CONTENT=$(gpg --quiet --pinentry-mode loopback --decrypt "$AUTH_FILE" 2>&1); then
       log_error "Decryption failed. Aborting to prevent data loss."
-      rm "$TEMP_FILE"
+      log_error "$SECRETS_CONTENT"
+      SECRETS_CONTENT=""
       return 1
     fi
   else
-    run_task "Initializing new vault" "touch $TEMP_FILE"
+    log_info "No existing $AUTH_FILE found."
+    local key_count
+    key_count=$(gpg --list-keys --with-colons 2>/dev/null | awk -F: '/^pub/ {print $1}' | wc -l)
+    if [ "$key_count" -eq 0 ]; then
+      if ! _secrets_wizard_gpg_key; then
+        return 1
+      fi
+    fi
+    run_task "Initializing new vault" "true"
+    SECRETS_CONTENT=""
+  fi
+  return 0
+}
+
+_secrets_load_current_keys() {
+  while read -r line; do
+    if [[ "$line" =~ ^machine\ ([^\ ]+)\ login\ ([^\ ]+)\ password\ (.+)$ ]]; then
+      local m="${BASH_REMATCH[1]}"
+      local l="${BASH_REMATCH[2]}"
+      local p="${BASH_REMATCH[3]}"
+      current_keys["$m|$l"]="$p"
+    fi
+  done <<< "$SECRETS_CONTENT"
+}
+
+_secrets_parse_selection() {
+  local host_selection="$1"
+  local ADDR
+  IFS=',' read -ra ADDR <<< "$host_selection"
+  for item in "${ADDR[@]}"; do
+    if [[ "$item" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+      local start=${BASH_REMATCH[1]}
+      local end=${BASH_REMATCH[2]}
+      local j
+      for (( j=start; j<=end; j++ )); do
+        selected_indices+=("$j")
+      done
+    elif [[ "$item" =~ ^[0-9]+$ ]]; then
+      selected_indices+=("$item")
+    fi
+  done
+}
+
+_secrets_select_hosts() {
+  print_titled_header "API Key Management"
+  echo "Available hosts:"
+
+  local i=1
+  for h in "${predefined_hosts[@]}"; do
+    IFS='|' read -r machine login name <<< "$h"
+    local status="Not Set"
+    if [[ -n "${pending_removals["$machine|$login"]}" ]]; then
+      status="${ERR_COLOR}Pending Removal${NC}"
+    elif [[ -n "${pending_updates["$machine|$login"]}" ]]; then
+      status="${KEY_COLOR}Pending Update${NC}"
+    elif [[ -n "${current_keys["$machine|$login"]}" ]]; then
+      status="${CHECK_COLOR}Set${NC}"
+    fi
+    echo -e "  $i) $name ($machine) - [$status]"
+    display_hosts+=("$h")
+    ((i++))
+  done
+  echo "  $i) Add Custom Host"
+  echo "  0) Skip / Done"
+
+  local host_selection
+  read -r -p "Select hosts to manage (e.g., 1,3,4 or 1-3) [0]: " host_selection
+  if [[ -z "$host_selection" || "$host_selection" == "0" ]]; then
+    return 1
   fi
 
-  echo -e "\n${KEY_COLOR}[*]${NC} Setting up AI API Tokens"
-  echo -e "    (Vault: $AUTH_FILE)\n"
+  _secrets_parse_selection "$host_selection"
+  return 0
+}
 
-  update_key() {
-    local machine=$1
-    local user=$2
-    local name=$3
-    local key
+_secrets_prompt_custom_host() {
+  local c_machine c_login c_name
+  read -r -p "Enter custom machine (e.g., api.custom.com): " c_machine
+  read -r -p "Enter login (Default: 'apikey'): " c_login
+  read -r -p "Enter friendly name: " c_name
+  if [[ -z "$c_login" ]]; then
+    c_login="apikey"
+  fi
+  if [[ -n "$c_machine" && -n "$c_login" ]]; then
+    display_hosts+=("$c_machine|$c_login|$c_name")
+    predefined_hosts+=("$c_machine|$c_login|$c_name")
+    return 0
+  else
+    log_error "Invalid custom host."
+    return 1
+  fi
+}
 
-    read -rs -p "  Enter $name API Key (leave empty to keep existing): " key
+_secrets_prompt_action_for_host() {
+  local h="$1"
+  local machine login name
+  IFS='|' read -r machine login name <<< "$h"
+
+  echo -e "\n${KEY_COLOR}[*]${NC} Managing: $name ($machine)"
+  local current_val="${current_keys["$machine|$login"]}"
+
+  if [[ -n "$current_val" ]]; then
+    local masked_val="${current_val:0:4}********${current_val: -4}"
+    echo "Current key: $masked_val"
+    echo "  1) Update key"
+    echo "  2) Remove key"
+    echo "  3) Keep existing (Skip)"
+    local action
+    read -r -p "Action [3]: " action
+    case "$action" in
+      1)
+        local new_key
+        read -rs -p "Enter new API Key: " new_key
+        echo ""
+        if [[ -n "$new_key" ]]; then
+          pending_updates["$machine|$login"]="$new_key"
+          log_success "Key updated (pending save)."
+        else
+          log_info "Empty key provided, keeping existing."
+        fi
+        ;;
+      2)
+        pending_removals["$machine|$login"]=1
+        log_success "Key marked for removal."
+        ;;
+      *)
+        log_info "Skipping $name."
+        ;;
+    esac
+  else
+    local new_key
+    read -rs -p "Enter API Key: " new_key
     echo ""
-
-    if [ -n "$key" ]; then
-      sed -i "/machine $machine login $user/d" "$TEMP_FILE"
-      echo "machine $machine login $user password $key" >> "$TEMP_FILE"
-      log_success "Updated $name"
+    if [[ -n "$new_key" ]]; then
+      pending_updates["$machine|$login"]="$new_key"
+      log_success "Key added (pending save)."
     else
-      log_info "Skipping $name (unchanged)"
+      log_info "Empty key provided, skipping."
     fi
-  }
+  fi
+}
 
-  update_key "api.github.com" "apikey" "GitHub Copilot"
-  update_key "generativelanguage.googleapis.com" "apikey" "Google Gemini"
-  update_key "api.groq.com" "apikey" "Groq"
-  update_key "api.deepseek.com" "apikey" "DeepSeek"
-  update_key "api.openai.com" "apikey" "OpenAI"
+_secrets_edit_keys() {
+  local num_predefined=${#predefined_hosts[@]}
+  local add_custom_idx=$((num_predefined + 1))
 
+  for idx in "${selected_indices[@]}"; do
+    if [ "$idx" -eq "$add_custom_idx" ]; then
+      if _secrets_prompt_custom_host; then
+        idx=${#display_hosts[@]}
+      else
+        continue
+      fi
+    fi
+
+    if [ "$idx" -lt 1 ] || [ "$idx" -gt "${#display_hosts[@]}" ]; then
+      continue
+    fi
+
+    _secrets_prompt_action_for_host "${display_hosts[$((idx-1))]}"
+  done
+}
+
+_secrets_build_preview_file() {
+  PREVIEW_CONTENT=""
+  while read -r line; do
+    [ -z "$line" ] && continue
+    if [[ "$line" =~ ^machine\ ([^\ ]+)\ login\ ([^\ ]+)\ password\ (.+)$ ]]; then
+      local m="${BASH_REMATCH[1]}"
+      local l="${BASH_REMATCH[2]}"
+      local key="$m|$l"
+
+      if [[ -n "${pending_removals[$key]}" ]]; then
+        echo "  - Removed: $m ($l)"
+        continue
+      elif [[ -n "${pending_updates[$key]}" ]]; then
+        echo "  ~ Updated: $m ($l)"
+        PREVIEW_CONTENT+="machine $m login $l password ${pending_updates[$key]}"$'\n'
+        unset "pending_updates[$key]"
+        continue
+      fi
+    fi
+    PREVIEW_CONTENT+="$line"$'\n'
+  done <<< "$SECRETS_CONTENT"
+
+  local key
+  for key in "${!pending_updates[@]}"; do
+    local m l
+    IFS='|' read -r m l <<< "$key"
+    echo "  + Added: $m ($l)"
+    PREVIEW_CONTENT+="machine $m login $l password ${pending_updates[$key]}"$'\n'
+  done
+}
+
+_secrets_print_preview() {
+  echo -e "\nPreview of edited entries:"
+  while read -r line; do
+    [ -z "$line" ] && continue
+    if [[ "$line" =~ ^machine\ ([^\ ]+)\ login\ ([^\ ]+)\ password\ (.+)$ ]]; then
+      local m="${BASH_REMATCH[1]}"
+      local l="${BASH_REMATCH[2]}"
+      local p="${BASH_REMATCH[3]}"
+      local masked_val="${p:0:4}********${p: -4}"
+      echo "  machine $m login $l password $masked_val"
+    else
+      echo "  $line"
+    fi
+  done <<< "$PREVIEW_CONTENT"
+}
+
+_secrets_confirm_and_save() {
+  local confirm
+  read -r -p "Proceed with encryption and save? (y/N/s for backup only): " confirm
+  if [[ "$confirm" =~ ^[yY]$ ]]; then
+    if [ -f "$AUTH_FILE" ]; then
+      local backup_file="${AUTH_FILE}.backup.$(date +%Y%m%d-%H%M%S)"
+      run_task "Creating backup" "cp \"$AUTH_FILE\" \"$backup_file\""
+      log_success "Backup created at $backup_file"
+    fi
+
+    if ! run_task "Encrypting vault" "gpg --yes --quiet --batch --pinentry-mode loopback --encrypt --default-recipient-self --output \"$AUTH_FILE\" <<< \"\$PREVIEW_CONTENT\""; then
+      log_error "Encryption failed!"
+      if [ -f "${backup_file:-}" ]; then
+        log_info "Restoring from backup..."
+        cp "$backup_file" "$AUTH_FILE"
+      fi
+    else
+      log_success "Secrets saved successfully."
+    fi
+  elif [[ "$confirm" =~ ^[sS]$ ]]; then
+    local dest="${AUTH_FILE}.unencrypted.backup"
+    echo -n "$PREVIEW_CONTENT" > "$dest"
+    log_info "Saved unencrypted to $dest"
+  else
+    log_info "Operation cancelled."
+  fi
+}
+
+_secrets_apply_changes() {
+  if [ ${#pending_updates[@]} -eq 0 ] && [ ${#pending_removals[@]} -eq 0 ]; then
+    log_info "No changes to apply."
+    return 0
+  fi
+
+  print_titled_header "Summary of Changes"
+  echo "The following changes will be applied to $AUTH_FILE:"
+
+  _secrets_build_preview_file
+  _secrets_print_preview
   echo ""
-  RECIPIENT=$(whoami)
+  _secrets_confirm_and_save
+}
 
-  run_task "Encrypting vault" "gpg --yes --quiet --batch --encrypt --recipient $RECIPIENT --output $AUTH_FILE $TEMP_FILE"
+_secrets_detect_unknown_hosts() {
+  local key
+  for key in "${!current_keys[@]}"; do
+    local m l
+    IFS='|' read -r m l <<< "$key"
+    if [[ "$l" == "apikey" ]]; then
+      local found=false
+      local h
+      for h in "${predefined_hosts[@]}"; do
+        if [[ "$h" == "$m|$l|"* ]]; then
+          found=true
+          break
+        fi
+      done
+      if ! $found; then
+        predefined_hosts+=("$m|$l|$m (Discovered)")
+      fi
+    fi
+  done
+}
 
-  run_task "Securely cleaning temporary data" "shred -u $TEMP_FILE 2>/dev/null || rm $TEMP_FILE"
+install_list_of_secrets() {
+  local AUTH_FILE="$HOME/.authinfo.gpg"
+  local SECRETS_CONTENT="" PREVIEW_CONTENT=""
+
+  local predefined_hosts=(
+    "api.anthropic.com|apikey|Anthropic"
+    "api.codium.com|apikey|Codium"
+    "api.deepseek.com|apikey|DeepSeek"
+    "api.github.com|apikey|GitHub Copilot"
+    "api.groq.com|apikey|Groq"
+    "api.mistral.ai|apikey|Mistral"
+    "api.openai.com|apikey|OpenAI"
+    "generativelanguage.googleapis.com|apikey|Google Gemini"
+    "openrouter.ai|apikey|OpenRouter"
+    "router.huggingface.co|apikey|Hugging Face"
+  )
+
+  declare -A current_keys pending_updates pending_removals
+  local display_hosts=()
+  local selected_indices=()
+
+  if ! _secrets_init_vault; then
+    return 1
+  fi
+
+  _secrets_load_current_keys
+
+  _secrets_detect_unknown_hosts
+
+  while true; do
+    display_hosts=()
+    selected_indices=()
+
+    if ! _secrets_select_hosts; then
+      break
+    fi
+
+    _secrets_edit_keys
+    echo ""
+  done
+
+  if [ ${#pending_updates[@]} -gt 0 ] || [ ${#pending_removals[@]} -gt 0 ]; then
+    _secrets_apply_changes
+  else
+    log_info "No changes to apply."
+  fi
+
+  run_task "Cleaning memory" "unset SECRETS_CONTENT PREVIEW_CONTENT"
 }
 
 uninstall_list_of_secrets() {
   log_skip "Encrypted secrets vault"
 }
 
-register_action "Setup encrypted authinfo" "list-of-secrets" "secrets"
+register_action "Manage GPG-encrypted authinfo secrets" "list-of-secrets" "secrets"
 
 is_installed_terraformls() {
   is_system_package_installed "terraformls"
