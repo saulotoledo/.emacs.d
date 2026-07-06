@@ -70,38 +70,11 @@
       "key": "${env:GROQ_API_KEY}",
       "fetchModels": true
     },
-    "moonshot": {
-      "api": "moonshot",
-      "url": "https://api.moonshot.ai/v1",
-      "key": "${env:MOONSHOT_API_KEY}",
-      "models": {
-        "moonshot-v1-8k": {},
-        "moonshot-v1-32k": {}
-      }
-    },
-    "novita": {
-      "api": "novita",
-      "url": "https://api.novita.ai/v3/openai",
-      "key": "${env:NOVITA_API_KEY}",
+    "huggingface": {
+      "api": "openapi-chat",
+      "url": "https://router.huggingface.co/v1",
+      "key": "${env:HUGGINGFACE_API_KEY}",
       "fetchModels": true
-    },
-    "openai": {
-      "key": "${env:OPENAI_API_KEY}"
-    },
-    "openrouter": {
-      "api": "openai-chat",
-      "url": "https://openrouter.ai/api/v1",
-      "key": "${env:OPENROUTER_API_KEY}",
-      "fetchModels": true
-    },
-    "perplexity": {
-      "api": "perplexity",
-      "url": "https://api.perplexity.ai",
-      "key": "${env:PERPLEXITY_API_KEY}",
-      "models": {
-        "sonar-reasoning-pro": {},
-        "sonar-pro": {}
-      }
     },
     "mistral": {
       "api": "openai-chat",
@@ -136,16 +109,49 @@
         }
       }
     },
-    "huggingface": {
-      "api": "openapi-chat",
-      "url": "https://router.huggingface.co/v1",
-      "key": "${env:HUGGINGFACE_API_KEY}",
+    "moonshot": {
+      "api": "moonshot",
+      "url": "https://api.moonshot.ai/v1",
+      "key": "${env:MOONSHOT_API_KEY}",
+      "models": {
+        "moonshot-v1-8k": {},
+        "moonshot-v1-32k": {}
+      }
+    },
+    "novita": {
+      "api": "novita",
+      "url": "https://api.novita.ai/v3/openai",
+      "key": "${env:NOVITA_API_KEY}",
       "fetchModels": true
+    },
+    "openai": {
+      "key": "${env:OPENAI_API_KEY}"
     },
     "ollama": {
       "api": "openai-chat",
       "url": "http://localhost:11434",
       "key": "",
+      "fetchModels": true
+    },
+    "openrouter": {
+      "api": "openai-chat",
+      "url": "https://openrouter.ai/api/v1",
+      "key": "${env:OPENROUTER_API_KEY}",
+      "fetchModels": true
+    },
+    "perplexity": {
+      "api": "perplexity",
+      "url": "https://api.perplexity.ai",
+      "key": "${env:PERPLEXITY_API_KEY}",
+      "models": {
+        "sonar-reasoning-pro": {},
+        "sonar-pro": {}
+      }
+    },
+    "siliconflow": {
+      "api": "openai-chat",
+      "url": "https://api.siliconflow.cn",
+      "key": "${env:SILICONFLOW_API_KEY}",
       "fetchModels": true
     }
   },

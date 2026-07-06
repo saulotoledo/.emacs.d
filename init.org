@@ -1459,15 +1459,14 @@ install_list_of_secrets() {
 
   local predefined_hosts=(
     "api.anthropic.com|apikey|Anthropic"
-    "api.codium.com|apikey|Codium"
     "api.deepseek.com|apikey|DeepSeek"
     "api.github.com|apikey|GitHub Copilot"
     "api.groq.com|apikey|Groq"
     "api.mistral.ai|apikey|Mistral"
     "api.openai.com|apikey|OpenAI"
-    "generativelanguage.googleapis.com|apikey|Google Gemini"
     "openrouter.ai|apikey|OpenRouter"
     "router.huggingface.co|apikey|Hugging Face"
+    "api.siliconflow.cn|apikey|SiliconFlow"
   )
 
   declare -A current_keys pending_updates pending_removals
@@ -4675,16 +4674,12 @@ Optional _ARG is ignored (for compatibility with advice)."
     "Setup ECA provider tokens from auth-source."
     (let ((providers '(("ANTHROPIC_API_KEY"   "api.anthropic.com")
                        ("DEEPSEEK_API_KEY"    "api.deepseek.com")
-                       ("GEMINI_API_KEY"      "generativelanguage.googleapis.com")
                        ("GROQ_API_KEY"        "api.groq.com")
                        ("HUGGINGFACE_API_KEY" "router.huggingface.co")
-                       ("KAGI_API_KEY"        "kagi.com")
                        ("MISTRAL_API_KEY"     "api.mistral.ai")
-                       ("MOONSHOT_API_KEY"    "api.moonshot.cn")
-                       ("NOVITA_API_KEY"      "api.novita.ai")
                        ("OPENAI_API_KEY"      "api.openai.com")
                        ("OPENROUTER_API_KEY"  "openrouter.ai")
-                       ("PERPLEXITY_API_KEY"  "api.perplexity.ai"))))
+                       ("SILICONFLOW_API_KEY" "api.siliconflow.cn"))))
       (dolist (provider providers)
         (let ((env-var (car provider))
               (host    (cadr provider)))

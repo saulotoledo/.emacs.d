@@ -1071,15 +1071,14 @@ install_list_of_secrets() {
 
   local predefined_hosts=(
     "api.anthropic.com|apikey|Anthropic"
-    "api.codium.com|apikey|Codium"
     "api.deepseek.com|apikey|DeepSeek"
     "api.github.com|apikey|GitHub Copilot"
     "api.groq.com|apikey|Groq"
     "api.mistral.ai|apikey|Mistral"
     "api.openai.com|apikey|OpenAI"
-    "generativelanguage.googleapis.com|apikey|Google Gemini"
     "openrouter.ai|apikey|OpenRouter"
     "router.huggingface.co|apikey|Hugging Face"
+    "api.siliconflow.cn|apikey|SiliconFlow"
   )
 
   declare -A current_keys pending_updates pending_removals
