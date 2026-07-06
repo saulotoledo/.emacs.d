@@ -7433,6 +7433,23 @@ a 4-space or 8-space offset relative to the statement start."
             (lambda ()
               (add-hook 'hack-local-variables-hook #'my/java-ts-indent-fix nil t)))
 
+  ;; Register DAP launcher variables here in :init, not in :config.
+  ;; :config runs inside with-eval-after-load, which fires on the first
+  ;; java-ts-mode buffer -- but session-restore (desktop-save) can open
+  ;; Java buffers before that, causing java-ts-mode-hook to run before the
+  ;; add-hook below is ever evaluated.  Registering in :init is
+  ;; unconditional and happens at startup time.  The lambda stores only
+  ;; function symbols; the actual functions are defined in :config and are
+  ;; looked up lazily when called (e.g. on F5).
+  (add-hook 'java-ts-mode-hook
+            (lambda ()
+              (setq-local my/dap-check-requirements
+                          #'my/dap-java--check-requirements)
+              (setq-local my/dap-start-debug
+                          #'my/dap-java--start-debug)
+              (setq-local my/dap-force-stop
+                          #'my/dap-java--force-stop)))
+
   :hook
   (java-ts-mode . lsp-deferred)
 
@@ -7494,15 +7511,6 @@ tree before disconnecting."
       (ignore-errors
         (call-process "kill" nil nil nil "-9" (number-to-string pid))))
     (dap-force-quit))
-
-  (add-hook 'java-ts-mode-hook
-            (lambda ()
-              (setq-local my/dap-check-requirements
-                          #'my/dap-java--check-requirements)
-              (setq-local my/dap-start-debug
-                          #'my/dap-java--start-debug)
-              (setq-local my/dap-force-stop
-                          #'my/dap-java--force-stop)))
 
   (defun my/lsp-java-discover-runtimes ()
     "Discover SDKMAN! java versions and return them as a vector for lsp-java.
@@ -7989,7 +7997,7 @@ Using buffer scanning instead of a TCP probe avoids sending a
 bare TCP connection to the JDWP socket, which the JVM interprets
 as a malformed handshake and reports as \"connection prematurely
 closed\"."
-  (let ((pattern (format "Listening for transport dt_socket at address: %d"
+  (let ((pattern (format "Listening for transport dt_socket at address: localhost:%d"
                          port))
         (limit   (or timeout 120))
         (found   nil)
@@ -8003,7 +8011,7 @@ closed\"."
                             (search-forward pattern nil t))))
                       (buffer-list)))
       (unless found
-        (sit-for 1)
+        (accept-process-output nil 1)
         (setq i (1+ i))))
     (when found
       (message "DAP Java: JVM listening on JDWP port %d after %ds" port i))
@@ -8084,17 +8092,55 @@ CONF is the launch configuration plist from the launch.json entry."
          ;; If jdtls's debug plugin is still initializing (e.g. right
          ;; after a failed session) this command may fail; the error
          ;; message instructs the user to wait and retry.
-         (classpaths    (or (cl-second
-                             (with-lsp-workspace jdtls-ws
-                               (lsp-send-execute-command
-                                "vscode.java.resolveClasspath"
-                                (vector main-class project-name))))
-                            (user-error
-                             (concat "Cannot resolve classpath for %s. "
-                                     "Wait for jdtls to finish "
-                                     "initializing (check *jdtls::stderr*)"
-                                     " and retry")
-                             main-class)))
+         ;; resolveClasspath returns [modulepaths, classpaths] -- a JSON array
+         ;; that lsp-mode may decode as either a list or a vector depending
+         ;; on the active JSON parser. `cl-second' (= `cadr') only works on
+         ;; lists; use `seq-elt' which handles both.
+         ;; Upstream dap-java.el uses index 1 for :classPaths (classpaths are
+         ;; the second element). Validate with sequencep to catch cases where
+         ;; the debug plugin is not yet loaded and returns a bare number or nil
+         ;; instead of a string array. Fall back to index 0 for environments
+         ;; where the order differs (e.g. older plugin versions).
+         ;; Use lsp-request-async + accept-process-output for the same reason
+         ;; as startDebugSession: lsp-request / sit-for returns immediately
+         ;; when keyboard input is pending (the F5 keypress), handing back the
+         ;; outgoing request plist (:jsonrpc "2.0" ...) instead of the actual
+         ;; classpath array.  accept-process-output drains LSP output regardless
+         ;; of pending keyboard events.
+         (cp-raw        (let (result done)
+                          (with-lsp-workspace jdtls-ws
+                            (lsp-request-async
+                             "workspace/executeCommand"
+                             (list :command "vscode.java.resolveClasspath"
+                                   :arguments (vector main-class project-name))
+                             (lambda (res) (setq result res done t))
+                             :error-handler
+                             (lambda (err)
+                               (message "DAP Java: resolveClasspath error: %S" err)
+                               (setq done t))
+                             :mode 'detached))
+                          (let ((deadline (+ (float-time) 30)))
+                            (while (and (not done) (< (float-time) deadline))
+                              (accept-process-output nil 0.1)))
+                          result))
+         (classpaths    (let* ((arr1 (and (sequencep cp-raw)
+                                          (> (length cp-raw) 1)
+                                          (seq-elt cp-raw 1)))
+                               (arr0 (and (sequencep cp-raw)
+                                          (> (length cp-raw) 0)
+                                          (seq-elt cp-raw 0)))
+                               (lst (or (and (sequencep arr1)
+                                             (my/dap-java--normalize-to-list arr1))
+                                        (and (sequencep arr0)
+                                             (my/dap-java--normalize-to-list arr0)))))
+                          (or lst
+                              (user-error
+                               (concat "Cannot resolve classpath for %s "
+                                       "(resolveClasspath returned: %S). "
+                                       "Ensure the Java debug plugin bundle "
+                                       "is loaded (check `lsp-java-bundles') "
+                                       "and that jdtls has finished indexing")
+                               main-class cp-raw))))
          (vmargs-str    (my/dap-java--merge-vmargs conf))
          (prog-args-str (my/dap-java--normalize-prog-args conf))
          (env-alist     (my/dap-java--env-to-alist
@@ -8130,7 +8176,39 @@ CONF is the launch configuration plist from the launch.json entry."
           (append
            (list (cons "CLASSPATH_ARGS"
                        (s-join dap-java--classpath-separator classpaths)))
-           env-alist)))
+           env-alist))
+         ;; Start the JDT debug adapter synchronously and capture its port.
+         ;; lsp-send-execute-command delegates to lsp-request, which in Emacs
+         ;; 29+ uses (sit-for 0.01) to wait for the response.  sit-for returns
+         ;; immediately when keyboard input is pending (e.g. the F5 keypress
+         ;; that triggered this call is still in the event queue), so the
+         ;; response is never read and lsp-request returns the outgoing
+         ;; request plist instead of the port integer -- causing
+         ;; dap--open-network-stream to receive a plist where it expects a
+         ;; string.  Using lsp-request-async with accept-process-output avoids
+         ;; this: accept-process-output is specifically designed to drain
+         ;; process output regardless of pending keyboard input.
+         (debug-adapter-port
+          (let (result done)
+            (with-lsp-workspace jdtls-ws
+              (lsp-request-async
+               "workspace/executeCommand"
+               (list :command "vscode.java.startDebugSession")
+               (lambda (res) (setq result res done t))
+               :error-handler
+               (lambda (err)
+                 (message "DAP Java: startDebugSession error: %S" err)
+                 (setq done t))
+               :mode 'detached))
+            (let ((deadline (+ (float-time) 30)))
+              (while (and (not done) (< (float-time) deadline))
+                (accept-process-output nil 0.1)))
+            (or result
+                (user-error
+                 (concat "vscode.java.startDebugSession did not return a port. "
+                         "Ensure the Java debug plugin bundle is loaded "
+                         "(check `lsp-java-bundles') and that jdtls has "
+                         "finished indexing"))))))
     (message "DAP Java (compile_attach): %s:%s port=%d"
              project-name main-class port)
     (let* ((base-conf
@@ -8140,17 +8218,20 @@ CONF is the launch configuration plist from the launch.json entry."
                    :hostName          "localhost"
                    :projectName       project-name
                    :host              "localhost"
-                   ;; Do NOT use :wait-for-port here.
-                   ;; dap--wait-for-port opens a raw TCP connection to
-                   ;; probe the port and immediately closes it. The
-                   ;; JDWP agent treats that bare connection as a
-                   ;; malformed handshake and prints "connection
-                   ;; prematurely closed". We wait inside
-                   ;; :startup-function instead, by scanning buffers for
-                   ;; the "Listening for transport" line that the JDWP
-                   ;; agent itself prints, which avoids any TCP probe.
-                   :program-to-start  java-command
+                   ;; :port is the JVM's JDWP port.  dap-mode removes
+                   ;; :debugServer from the plist before forwarding the
+                   ;; attach request to the JDT debug adapter, so the
+                   ;; adapter relies on :port to know where to connect.
+                   ;; Do NOT add :wait-for-port here: dap--wait-for-port
+                   ;; makes a raw TCP probe to :port (the JDWP socket);
+                   ;; that bare connection triggers a failed JDWP
+                   ;; handshake which can resume the JVM early and cause
+                   ;; ClassNotFoundException before the debugger attaches.
+                   ;; The JDT debug adapter has its own JDWP connection
+                   ;; retry logic; the JVM will not run until it attaches
+                   ;; (suspend=y).
                    :port              port
+                   :program-to-start  java-command
                    :environment-variables env-variables
                    ;; Forward the optional build step from launch.json.
                    ;; If absent, auto-detect Maven or Gradle from the
@@ -8168,27 +8249,11 @@ CONF is the launch configuration plist from the launch.json entry."
                        (when (hash-table-p conf)
                          (gethash "dap-compilation-dir" conf))
                        (lsp--workspace-root jdtls-ws))
-                   ;; Placeholder so plist-put in :startup-function
-                   ;; mutates in-place: dap--create-session reads
-                   ;; :debugServer after :startup-function runs.
-                   :debugServer       0
-                   :__sessionId       (number-to-string (float-time))
-                   ;; Wait for the JVM's JDWP agent to print
-                   ;; "Listening for transport" in the log buffer,
-                   ;; then start the debug adapter. Waiting here (not
-                   ;; via :wait-for-port) avoids the raw-TCP probe that
-                   ;; breaks the JDWP handshake.
-                   :startup-function
-                   (let ((ws   jdtls-ws)   ; capture workspace in closure
-                         (p    port))
-                     (lambda (launch-args)
-                       (unless (my/dap-java--wait-for-jvm-listening p)
-                         (user-error
-                          "JVM did not start listening on port %d" p))
-                       (plist-put launch-args :debugServer
-                                  (with-lsp-workspace ws
-                                    (lsp-send-execute-command
-                                     "vscode.java.startDebugSession")))))))))
+                   ;; Debug adapter port obtained synchronously above.
+                   ;; dap-mode connects here; the adapter then connects
+                   ;; to the JVM via JDWP on :port above.
+                   :debugServer       debug-adapter-port
+                   :__sessionId       (number-to-string (float-time))))))
       base-conf)))
 
 (defun my/dap-java--debug-provider (conf)
