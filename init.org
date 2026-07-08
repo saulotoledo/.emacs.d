@@ -38,6 +38,7 @@
     - [[#modes-configuration][Modes configuration]]
     - [[#minibuffer-completion-search-and-navigation][Minibuffer Completion, Search, and Navigation]]
         - [[#ivy-counsel-and-ivy-rich][Ivy, Counsel, and Ivy-rich]]
+        - [[#toggling-hidden-buffers-in-buffer-switchers][Toggling hidden buffers in buffer switchers]]
         - [[#swiper-and-avy-fast-search-and-navigation][Swiper and Avy: Fast Search and Navigation]]
     - [[#maximize-frame-at-startup][Maximize frame at startup]]
     - [[#ansi-color-support-in-compilation-buffers][ANSI color support in compilation buffers]]
@@ -2537,6 +2538,51 @@ changing how you interact with them.
   :defer t
   :config
   (ivy-rich-mode 1))
+#+end_src
+
+
+*** Toggling hidden buffers in buffer switchers
+
+By default, hidden buffers are not shown in buffer switchers like =ibuffer= or
+=counsel-ibuffer=. Below we introduce a function to toggle the visibility of
+these hidden buffers, allowing you to see all buffers or only the visible ones.
+
+*Current limitations:* This toggle only works when the buffer switcher is
+already open. For the =counsel-ibuffer= in the minibuffer, it does not
+automatically refresh the list when you open the switcher, you need to type
+something to continue the search. You need to call the toggle function while the
+switcher is active to see the change.
+
+#+begin_src emacs-lisp
+(defvar my/ibuffer-show-all-hidden nil
+  "State flag for `my/ibuffer-toggle-hidden-buffers'.
+Non-nil means all hidden buffers (names starting with space) are shown.")
+
+(defun my/ibuffer-toggle-hidden-buffers ()
+  "Toggle hidden buffers in both standard Ibuffer and Counsel-Ibuffer."
+  (interactive)
+  (setq my/ibuffer-show-all-hidden (not my/ibuffer-show-all-hidden))
+  (cond
+   ((and (bound-and-true-p ivy-mode) (minibufferp))
+    (let* ((new-coll
+            (mapcar (lambda (buf) (cons (buffer-name buf) buf))
+                    (seq-filter
+                     (lambda (buf)
+                       (or my/ibuffer-show-all-hidden
+                           (not (and (string-prefix-p " " (buffer-name buf))
+                                     (null (buffer-file-name buf))))))
+                     (buffer-list)))))
+      (setf (ivy-state-collection ivy-last) new-coll)
+      (ivy-update-candidates (mapcar #'car new-coll))
+      (ivy--exhibit)))
+   ((derived-mode-p 'ibuffer-mode)
+    (setq ibuffer-display-maybe-show-predicates my/ibuffer-show-all-hidden)
+    (ibuffer-update nil t))))
+
+(with-eval-after-load 'ibuffer
+  (define-key ibuffer-mode-map (kbd "C-c h") #'my/ibuffer-toggle-hidden-buffers))
+(with-eval-after-load 'ivy
+  (define-key ivy-minibuffer-map (kbd "C-c h") #'my/ibuffer-toggle-hidden-buffers))
 #+end_src
 
 
