@@ -8368,35 +8368,6 @@ keyword keys. Output is an alist of (\"KEY\" . \"value\") pairs."
                            v)))
    (t nil)))
 
-(defun my/dap-java--wait-for-jvm-listening (port &optional timeout)
-  "Block until any buffer prints JVM listening on PORT, then return t.
-Polls all live buffers once per second for the string the JDWP
-agent prints when ready. Returns nil if TIMEOUT seconds elapse
-without the message appearing. TIMEOUT defaults to 120 seconds.
-Using buffer scanning instead of a TCP probe avoids sending a
-bare TCP connection to the JDWP socket, which the JVM interprets
-as a malformed handshake and reports as \"connection prematurely
-closed\"."
-  (let ((pattern (format "Listening for transport dt_socket at address: localhost:%d"
-                         port))
-        (limit   (or timeout 120))
-        (found   nil)
-        (i       0))
-    (while (and (not found) (< i limit))
-      (setq found
-            (seq-some (lambda (buf)
-                        (with-current-buffer buf
-                          (save-excursion
-                            (goto-char (point-min))
-                            (search-forward pattern nil t))))
-                      (buffer-list)))
-      (unless found
-        (accept-process-output nil 1)
-        (setq i (1+ i))))
-    (when found
-      (message "DAP Java: JVM listening on JDWP port %d after %ds" port i))
-    found))
-
 (defun my/dap-java--is-terminal-launch (conf)
   "Return t when CONF targets an integrated or external terminal.
 A config is a terminal launch when :request is \"launch\" and
@@ -8649,6 +8620,356 @@ CONF is the launch configuration plist or hash-table."
   (if (my/dap-java--is-terminal-launch conf)
       (my/dap-java--build-compile-attach conf)
     (dap-java--populate-default-args conf)))
+
+(defun my/dap-java--resolve-test-classpath (test-class-name)
+  "Resolve the runtime classpath for TEST-CLASS-NAME via jdtls.
+Safe replacement for the classpath resolution inside upstream
+`dap-java--run-unit-test-command', which calls
+`lsp-send-execute-command' synchronously and blindly does \(cl-second
+...\) followed by `s-join' on the result. When jdtls's debug plugin
+briefly returns a non-array response (a bare number or nil, e.g. while
+it is still finishing initialization), that crashes with \"s-join: Wrong
+type argument: sequencep, N\" -- this is the same class of bug worked
+around in `my/dap-java--build-compile-attach'. Uses `lsp-request-async'
++ `accept-process-output' for the same reason as there (a synchronous
+`lsp-request' can return early when keyboard input is pending), and
+validates the response shape with `sequencep' before joining, falling
+back to index 0 if the classpath is not at index 1."
+  (let* ((jdtls-ws (or (lsp-find-workspace 'jdtls)
+                       (user-error "jdtls is not running. Open a Java file first")))
+         (cp-raw (let (result done)
+                   (with-lsp-workspace jdtls-ws
+                     (lsp-request-async
+                      "workspace/executeCommand"
+                      (list :command "vscode.java.resolveClasspath"
+                            :arguments (vector test-class-name nil))
+                      (lambda (res) (setq result res done t))
+                      :error-handler
+                      (lambda (err)
+                        (message "DAP Java: resolveClasspath error: %S" err)
+                        (setq done t))
+                      :mode 'detached))
+                   (let ((deadline (+ (float-time) 30)))
+                     (while (and (not done) (< (float-time) deadline))
+                       (accept-process-output nil 0.1)))
+                   result))
+         (arr1 (and (sequencep cp-raw) (> (length cp-raw) 1) (seq-elt cp-raw 1)))
+         (arr0 (and (sequencep cp-raw) (> (length cp-raw) 0) (seq-elt cp-raw 0)))
+         (lst (or (and (sequencep arr1) (my/dap-java--normalize-to-list arr1))
+                  (and (sequencep arr0) (my/dap-java--normalize-to-list arr0)))))
+    (or lst
+        (user-error
+         (concat "Cannot resolve classpath for %s "
+                 "(resolveClasspath returned: %S). "
+                 "Ensure the Java debug plugin bundle is loaded "
+                 "(check `lsp-java-bundles') and that jdtls has "
+                 "finished indexing")
+         test-class-name cp-raw))))
+
+(defun my/dap-java--default-test-compilation-command (root)
+  "Auto-detect the Maven/Gradle *test* compile command for ROOT.
+Companion to `my/dap-java--default-compilation-command' (which only
+builds main sources). Running or debugging a JUnit test happens in a
+separate `java' process invoking
+`junit-platform-console-standalone.jar', which only ever sees whatever
+Maven/Gradle already wrote to disk (target/test-classes or
+build/classes/test). `lsp-java-autobuild-enabled' is deliberately
+off (see the `lsp-java' :init block) so that jdtls never writes its own
+class files there and Maven/Gradle remains the sole authority -- but
+that also means jdtls never compiles test sources either. Without this
+step, an edited or newly added test method silently runs against a stale
+or missing .class file, surfacing as \"failed to discover tests\"
+instead of a normal compile error."
+  (cond
+   ((file-exists-p (expand-file-name "pom.xml" root))
+    "mvn -q test-compile")
+   ((or (file-exists-p (expand-file-name "build.gradle" root))
+        (file-exists-p (expand-file-name "build.gradle.kts" root)))
+    "gradle -q compileTestJava")
+   (t
+    (message "DAP Java: no pom.xml or build.gradle found in %s; skipping test compile step" root)
+    nil)))
+
+(defun my/dap-java--test-class-relative-path (test-file)
+  "Return (MODULE-ROOT . PKG-PATH) locating TEST-FILE's compiled class.
+MODULE-ROOT is the nearest directory above TEST-FILE containing pom.xml,
+build.gradle, or build.gradle.kts. PKG-PATH is TEST-FILE's path relative
+to MODULE-ROOT with the leading src/test/java/ stripped and the .java
+extension removed -- i.e. the same relative path javac writes the
+compiled .class under (target/test-classes/ for Maven,
+build/classes/java/test/ for Gradle). Returns nil when TEST-FILE is not
+under a recognised src/test/java layout or no module root is found."
+  (-when-let* ((module-root (locate-dominating-file
+                             test-file
+                             (lambda (dir)
+                               (or (file-exists-p (expand-file-name "pom.xml" dir))
+                                   (file-exists-p (expand-file-name "build.gradle" dir))
+                                   (file-exists-p (expand-file-name "build.gradle.kts" dir))))))
+              (rel (file-relative-name test-file module-root))
+              (_ (string-prefix-p "src/test/java/" rel)))
+    (cons module-root
+          (s-chop-suffix ".java" (s-chop-prefix "src/test/java/" rel)))))
+
+(defun my/dap-java--candidate-test-class-files (test-file)
+  "Return the Maven and Gradle compiled .class candidates for TEST-FILE.
+Built from `my/dap-java--test-class-relative-path'. Neither candidate is
+required to already exist: `my/dap-java--compiled-test-class-file' uses
+this to check what is already on disk, and
+`my/dap-java--run-unit-test-command' embeds both paths in a shell
+snippet that probes for whichever exists once compilation has run.
+Returns nil when `my/dap-java--test-class-relative-path' does."
+  (-when-let ((module-root . pkg-path) (my/dap-java--test-class-relative-path test-file))
+    (list (expand-file-name (concat "target/test-classes/" pkg-path ".class") module-root)
+          (expand-file-name (concat "build/classes/java/test/" pkg-path ".class") module-root))))
+
+(defun my/dap-java--compiled-test-class-file (test-file)
+  "Return TEST-FILE's already-compiled .class path, or nil.
+The first of `my/dap-java--candidate-test-class-files' that exists on
+disk, or nil if neither does (or TEST-FILE's layout is not recognised)
+-- callers must treat nil as \"unknown\", not \"unchanged\"."
+  (-first #'file-exists-p (my/dap-java--candidate-test-class-files test-file)))
+
+(defun my/dap-java--test-needs-compile-p (test-file)
+  "Return non-nil when TEST-FILE is newer than its compiled .class.
+Failsafe against recompiling (running Maven/Gradle test-compile, see
+`my/dap-java--default-test-compilation-command') on every test run even
+when nothing changed. Defaults to t (recompile) whenever
+`my/dap-java--compiled-test-class-file' cannot locate the compiled class
+-- an unrecognised project layout must never be mistaken for \"already
+up to date\", since that would silently reintroduce the stale-.class bug
+this compile step exists to fix."
+  (let ((class-file (my/dap-java--compiled-test-class-file test-file)))
+    (or (null class-file)
+        (file-newer-than-file-p test-file class-file))))
+
+(defun my/dap-java--method-selector-shell-snippet (test-file class-name method-name)
+  "Return a shell snippet exporting TEST_SELECTOR for METHOD-NAME.
+JUnit Platform Console's bare \"CLASS-NAME#METHOD-NAME\" method selector
+only resolves to a zero-argument method: for a `@ParameterizedTest' (or
+any test method that takes arguments), resolution fails with \"Could not
+find method with name ...\" even though the method exists and is
+compiled, because the selector's reflection lookup has no parameter
+types to match against.
+
+The returned snippet looks up METHOD-NAME's parameter types with `javap'
+against whichever of `my/dap-java--candidate-test-class-files' exists
+once the compile step above has actually run (this must happen at
+shell-execution time, not here in Lisp, since a first-time compile means
+neither candidate class file exists yet), and sets TEST_SELECTOR to
+\"CLASS-NAME#METHOD-NAME(param, types)\" when found -- matching the
+parameter-type format `javap -p' already prints, which is also the
+format JUnit's method selector expects. Falls back to the bare
+\"CLASS-NAME#METHOD-NAME\" (the previous, still-correct behaviour for
+zero-argument test methods) when no class file or matching method line
+can be found."
+  (let ((selector (concat class-name "#" method-name))
+        (candidates (my/dap-java--candidate-test-class-files test-file)))
+    (format "TEST_SELECTOR=%s
+for __cf in %s; do
+  if [ -f \"$__cf\" ]; then
+    __line=$(javap -p \"$__cf\" 2>/dev/null | grep -E \"[ .]%s\\(\" | head -1)
+    if [ -n \"$__line\" ]; then
+      __params=$(echo \"$__line\" | sed -E 's/.*%s\\(([^)]*)\\).*/\\1/')
+      TEST_SELECTOR=%s\"($__params)\"
+    fi
+    break
+  fi
+done
+"
+            (shell-quote-argument selector)
+            (mapconcat #'shell-quote-argument candidates " ")
+            method-name
+            method-name
+            (shell-quote-argument selector))))
+
+(defun my/dap-java--run-unit-test-command (runner dwim?)
+  "Safe replacement for upstream `dap-java--run-unit-test-command'.
+RUNNER is the test executor. DWIM? when t tries to run the surrounding
+method, otherwise the surrounding test class. Classpath resolution goes
+through `my/dap-java--resolve-test-classpath' instead of the crash-prone
+synchronous call in the upstream version, and a Maven/Gradle
+test-compile step (see `my/dap-java--default-test-compilation-command')
+is prepended so the runner never executes against stale .class files --
+unless `my/dap-java--test-needs-compile-p' finds the compiled .class is
+already newer than the test source, in which case the compile step is
+skipped entirely. The build runs at the reactor root
+\(`lsp--workspace-root'), not the buffer's own module directory, so
+multi-module inter-project dependencies resolve the same way
+`my/dap-java--build-compile-attach' already relies on for regular app
+launches.
+
+For a JUnit method run (not TestNG, not a whole-class run), the \"-m\"
+selector is resolved at shell-execution time via
+`my/dap-java--method-selector-shell-snippet' rather than passed as the
+literal method name, so parameterized test methods resolve
+correctly (see that function's docstring)."
+  (-let* ((run-method? (and dwim? (dap-java-test-method-at-point t)))
+          (to-run (if run-method?
+                      (dap-java-test-method-at-point)
+                    (dap-java-test-class)))
+          (test-class-name (cl-first (s-split "#" to-run)))
+          (method-name (and run-method? (cl-second (s-split "#" to-run))))
+          (jdtls-ws (or (lsp-find-workspace 'jdtls)
+                       (user-error "jdtls is not running. Open a Java file first")))
+          (class-path (s-join dap-java--classpath-separator
+                              (my/dap-java--resolve-test-classpath test-class-name)))
+          (test-file (buffer-file-name))
+          (selector-snippet (and method-name (not dap-java-use-testng) test-file
+                                 (my/dap-java--method-selector-shell-snippet
+                                  test-file test-class-name method-name)))
+          (method-selector-arg (if selector-snippet
+                                   (format dap-java--var-format "TEST_SELECTOR")
+                                 to-run))
+          (prog-list (if dap-java-use-testng
+                         (cl-list* runner
+                                   "-cp" (format dap-java--var-format "JUNIT_CLASS_PATH")
+                                   "org.testng.TestNG"
+                                   "-d" dap-java-testng-report-dir
+                                   (if (and (s-contains? "#" to-run) run-method?) "-methods" "-testclass")
+                                   (if run-method? (s-replace "#" "." to-run) test-class-name)
+                                   dap-java-test-additional-args)
+                       (cl-list* runner "-jar" dap-java-test-runner
+                                 "-cp" (format dap-java--var-format "JUNIT_CLASS_PATH")
+                                 (if (and (s-contains? "#" to-run) run-method?) "-m" "-c")
+                                 (if run-method? method-selector-arg test-class-name)
+                                 dap-java-test-additional-args)))
+          (test-run-cmd (s-join " " prog-list))
+          (run-block (concat (or selector-snippet "") test-run-cmd))
+          (build-root (lsp--workspace-root jdtls-ws))
+          (needs-compile? (or (null test-file)
+                              (my/dap-java--test-needs-compile-p test-file)))
+          (build-cmd (and needs-compile?
+                          (my/dap-java--default-test-compilation-command build-root)))
+          (full-cmd (if build-cmd
+                        (format "(cd %s && %s) && { %s ; }"
+                                (shell-quote-argument build-root)
+                                build-cmd
+                                run-block)
+                      run-block)))
+    (unless needs-compile?
+      (message "DAP Java: %s is up to date; skipping test-compile" test-class-name))
+    (list :program-to-start full-cmd
+          :environment-variables `(("JUNIT_CLASS_PATH" . ,class-path))
+          :name to-run
+          :cwd (lsp-java--get-root))))
+
+(defun my/dap-java-run-test-method ()
+  "Safe replacement for `dap-java-run-test-method'.
+Runs the JUnit test method at point without the debugger, falling back
+to the test class if there is no method under the cursor. Uses
+`my/dap-java--run-unit-test-command' to avoid the classpath resolution
+crash described there."
+  (interactive)
+  (setq dap-java--latest-test
+        (-> (my/dap-java--run-unit-test-command dap-java-java-command t)
+            (plist-put :skip-debug-session t)))
+  (dap-start-debugging dap-java--latest-test))
+
+(defun my/dap-java-run-test-class ()
+  "Safe replacement for `dap-java-run-test-class'.
+See `my/dap-java-run-test-method'."
+  (interactive)
+  (setq dap-java--latest-test
+        (-> (my/dap-java--run-unit-test-command dap-java-java-command nil)
+            (plist-put :skip-debug-session t)))
+  (dap-start-debugging dap-java--latest-test))
+
+(defun my/dap-java--start-debug-adapter-port ()
+  "Return a fresh JDT debug adapter port for the running jdtls session.
+Same pattern as the `debug-adapter-port' binding in
+`my/dap-java--build-compile-attach': uses `lsp-request-async' +
+`accept-process-output' instead of `lsp-send-execute-command'.
+
+Debug test method/class used to get `:debugServer' for free from
+upstream's `dap-java--populate-default-args' (via `dap-debug'), which
+calls `(lsp-send-execute-command \"vscode.java.startDebugSession\")'
+synchronously. That command is the FIRST thing to trigger jdtls's debug
+plugin to actually initialize its debug-session machinery in a given
+jdtls process, so only the very first invocation in a session is
+slow/racy; every later call hits an already-warm plugin and returns
+quickly, which is why the failure this function fixes --
+`dap--open-network-stream: Wrong type argument: stringp, \(:jsonrpc
+...)', i.e. :debugServer ending up bound to the raw outgoing request
+object instead of the port, followed by the JVM sitting stuck at
+\"Listening for transport dt_socket\" forever -- only ever showed up on
+the first debug-test run per Emacs session. Polling via
+`accept-process-output' with a generous 30s deadline, instead of
+whatever synchronous wait upstream's call relies on, covers that slow
+first response directly rather than needing any special-casing for it."
+  (let* ((jdtls-ws (or (lsp-find-workspace 'jdtls)
+                       (user-error "jdtls is not running. Open a Java file first")))
+         (result nil)
+         (done nil))
+    (with-lsp-workspace jdtls-ws
+      (lsp-request-async
+       "workspace/executeCommand"
+       (list :command "vscode.java.startDebugSession")
+       (lambda (res) (setq result res done t))
+       :error-handler
+       (lambda (err)
+         (message "DAP Java: startDebugSession error: %S" err)
+         (setq done t))
+       :mode 'detached))
+    (let ((deadline (+ (float-time) 30)))
+      (while (and (not done) (< (float-time) deadline))
+        (accept-process-output nil 0.1)))
+    (or result
+        (user-error
+         (concat "vscode.java.startDebugSession did not return a port. "
+                 "Ensure the Java debug plugin bundle is loaded "
+                 "(check `lsp-java-bundles') and that jdtls has "
+                 "finished indexing")))))
+
+(defun my/dap-java-debug-test-method (port)
+  "Safe replacement for `dap-java-debug-test-method'.
+Debug the JUnit test method at point. Compiles test sources first \(see
+`my/dap-java--default-test-compilation-command'), starts the test JVM
+with JDWP suspend=y, and attaches the debugger. PORT is the JDWP attach
+port.
+
+Calls `dap-start-debugging' directly (not `dap-debug') so that
+:debugServer can be set explicitly via
+`my/dap-java--start-debug-adapter-port' -- see that function's docstring
+for why the equivalent synchronous call in upstream's
+`dap-java--populate-default-args' is not safe to rely on here.
+
+Also deliberately does NOT set `:wait-for-port' (unlike upstream): that
+option makes `dap-start-debugging-noexpand' open a bare TCP connection
+to the JDWP port and immediately close it again without completing the
+handshake. Once the JVM is actually listening, that premature close is
+what the JVM reports as \"Debugger failed to attach: handshake failed -
+connection prematurely closed\", instead of waiting for the real
+debugger. As in `my/dap-java--build-compile-attach', the JDT debug
+adapter retries the JDWP connection on its own (the JVM stays suspended
+until it attaches), so Emacs does not need to probe the port at all."
+  (interactive (list (dap--find-available-port)))
+  (dap-start-debugging
+   (append (list :type "java"
+                 :request "attach"
+                 :hostName "localhost"
+                 :host "localhost"
+                 :port port
+                 :debugServer (my/dap-java--start-debug-adapter-port))
+           (my/dap-java--run-unit-test-command
+            (format "%s -Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=%s"
+                    dap-java-java-command port)
+            t))))
+
+(defun my/dap-java-debug-test-class (port)
+  "Safe replacement for `dap-java-debug-test-class'.
+See `my/dap-java-debug-test-method'."
+  (interactive (list (dap--find-available-port)))
+  (dap-start-debugging
+   (append (list :type "java"
+                 :request "attach"
+                 :hostName "localhost"
+                 :host "localhost"
+                 :port port
+                 :debugServer (my/dap-java--start-debug-adapter-port))
+           (my/dap-java--run-unit-test-command
+            (format "%s -Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=%s"
+                    dap-java-java-command port)
+            nil))))
 #+end_src
 
 
@@ -8831,22 +9152,22 @@ the enclosing class or method.
 (defun my/dap-java-run-test-at-point ()
   "Run the test at point without the debugger.
 If point is on an inline test link, activate its run action.
-Otherwise fall back to `dap-java-run-test-method'."
+Otherwise fall back to `my/dap-java-run-test-method'."
   (interactive)
   (if (button-at (point))
       (push-button)
-    (dap-java-run-test-method)))
+    (my/dap-java-run-test-method)))
 
 (defun my/dap-java-debug-test-at-point ()
   "Debug the test at point, attaching the DAP debugger.
 If point is on an inline test link, call the link's debug-action.
-Otherwise fall back to `dap-java-debug-test-method'."
+Otherwise fall back to `my/dap-java-debug-test-method'."
   (interactive)
   (let* ((btn (button-at (point)))
          (debug-fn (and btn (button-get btn 'debug-action))))
     (if debug-fn
         (funcall debug-fn)
-      (dap-java-debug-test-method (dap--find-available-port)))))
+      (my/dap-java-debug-test-method (dap--find-available-port)))))
 
 (defun my/dap-java--ctrl-click-debug (event)
   "Debug the test at the position of a C-S-click mouse EVENT."
@@ -8871,9 +9192,9 @@ and JUnit 5 (package-private void) conventions."
               "^\\s-*\\(?:public\\|protected\\|private\\)?\\s-*class\\s-+\\([A-Za-z0-9_]+\\)"
               nil t)
         (make-button (match-beginning 1) (match-end 1)
-                     'action       (lambda (_b) (dap-java-run-test-class))
+                     'action       (lambda (_b) (my/dap-java-run-test-class))
                      'debug-action (lambda ()
-                                     (dap-java-debug-test-class
+                                     (my/dap-java-debug-test-class
                                       (dap--find-available-port)))
                      'help-echo    "click: run | C-S-click: debug | C-c j: run | C-c C-j: debug"
                      'face         '(:underline t :foreground "green")))
@@ -8884,9 +9205,9 @@ and JUnit 5 (package-private void) conventions."
                       "void\\s-+\\([A-Za-z0-9_]+\\)\\s-*(")
               nil t)
         (make-button (match-beginning 1) (match-end 1)
-                     'action       (lambda (_b) (dap-java-run-test-method))
+                     'action       (lambda (_b) (my/dap-java-run-test-method))
                      'debug-action (lambda ()
-                                     (dap-java-debug-test-method
+                                     (my/dap-java-debug-test-method
                                       (dap--find-available-port)))
                      'help-echo    "click: run | C-S-click: debug | C-c j: run | C-c C-j: debug"
                      'face         '(:underline t :foreground "orange"))))))
