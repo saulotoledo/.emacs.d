@@ -2398,7 +2398,7 @@ of the `source' buffer that called Treemacs."
         ;; treemacs-icon-padding 20
         ;; treemacs-indentation '(10 px)
         ;; treemacs-indentation-string (propertize " " 'display '(space :width 15))
-        )
+        treemacs-indentation-string "  ")
 
   (set-window-fringes (treemacs-get-local-window) 0 0 nil)
   ;; (set-face-attribute 'treemacs-fringe-indicator-face nil :foreground nil)
