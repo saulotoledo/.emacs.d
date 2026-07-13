@@ -5486,7 +5486,10 @@ code completion, go-to-definition, diagnostics, and more.
    lsp-auto-register-remote-clients t
    ;; Do not load unnecessary clients:
    lsp-auto-require-clients nil
-   ;; Use the standard completion-at-point mechanism, which Corfu and other completion frameworks integrate with:
+   ;; Use the standard completion-at-point mechanism, which Corfu and other
+   ;; completion frameworks integrate with. See the `lsp-completion-mode'
+   ;; advice below: in this lsp-mode version :capf also auto-enables company,
+   ;; so we suppress that side effect when Corfu is active.
    lsp-completion-provider :capf
    ;; Set the keymap prefix for lsp-mode commands to "C-c l". Only works when lsp-mode is already loaded:
    lsp-keymap-prefix "C-c l")
@@ -5547,6 +5550,23 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-enable-snippet t) ; Allow LSP completion items to expand yasnippet parameter placeholders
 
   :config
+  (with-eval-after-load 'lsp-completion
+    (defun my/lsp-completion-mode-without-company-for-corfu (orig &rest args)
+      "Prevent lsp-mode from enabling Company in Corfu buffers.
+`lsp-completion-mode' still installs `lsp-completion-at-point' and the LSP
+completion category settings. Only its internal `(company-mode 1)' side effect
+is suppressed when `corfu-mode' is active."
+      (if (not (and (bound-and-true-p corfu-mode)
+                    (fboundp 'company-mode)))
+          (apply orig args)
+        (cl-letf (((symbol-function 'company-mode)
+                   (lambda (&optional _arg) nil)))
+          (apply orig args))))
+
+    (advice-add 'lsp-completion-mode
+                :around
+                #'my/lsp-completion-mode-without-company-for-corfu))
+
   ;; makes `lsp-completion-at-point` return the last cached list when a request is interrupted
   ;; (:interrupted catch).
   (setq lsp-completion-use-last-result t)
