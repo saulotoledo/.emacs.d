@@ -5554,13 +5554,16 @@ code completion, go-to-definition, diagnostics, and more.
     (defun my/lsp-completion-mode-without-company-for-corfu (orig &rest args)
       "Prevent lsp-mode from enabling Company in Corfu buffers.
 `lsp-completion-mode' still installs `lsp-completion-at-point' and the LSP
-completion category settings. Only its internal `(company-mode 1)' side effect
-is suppressed when `corfu-mode' is active."
+completion category settings. Only its Company autoconfiguration is skipped
+when `corfu-mode' is active."
       (if (not (and (bound-and-true-p corfu-mode)
                     (fboundp 'company-mode)))
           (apply orig args)
-        (cl-letf (((symbol-function 'company-mode)
-                   (lambda (&optional _arg) nil)))
+        ;; In lsp-mode 20260630, `lsp-completion-mode' installs the CAPF before
+        ;; consulting `lsp-completion-provider'. Bind it to :none only for this
+        ;; call so lsp-mode skips its Company branch, which otherwise enables
+        ;; `company-mode' and mutates `company-backends' even in Corfu buffers.
+        (let ((lsp-completion-provider :none))
           (apply orig args))))
 
     (advice-add 'lsp-completion-mode
