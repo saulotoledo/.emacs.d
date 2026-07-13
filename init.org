@@ -7921,7 +7921,9 @@ a 4-space or 8-space offset relative to the statement start."
           "-XX:InitiatingHeapOccupancyPercent=45"
           "-XX:+UnlockExperimentalVMOptions"
           "-XX:G1NewSizePercent=20"
-          "-XX:G1MaxNewSizePercent=60"))
+          "-XX:G1MaxNewSizePercent=60"
+          ;; JDK 17+ reflective access needed by the Java debug plugin's Gson use.
+          "--add-opens=java.base/java.lang=ALL-UNNAMED"))
 
   (declare-function dap--cur-session "dap-mode")
   (declare-function dap--session-running "dap-mode")
