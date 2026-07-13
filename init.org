@@ -5486,10 +5486,13 @@ code completion, go-to-definition, diagnostics, and more.
    lsp-auto-register-remote-clients t
    ;; Do not load unnecessary clients:
    lsp-auto-require-clients nil
-   ;; Use the standard completion-at-point mechanism, which Corfu and other completion frameworks integrate with.
-   lsp-completion-provider :capf)
+   ;; Use the standard completion-at-point mechanism, which Corfu and other completion frameworks integrate with:
+   lsp-completion-provider :capf
+   ;; Set the keymap prefix for lsp-mode commands to "C-c l". Only works when lsp-mode is already loaded:
+   lsp-keymap-prefix "C-c l")
 
   :bind
+  ("C-c l" . lsp-command-map) ; Allow the shortcut to load lsp when used
   (:map lsp-mode-map ("M-RET" . lsp-execute-code-action))
 
   :hook
