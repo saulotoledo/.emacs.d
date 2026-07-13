@@ -5612,6 +5612,12 @@ directly."
               (let ((non-essential t))
                 (completion-at-point)))))))
 
+    (defun my/lsp-completion-supported-p ()
+      "Return non-nil when an active LSP workspace supports completion."
+      (and (fboundp 'lsp-feature?)
+           (ignore-errors
+             (lsp-feature? "textDocument/completion"))))
+
     (defun my/lsp-request-while-no-input--debounce (orig method params)
       "Prevent `lsp-request-while-no-input' from blocking for textDocument/completion.
 
@@ -5641,11 +5647,21 @@ on a dynamic binding that can silently fail, we intercept ALL
          ;; non-essential is NOT checked so manual completion (C-M-i/M-TAB)
          ;; also benefits from the cache on repeated invocations.
          ((and (equal method "textDocument/completion")
+               (my/lsp-completion-supported-p)
                my/lsp-completion--last-resp
                (equal my/lsp-completion--last-resp-bounds bounds-start)
                (< (- (float-time) my/lsp-completion--last-resp-time)
                   my/lsp-completion-debounce-delay))
           my/lsp-completion--last-resp)
+
+         ;; If the current server set does not advertise completion, do not call
+         ;; `lsp-request-async'. It signals before its error handler is installed.
+         ((and (equal method "textDocument/completion")
+               (not (my/lsp-completion-supported-p)))
+          (setq my/lsp-completion--last-resp nil
+                my/lsp-completion--last-resp-time 0
+                my/lsp-completion--last-resp-bounds nil)
+          nil)
 
          ;; textDocument/completion cache miss: ALWAYS fire async and return nil
          ;; immediately — the sit-for loop is never entered. This is the core
