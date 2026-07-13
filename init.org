@@ -4288,6 +4288,31 @@ candidates CAPF providers expose, keeping completion fast, predictable, and
 non-blocking.
 
 #+begin_src emacs-lisp
+(defun my/corfu-reset-completion-cache ()
+  "Clear stale LSP/Corfu completion caches and restart completion."
+  (interactive)
+  (when (fboundp 'lsp-completion--clear-cache)
+    (lsp-completion--clear-cache))
+  (setq my/lsp-completion--last-resp nil
+        my/lsp-completion--last-resp-time 0
+        my/lsp-completion--last-resp-bounds nil)
+  (when (and (boundp 'my/lsp-completion--refresh-timer)
+             (timerp my/lsp-completion--refresh-timer))
+    (cancel-timer my/lsp-completion--refresh-timer)
+    (setq my/lsp-completion--refresh-timer nil))
+  (setq lsp-completion--cache nil)
+  ;; `corfu-reset' requires an active completion session.
+  (when (and (fboundp 'corfu-reset)
+             (bound-and-true-p completion-in-region-mode)
+             completion-in-region--data)
+    (corfu-reset))
+  (when (fboundp 'completion-at-point)
+    (let ((non-essential t))
+      (completion-at-point)))
+  (message "Corfu/LSP completion cache cleared"))
+#+end_src
+
+#+begin_src emacs-lisp
 (use-package corfu
   :demand t
   :init
@@ -4317,6 +4342,7 @@ non-blocking.
   (define-key corfu-map (kbd "C-p") #'corfu-previous)
   (define-key corfu-map (kbd "S-TAB") #'corfu-previous)
   (define-key corfu-map (kbd "<backtab>") #'corfu-previous)
+  (define-key corfu-mode-map (kbd "C-c c c") #'my/corfu-reset-completion-cache)
   ;; Prevent accidental completion on RET
   (define-key corfu-map (kbd "RET") nil)
   (set-face-attribute 'corfu-current nil
