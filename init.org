@@ -5578,6 +5578,20 @@ bounds-start is unchanged (same completion session)."
       :type 'number
       :group 'lsp-completion)
 
+    (defun my/corfu-refresh-after-lsp-async (buf)
+      "Refresh Corfu in BUF through `completion-at-point'.
+Async LSP callbacks can run outside Corfu's normal command lifecycle.  Re-enter
+via `completion-at-point' so Corfu tears down and recreates its child frame
+through `completion-in-region-mode' instead of repainting private frames
+directly."
+      (when-let ((win (and (buffer-live-p buf)
+                           (get-buffer-window buf t))))
+        (with-selected-window win
+          (with-current-buffer buf
+            (when (bound-and-true-p corfu-mode)
+              (let ((non-essential t))
+                (completion-at-point)))))))
+
     (defun my/lsp-request-while-no-input--debounce (orig method params)
       "Prevent `lsp-request-while-no-input' from blocking for textDocument/completion.
 
@@ -5608,10 +5622,6 @@ on a dynamic binding that can silently fail, we intercept ALL
          ;; also benefits from the cache on repeated invocations.
          ((and (equal method "textDocument/completion")
                my/lsp-completion--last-resp
-               ;; Do not use the cache if the last response was incomplete,
-               ;; as the server expects a new request for further typing.
-               (not (and (listp my/lsp-completion--last-resp)
-                         (plist-get my/lsp-completion--last-resp :isIncomplete)))
                (equal my/lsp-completion--last-resp-bounds bounds-start)
                (< (- (float-time) my/lsp-completion--last-resp-time)
                   my/lsp-completion-debounce-delay))
@@ -5625,11 +5635,9 @@ on a dynamic binding that can silently fail, we intercept ALL
          ;; we guarantee zero blocking for completion requests.
          ;;
          ;; When the response arrives the cache is updated. The refresh timer
-         ;; then re-triggers completion: if `completion-in-region-mode' is
-         ;; already active (popup visible) it re-renders the popup; otherwise it
-         ;; calls `corfu-auto--complete-deferred' which creates a fresh capf
-         ;; closure (done?=nil) and hits the newly-populated cache, making
-         ;; completions appear even when the user has stopped typing.
+         ;; then re-enters completion through `completion-at-point', which lets
+         ;; Corfu run its normal teardown/setup path and avoids leaving stale
+         ;; child frames visible after async Java/JDTLS responses.
          ((equal method "textDocument/completion")
           (let ((buf (current-buffer))
                 (saved-bounds bounds-start))
@@ -5654,12 +5662,7 @@ on a dynamic binding that can silently fail, we intercept ALL
                                                      (with-current-buffer buf
                                                        (bound-and-true-p corfu-mode)))
                                             (with-current-buffer buf
-                                              ;; Popup visible → re-render in place.
-                                              ;; Popup gone  → fresh capf call hits
-                                              ;;               the new cache entry.
-                                              (if (bound-and-true-p completion-in-region-mode)
-                                                  (corfu--exhibit)
-                                                (corfu-auto--complete-deferred)))))))))))
+                                              (my/corfu-refresh-after-lsp-async buf))))))))))
              :mode 'alive
              :error-handler #'ignore))
           nil)
@@ -5772,9 +5775,8 @@ description and caches the result."
                                  (run-at-time 0.05 nil
                                               (lambda ()
                                                 (when (and (buffer-live-p buf)
-                                                           (eq (current-buffer) buf)
                                                            (bound-and-true-p corfu--candidates))
-                                                  (corfu--exhibit)))))))
+                                                  (my/corfu-refresh-after-lsp-async buf)))))))
                        (remhash pkey cache))))
                  (lambda ()
                    (when (buffer-live-p buf)
