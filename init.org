@@ -3642,6 +3642,39 @@ With the system utilities installed, we can configure the package on Emacs:
       (when (= orig-point (point))
         (dirvish-subtree-toggle))))
 
+  (defun my/dirvish-refresh-preview-cache ()
+    "Clear text preview cache + buffers; force re-read from disk.
+Runs on `dirvish-after-revert-hook' so `g' reloads externally changed files."
+    (when-let* ((dv (dirvish-curr)))
+      (clrhash (dv-preview-hash dv))
+      (clrhash (dv-parent-hash dv))
+      ;; fallback reuses buffers named "PREVIEW :: TIMESTAMP :: file"; kill those
+      ;; even if they were never recorded in dv-preview-buffers.
+      (let ((prefix (format "PREVIEW :: %s ::" (dv-timestamp dv))))
+        (dolist (buf (buffer-list))
+          (when (string-prefix-p prefix (buffer-name buf))
+            (dirvish--kill-buffer buf))))
+      (mapc #'dirvish--kill-buffer (dv-preview-buffers dv))
+      ;; Same file still selected -> debounce would skip preview update otherwise
+      (dirvish--run-with-delay 'reset)
+      (when-let* ((idx (dired-get-filename nil t))
+                  ((dv-curr-layout dv))
+                  (pwin (dv-preview-window dv))
+                  ((window-live-p pwin)))
+        (dirvish--preview-update dv (file-local-name idx)))))
+
+  (defun my/dirvish-invalidate-saved-preview ()
+    "Drop saved file from Dirvish text preview hashes so previews are not stale."
+    (when buffer-file-name
+      (let ((file (file-local-name (expand-file-name buffer-file-name))))
+        (maphash (lambda (_id dv)
+                   (remhash file (dv-preview-hash dv))
+                   (remhash buffer-file-name (dv-preview-hash dv)))
+                 dirvish--sessions))))
+
+  (add-hook 'dirvish-after-revert-hook #'my/dirvish-refresh-preview-cache)
+  (add-hook 'after-save-hook #'my/dirvish-invalidate-saved-preview)
+
   (setq dirvish-mode-line-format '(:left (path) :right (file-size)))
   (setq dirvish-attributes '(subtree-state nerd-icons file-size))
   (setq dirvish-preview-dispatchers '(dired image gif audio epub archive font pdf video))
