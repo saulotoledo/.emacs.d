@@ -3605,7 +3605,7 @@ With the system utilities installed, we can configure the package on Emacs:
   :pin "MELPA Unstable"
   :bind (:map dirvish-mode-map
               ("TAB"     . dirvish-subtree-toggle)
-              ("<right>" . dirvish-subtree-toggle)
+              ("<right>" . my/dirvish-subtree-right)
               ("<left>"  . my/dirvish-subtree-left)
               ("|"       . dirvish-layout-toggle)
               ("@"       . my/dirvish-toggle-git-msg))
@@ -3633,14 +3633,42 @@ With the system utilities installed, we can configure the package on Emacs:
 
       (message "Dirvish: git info %s" (if has-git "Disabled" "Enabled"))))
 
+  (defun my/dirvish-last-in-subtree-p ()
+    "Return t if point is on the last entry of its subtree."
+    (let ((current-depth (dirvish-subtree--depth)))
+      (and (> current-depth 0)
+           (save-excursion
+             (< (progn (forward-line 1) (dirvish-subtree--depth))
+                current-depth)))))
+
+  (defun my/dirvish-empty-subtree-p ()
+    "Return t if on an expanded dir whose subtree has no entries."
+    (and (dirvish-subtree--expanded-p)
+         (save-excursion
+           (forward-line 1)
+           (let ((child-depth (dirvish-subtree--depth)))
+             (forward-line 1)
+             (< (dirvish-subtree--depth) child-depth)))))
+
   (defun my/dirvish-subtree-left ()
-    "Go to the subtree parent; if already at the parent, toggle it."
+    "Collapse the subtree when open or move to the parent."
     (interactive)
-    (let ((orig-point (point)))
-      (dirvish-subtree-up)
-      ;; If the cursor didn't move, we were already at the parent/header
-      (when (= orig-point (point))
-        (dirvish-subtree-toggle))))
+    (if (dirvish-subtree--expanded-p)
+        (dirvish-subtree-toggle)
+      (dirvish-subtree-up)))
+
+  (defun my/dirvish-subtree-right ()
+    "Expand the subtree when closed or move to the first item otherwise."
+    (interactive)
+    (let* ((selected-item (dired-get-filename nil t))
+           (is-directory (if selected-item
+                             (file-directory-p selected-item)
+                           nil))
+           (is-expanded (dirvish-subtree--expanded-p)))
+      (if (and is-directory (not is-expanded))
+          (dirvish-subtree-toggle)
+        (when is-directory
+          (forward-line 1)))))
 
   (defun my/dirvish-refresh-preview-cache ()
     "Clear text preview cache + buffers; force re-read from disk.
