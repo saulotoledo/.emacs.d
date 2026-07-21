@@ -3606,7 +3606,9 @@ With the system utilities installed, we can configure the package on Emacs:
   :bind (:map dirvish-mode-map
               ("TAB"     . dirvish-subtree-toggle)
               ("<right>" . my/dirvish-subtree-right)
+              ("C-<right>" . my/dirvish-subtree-expand-chain)
               ("<left>"  . my/dirvish-subtree-left)
+              ("C-<left>" . my/dirvish-subtree-up-to-branch)
               ("|"       . dirvish-layout-toggle)
               ("@"       . my/dirvish-toggle-git-msg))
   :init
@@ -3657,18 +3659,92 @@ With the system utilities installed, we can configure the package on Emacs:
         (dirvish-subtree-toggle)
       (dirvish-subtree-up)))
 
-  (defun my/dirvish-subtree-right ()
-    "Expand the subtree when closed or move to the first item otherwise."
+  (defun my/dirvish-subtree-direct-children ()
+    "Return the direct children of the expanded subtree at point.
+Each result is a cons of the child's buffer position and its file name."
+    (let ((parent-depth (dirvish-subtree--depth))
+          children)
+      (save-excursion
+        (forward-line 1)
+        (while (and (not (eobp))
+                    (> (dirvish-subtree--depth) parent-depth))
+          (when (= (dirvish-subtree--depth) (1+ parent-depth))
+            (push (cons (point) (dired-get-filename nil t)) children))
+          (forward-line 1)))
+      (nreverse children)))
+
+  (defun my/dirvish-subtree-only-child-directory ()
+    "Return the sole direct directory child of the subtree at point.
+Return its buffer position, or nil unless the expanded subtree has
+exactly one direct child and that child is a directory."
+    (let ((children (my/dirvish-subtree-direct-children)))
+      (when (and (= (length children) 1)
+                 (file-directory-p (cdar children)))
+        (caar children))))
+
+  (defun my/dirvish-subtree-up-to-branch ()
+    "Move up a single-child chain and collapse it below its first branch."
     (interactive)
-    (let* ((selected-item (dired-get-filename nil t))
-           (is-directory (if selected-item
-                             (file-directory-p selected-item)
-                           nil))
-           (is-expanded (dirvish-subtree--expanded-p)))
-      (if (and is-directory (not is-expanded))
-          (dirvish-subtree-toggle)
-        (when is-directory
-          (forward-line 1)))))
+    (let ((selected-item (dired-get-filename nil t)))
+      (if (and selected-item (file-directory-p selected-item))
+          (let ((origin (point))
+                (child-position (point))
+                continue
+                traversed-chain
+                collapsed)
+            (setq continue t)
+            (while continue
+              (let ((origin (point)))
+                (condition-case nil
+                    (dirvish-subtree-up)
+                  (user-error nil))
+                (if (= origin (point))
+                    (setq continue nil)
+                  (if (> (length (my/dirvish-subtree-direct-children)) 1)
+                      (progn
+                        (goto-char child-position)
+                        (when (and traversed-chain
+                                   (dirvish-subtree--expanded-p))
+                          (dirvish-subtree-toggle)
+                          (setq collapsed t))
+                        (setq continue nil))
+                    (setq child-position (point)
+                          traversed-chain t)))))
+            (unless collapsed
+              (goto-char origin)
+              (my/dirvish-subtree-left)))
+        (my/dirvish-subtree-left))))
+
+  (defun my/dirvish-subtree-right ()
+    "Expand the subtree or move to its first item when already open."
+    (interactive)
+    (when-let ((selected-item (dired-get-filename nil t))
+               ((file-directory-p selected-item)))
+      (if (dirvish-subtree--expanded-p)
+          (forward-line 1)
+        (dirvish-subtree-toggle))))
+
+  (defun my/dirvish-subtree-expand-chain ()
+    "Expand the single-directory chain rooted at the entry at point."
+    (interactive)
+    (when-let ((selected-item (dired-get-filename nil t))
+               ((file-directory-p selected-item)))
+      (let ((was-expanded (dirvish-subtree--expanded-p))
+            child-position)
+        (unless was-expanded
+          (dirvish-subtree-toggle))
+        (setq child-position (my/dirvish-subtree-only-child-directory))
+        (if child-position
+            (progn
+              (while child-position
+                (goto-char child-position)
+                (unless (dirvish-subtree--expanded-p)
+                  (dirvish-subtree-toggle))
+                (setq child-position
+                      (my/dirvish-subtree-only-child-directory)))
+              (my/dirvish-subtree-right))
+          (when was-expanded
+            (my/dirvish-subtree-right))))))
 
   (defun my/dirvish-refresh-preview-cache ()
     "Clear text preview cache + buffers; force re-read from disk.
