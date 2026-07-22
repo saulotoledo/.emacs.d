@@ -2902,6 +2902,10 @@ Falls through to newline-and-indent otherwise."
             (lambda ()
               (local-set-key (kbd "RET") #'my/prog-smart-ret)))
 
+  (add-hook 'vterm-mode-hook
+            (lambda ()
+              (smartparens-mode -1)))
+
   (defun my/sp-lower-overlay-priority (&rest _)
     "Lower smartparens overlay priority so it doesn't hide the region."
     (when (boundp 'sp-show-pair-overlays)
