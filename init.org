@@ -1970,21 +1970,27 @@ of network latency.
 
 * Packages initial setup
 
-Starting with Emacs 29, [[https://github.com/jwiegley/use-package][use-package]] is bundled with Emacs as an
-[[https://lists.gnu.org/archive/html/emacs-devel/2022-12/msg00261.html][official part of the distribution]]. That means you can ~require~ it
-directly on Emacs 29+. However, this configuration retains the
-traditional bootstrap/install steps to preserve compatibility with
-older Emacs versions.
+Starting with Emacs 29, [[https://github.com/jwiegley/use-package][use-package]] is bundled with Emacs as an [[https://lists.gnu.org/archive/html/emacs-devel/2022-12/msg00261.html][official part of
+the distribution]]. That means you can ~require~ it directly on Emacs 29+.
+However, this configuration retains the traditional bootstrap/install steps to
+preserve compatibility with older Emacs versions.
 
-In addition to that, the GPG key used to sign the GNU ELPA archives
-might be expired and requires update, leading to signature errors
-when installing packages in some systems. One easy way to keep this
-key updated is through the package ~gnu-elpa-keyring-update~, which
-is installed below.
+In addition to that, the GPG key used to sign the GNU ELPA archives might be
+expired and requires update, leading to signature errors when installing
+packages in some systems. One easy way to keep this key updated is through the
+package ~gnu-elpa-keyring-update~, which is installed below.
+
+We also enable ~package-install-upgrade-built-in~ to allow ~package.el~ to
+upgrade built-in libraries (like ~transient~ and ~compat~). Emacs disables this
+by default to preserve base-system stability, but modern packages frequently
+require newer versions of core dependencies than what Emacs ships with.
 
 #+begin_src emacs-lisp
 (require 'package)
 (setq package-enable-at-startup nil)
+
+;; Allow package.el to upgrade built-in packages (e.g., transient, compat)
+(setq package-install-upgrade-built-in t)
 
 ;; Configure package directories to use user's elpa directory
 (setq package-user-dir (expand-file-name "elpa" user-emacs-directory))
