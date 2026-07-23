@@ -1608,16 +1608,15 @@ displays available key bindings after an incomplete command.
 (setq-default cursor-type 'bar)
 
 ;; Other useful mode-specific settings
-(defface my/trailing-whitespace-face
-  '((t :background "none" :underline (:style wave) :inherit error))
-  "Custom face for trailing whitespace.")
-
 (dolist (hook '(prog-mode-hook text-mode-hook))
-  (add-hook hook 'display-line-numbers-mode)
+  (add-hook hook #'display-line-numbers-mode)
   (add-hook hook
             (lambda ()
               (setq-local show-trailing-whitespace t)
-              (face-remap-add-relative 'trailing-whitespace 'my/trailing-whitespace-face))))
+              (face-remap-add-relative
+               'trailing-whitespace
+               `(:background ,(face-background 'default)
+                             :underline (:style wave :color ,(face-foreground 'error)))))))
 
 (column-number-mode 1) ; Column number display in the mode line
 (global-hl-line-mode 1) ; Highlighting current line
