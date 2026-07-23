@@ -6804,6 +6804,17 @@ process group. The icon already ships with ~dap-mode~ (=icons/vscode/stop.png=).
 #+begin_src emacs-lisp
 ;; Function created without "my/" prefix to facilitate running it
 ;; interactively via M-x.
+(defun my/dap--kill-dap-connection (process)
+  "Kill a DAP connection PROCESS and its hidden process buffer."
+  (when process
+    (let ((buffer (process-buffer process)))
+      (ignore-errors (delete-process process))
+      ;; `open-network-stream' creates buffers such as " *localhost (12345)*"
+      ;; when no buffer is supplied. They are not session output and dap-mode
+      ;; does not remove them when a session is cleared.
+      (when (buffer-live-p buffer)
+        (ignore-errors (kill-buffer buffer))))))
+
 (defun dap-force-quit ()
   "Forcefully terminate all DAP sessions and clean up.
 Kills the DAP adapter process, the terminal process (and its children)
@@ -6812,25 +6823,27 @@ Safe to call even when the session is completely unresponsive."
   (interactive)
   (ignore-errors
     (dolist (session (dap--get-sessions))
-      ;; Kill the DAP adapter process (the network connection subprocess).
-      (when-let (proc (dap--debug-session-proc session))
-        (when (process-live-p proc)
-          (kill-process proc)))
+      ;; Give the adapter a brief chance to release its JDWP attachment.
+      (ignore-errors
+        (with-timeout (1 nil)
+          (dap-request session "disconnect"
+                       :restart :json-false
+                       :terminateDebuggee t)))
+      ;; Kill the DAP connection and its hidden ` *localhost (PID)*' buffer.
+      (my/dap--kill-dap-connection (dap--debug-session-proc session))
       ;; Kill the compile_attach program proc (Java / C++ / Node.js adapter).
       ;; compilation-start wraps the command as `sh -c "..."', so we need
-      ;; pkill -P to reach the grandchild (JVM, gdb, etc.).
-      ;; For pwa-node the program-proc IS the dapDebugServer.js node process.
+      ;; pkill -P to reach the JVM child.
       (let* ((prog-proc (dap--debug-session-program-proc session))
-             (prog-pid  (and prog-proc (process-id prog-proc))))
-        (message "dap-force-quit: prog-proc=%s pid=%s live=%s"
-                 prog-proc prog-pid
-                 (and prog-proc (process-live-p prog-proc)))
+             (prog-pid  (and prog-proc (process-id prog-proc)))
+             (prog-buf  (and prog-proc (process-buffer prog-proc))))
         (when prog-pid
           (ignore-errors
             (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string prog-pid)))
           (ignore-errors
             (call-process "kill" nil nil nil "-9" (number-to-string prog-pid))))
-        (ignore-errors (when prog-proc (kill-process prog-proc))))
+        (ignore-errors (when prog-proc (delete-process prog-proc)))
+        (ignore-errors (when (buffer-live-p prog-buf) (kill-buffer prog-buf))))
       ;; Kill the runInTerminal process (Node.js / pwa-node sessions).
       ;; start-process-shell-command also wraps in sh, so kill children too.
       (let* ((name (dap--debug-session-name session))
@@ -6871,26 +6884,42 @@ Safe to call even when the session is completely unresponsive."
   ;; Now it is safe to clear sessions; the hooks will find the buffers dead.
   (ignore-errors (dap--set-sessions nil))
   (ignore-errors (lsp-workspace-set-metadata "default-session" nil))
+  ;; Remove orphan network buffers left after their DAP process is deleted.
+  (dolist (buffer (buffer-list))
+    (when (and (null (get-buffer-process buffer))
+               (string-match-p "\\` \\*localhost ([0-9]+)\\*\\'"
+                               (buffer-name buffer)))
+      (ignore-errors (kill-buffer buffer))))
   (ignore-errors (dap-ui-hide-many-windows))
   (defvar dap-ui--control-buffer)
   (ignore-errors (posframe-hide dap-ui--control-buffer))
   (message "DAP session and processes nuked."))
 
+(defun my/dap-force-stop-current-session ()
+  "Force-stop the session shown by the DAP controls.
+DAP controls live in their own buffer, so a buffer-local handler inherited
+from a Java source buffer is not visible from a mouse click. Resolve the
+session from dap-mode's global session state instead."
+  (interactive)
+  (if (and (fboundp 'dap--cur-session) (dap--cur-session))
+      (dap-force-quit)
+    (message "No active DAP session to stop.")))
+
 ;; Replace the non-functional Restart button with a Force Stop button.
-;; Calls the buffer-local `my/dap-force-stop' so each language can supply
-;; its own teardown (e.g. Java kills the suspended JVM process group).
-;; The default is `dap-force-quit', which works for all other languages.
+;; Resolves the active session from dap-mode state instead of using a
+;; buffer-local handler: this code runs in the DAP controls buffer, not the
+;; Java source buffer where that handler was installed.
 (defun my/dap-ui--inject-stop-button (orig-fun &rest args)
   "Around advice for `dap-ui--update-controls'.
 ORIG-FUN is the advised function. ARGS are its arguments.
-Replaces the Restart button with a Force Stop button that calls
-the buffer-local `my/dap-force-stop'."
+Replaces the Restart button with a Force Stop button that reliably tears down
+the active session and its process buffers."
   (cl-letf* ((orig-create (symbol-function 'dap-ui--create-command))
               ((symbol-function 'dap-ui--create-command)
                (lambda (image command hover-text)
                  (if (string= image "restart.png")
                      (funcall orig-create "stop.png"
-                              (lambda () (interactive) (funcall my/dap-force-stop))
+                              #'my/dap-force-stop-current-session
                               "Force Stop")
                    (funcall orig-create image command hover-text)))))
     (apply orig-fun args)))
@@ -7974,6 +8003,34 @@ apply to all language servers:
      :error-handler #'ignore
      :mode 'detached)))
 
+(defun my/dap-java--check-requirements ()
+  "Return non-nil if the Java LSP server is running in this buffer."
+  (if (and (fboundp 'lsp-find-workspace)
+           (lsp-find-workspace 'jdtls (buffer-file-name)))
+      t
+    (message
+     (concat "jdtls is not running in this buffer. "
+             "Open a Java file and wait for LSP to initialize."))
+    nil))
+
+(defun my/dap-java--start-debug ()
+  "Launch a Java DAP session for the current project."
+  (let ((root (lsp-workspace-root)))
+    (if (and root (file-exists-p (expand-file-name ".vscode/launch.json" root)))
+        (call-interactively 'dap-debug)
+      (dap-java-debug))))
+
+(defun my/dap-java--force-stop ()
+  "Force-stop the active Java DAP session."
+  (when-let* ((session (dap--cur-session))
+              (proc (dap--debug-session-program-proc session))
+              (pid (process-id proc)))
+    (ignore-errors
+      (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string pid)))
+    (ignore-errors
+      (call-process "kill" nil nil nil "-9" (number-to-string pid))))
+  (dap-force-quit))
+
 (use-package lsp-java
   :pin "MELPA Unstable"
   :after java-ts-mode
@@ -8045,9 +8102,8 @@ a 4-space or 8-space offset relative to the statement start."
   ;; java-ts-mode buffer -- but session-restore (desktop-save) can open
   ;; Java buffers before that, causing java-ts-mode-hook to run before the
   ;; add-hook below is ever evaluated.  Registering in :init is
-  ;; unconditional and happens at startup time.  The lambda stores only
-  ;; function symbols; the actual functions are defined in :config and are
-  ;; looked up lazily when called (e.g. on F5).
+  ;; unconditional once `java-ts-mode' loads. The entry functions themselves
+  ;; are defined above the deferred `use-package' form.
   (add-hook 'java-ts-mode-hook
             (lambda ()
               (setq-local my/dap-check-requirements
@@ -8083,43 +8139,6 @@ a 4-space or 8-space offset relative to the statement start."
 
   (declare-function dap--cur-session "dap-mode")
   (declare-function dap--session-running "dap-mode")
-
-  (defun my/dap-java--check-requirements ()
-    "Return non-nil if the Java LSP server is running in this buffer.
-Called by `my/dap-run-continue-dispatch' before attempting to start a debug
-session. Logs an actionable hint when the check fails."
-    (if (and (fboundp 'lsp-find-workspace)
-             (lsp-find-workspace 'jdtls (buffer-file-name)))
-        t
-      (message
-       (concat "jdtls is not running in this buffer. "
-               "Open a Java file and wait for LSP to initialize."))
-      nil))
-
-  (defun my/dap-java--start-debug ()
-    "Launch a Java DAP session for the current project.
-Uses .vscode/launch.json when present; falls back to the
-interactive `dap-java-debug' prompt otherwise."
-    (let ((root (lsp-workspace-root)))
-      (if (and root (file-exists-p (expand-file-name ".vscode/launch.json" root)))
-          (call-interactively 'dap-debug)
-        (dap-java-debug))))
-
-  (defun my/dap-java--force-stop ()
-    "Force-stop a Java DAP session and kill the suspended JVM process group.
-The JVM is started with JDWP server=y, which suspends it waiting for the
-debugger. A plain `dap-force-quit' disconnects the DAP session but leaves
-the JVM running, holding its debug port. Subsequent sessions then fail
-with \"Address already in use\". This function kills the JVM's process
-tree before disconnecting."
-    (when-let* ((session (dap--cur-session))
-                (proc (dap--debug-session-program-proc session))
-                (pid (process-id proc)))
-      (ignore-errors
-        (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string pid)))
-      (ignore-errors
-        (call-process "kill" nil nil nil "-9" (number-to-string pid))))
-    (dap-force-quit))
 
   (defun my/lsp-java-discover-runtimes ()
     "Discover SDKMAN! java versions and return them as a vector for lsp-java.
@@ -8484,27 +8503,40 @@ is downloaded automatically on first use when opening a Java buffer.
 
 #+begin_src emacs-lisp
 (defun dap-java-debug-install ()
-  "Download and install the Java debug plugin jar from Open VSX if absent."
+  "Ensure the configured Java debug plugin version is installed.
+Download it from Open VSX when that exact version is absent."
   (let* ((version "0.59.0") ;; You can use latest or a specific version like 0.59.0
          (dest-dir (expand-file-name
                     "github/microsoft.java-debug/extension/server"
                     dap-utils-extension-path))
-         (existing-jars (file-expand-wildcards (expand-file-name "com.microsoft.java.debug.plugin-*.jar" dest-dir)))
-         (jar-path (car existing-jars))
+         (jar-name (format "com.microsoft.java.debug.plugin-%s.jar" version))
+         (jar-path (expand-file-name jar-name dest-dir))
          ;; Use Open VSX which serves standard ZIP files without gzip streaming wrappers
          (vsix-url (format "https://open-vsx.org/api/vscjava/vscode-java-debug/%s/file/vscjava.vscode-java-debug-%s.vsix" version version)))
-    (unless jar-path
+    (unless (file-exists-p jar-path)
       (make-directory dest-dir t)
-      (let ((tmp-vsix (make-temp-file "java-debug-vsix-" nil ".zip")))
-        ;; 1. Download directly to standard zip format
-        (url-copy-file vsix-url tmp-vsix t)
-        ;; 2. Extract without needing zcat by using wildcards to find the exact jar name
-        (call-process-shell-command
-         (format "unzip -j -o -d %s %s \"extension/server/com.microsoft.java.debug.plugin-*.jar\""
-                 (shell-quote-argument dest-dir)
-                 (shell-quote-argument tmp-vsix)))
-        (delete-file tmp-vsix)
-        (setq jar-path (car (file-expand-wildcards (expand-file-name "com.microsoft.java.debug.plugin-*.jar" dest-dir))))))
+      (let ((tmp-vsix (make-temp-file "java-debug-vsix-" nil ".zip"))
+            (extract-dir (make-temp-file "java-debug-extract-" t)))
+        (unwind-protect
+            (progn
+              ;; The VSIX version and its bundled jar version need not have
+              ;; identical names. Fetch the configured VSIX, then install
+              ;; its adapter jar under the configured cache filename.
+              (url-copy-file vsix-url tmp-vsix t)
+              (unless (zerop (call-process
+                              "unzip" nil nil nil "-j" "-o" "-d" extract-dir
+                              tmp-vsix
+                              "extension/server/com.microsoft.java.debug.plugin-*.jar"))
+                (error "Could not extract Java debug adapter %s" version))
+              (let ((extracted-jar
+                     (car (directory-files
+                           extract-dir t
+                           "\\`com\\.microsoft\\.java\\.debug\\.plugin-.*\\.jar\\'"))))
+                (unless extracted-jar
+                  (error "Java debug adapter %s contains no plugin jar" version))
+                (copy-file extracted-jar jar-path t)))
+          (ignore-errors (delete-file tmp-vsix))
+          (ignore-errors (delete-directory extract-dir t)))))
     jar-path))
 #+end_src
 
@@ -8625,6 +8657,30 @@ no recognised build file is found, so the build step is skipped."
    (t
     (message "DAP Java: no pom.xml or build.gradle found in %s; skipping compilation step" root)
     nil)))
+
+(defun my/dap-java--wait-for-jdwp (launch-args)
+  "Wait until the compile_attach JVM in LAUNCH-ARGS is accepting JDWP.
+This waits for the JVM's own log line instead of opening a TCP probe: a
+probe that disconnects without completing JDWP's handshake makes the JVM
+reject the real debug adapter connection."
+  (let* ((port (plist-get launch-args :port))
+         (buffer (get-buffer (format " * %s log*"
+                                     (plist-get launch-args :name))))
+         (pattern (format "Listening for transport dt_socket at address: %s" port))
+         (deadline (+ (float-time) 30)))
+    (while (and (< (float-time) deadline)
+                (not (and (buffer-live-p buffer)
+                          (with-current-buffer buffer
+                            (save-excursion
+                              (goto-char (point-min))
+                              (search-forward pattern nil t))))))
+      (accept-process-output nil 0.05))
+    (unless (and (buffer-live-p buffer)
+                 (with-current-buffer buffer
+                   (save-excursion
+                     (goto-char (point-min))
+                     (search-forward pattern nil t))))
+      (user-error "Java JVM did not open JDWP port %s within 30 seconds" port))))
 
 (defun my/dap-java--build-compile-attach (conf)
   "Build a compile_attach session plist from CONF.
@@ -8813,6 +8869,7 @@ CONF is the launch configuration plist from the launch.json entry."
                    :port              port
                    :program-to-start  java-command
                    :environment-variables env-variables
+                   :startup-function  #'my/dap-java--wait-for-jdwp
                    ;; Forward the optional build step from launch.json.
                    ;; If absent, auto-detect Maven or Gradle from the
                    ;; top-level workspace root (not cwd, which may be a
@@ -9207,7 +9264,17 @@ See `my/dap-java-debug-test-method'."
 #+begin_src emacs-lisp
 (with-eval-after-load 'lsp-java
   (with-eval-after-load 'dap-mode
-    (add-to-list 'lsp-java-bundles (dap-java-debug-install))
+    (let ((java-debug-jar (dap-java-debug-install)))
+      ;; Load only the configured Java debug version, even when older jars
+      ;; remain in the extension cache from a previous configuration.
+      (setq lsp-java-bundles
+            (cons java-debug-jar
+                  (cl-remove-if
+                   (lambda (bundle)
+                     (string-match-p
+                      "/com\\.microsoft\\.java\\.debug\\.plugin-[^/]+\\.jar\\'"
+                      bundle))
+                   lsp-java-bundles))))
 
     ;; Enable reading debug settings from .vscode/launch.json.
     (setq dap-java-use-project-settings t)
