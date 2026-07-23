@@ -1593,10 +1593,9 @@ throughout the configuration:
 
 ** General interface tweaks
 
-Minimal startup + UI tweaks: quiet boot, 120-col default (80 for Org),
-y/n prompts, visible bell, instant which-key, and no GUI
-chrome. ~which-key-mode~ displays available key bindings after an
-incomplete command.
+Minimal startup + UI tweaks: quiet boot, 120-col default (80 for Org), y/n
+prompts, visible bell, instant which-key, and no GUI chrome. ~which-key-mode~
+displays available key bindings after an incomplete command.
 
 #+begin_src emacs-lisp
 ;; Line limits
@@ -1613,22 +1612,15 @@ incomplete command.
   '((t :background "none" :underline (:style wave) :inherit error))
   "Custom face for trailing whitespace.")
 
-(dolist (hook '(conf-unix-mode-hook
-                markdown-mode-hook
-                nxml-mode-hook
-                org-mode-hook
-                prog-mode-hook
-                text-mode-hook
-                yaml-ts-mode-hook))
-  (add-hook hook 'column-number-mode)
+(dolist (hook '(prog-mode-hook text-mode-hook))
   (add-hook hook 'display-line-numbers-mode)
   (add-hook hook
             (lambda ()
               (setq-local show-trailing-whitespace t)
               (face-remap-add-relative 'trailing-whitespace 'my/trailing-whitespace-face))))
 
-;; Highlighting current line
-(global-hl-line-mode 1)
+(column-number-mode 1) ; Column number display in the mode line
+(global-hl-line-mode 1) ; Highlighting current line
 ;; (custom-set-faces
 ;;   '(line-number-current-line ((t (:inherit line-number :background "#3B4252" :foreground "#88C0D0" :weight bold)))))
 ;; (custom-set-faces
