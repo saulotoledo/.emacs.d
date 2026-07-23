@@ -8485,7 +8485,7 @@ is downloaded automatically on first use when opening a Java buffer.
 #+begin_src emacs-lisp
 (defun dap-java-debug-install ()
   "Download and install the Java debug plugin jar from Open VSX if absent."
-  (let* ((version "0.58.5") ;; You can use latest or a specific version like 0.58.5
+  (let* ((version "0.59.0") ;; You can use latest or a specific version like 0.59.0
          (dest-dir (expand-file-name
                     "github/microsoft.java-debug/extension/server"
                     dap-utils-extension-path))
