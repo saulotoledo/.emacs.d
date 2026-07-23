@@ -1635,7 +1635,7 @@ displays available key bindings after an incomplete command.
 
 ;; Indent and tab characters
 (setq-default whitespace-style '(face tabs tab-mark))
-(define-key custom-bindings-map (kbd "S-SPC") (lambda () (interactive) (insert "\t")))
+(define-key custom-bindings-map (kbd "C-s-<tab>") (lambda () (interactive) (insert "\t")))
 (global-whitespace-mode 1)
 (setq-default whitespace-display-mappings
               '((tab-mark 9 [8594 32] [92 9])))
