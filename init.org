@@ -5669,11 +5669,11 @@ code completion, go-to-definition, diagnostics, and more.
    ;; advice below: in this lsp-mode version :capf also auto-enables company,
    ;; so we suppress that side effect when Corfu is active.
    lsp-completion-provider :capf
-   ;; Set the keymap prefix for lsp-mode commands to "C-c l". Only works when lsp-mode is already loaded:
+   ;; Load lsp-mode with this setting so its which-key labels never expose
+   ;; the default Super-key prefix.
    lsp-keymap-prefix "C-c l")
 
   :bind
-  ("C-c l" . lsp-command-map) ; Allow the shortcut to load lsp when used
   (:map lsp-mode-map ("M-RET" . lsp-execute-code-action))
 
   :hook
@@ -5728,6 +5728,10 @@ code completion, go-to-definition, diagnostics, and more.
   (lsp-enable-snippet t) ; Allow LSP completion items to expand yasnippet parameter placeholders
 
   :config
+  ;; lsp-mode may have been autoloaded before this declaration. Rebuild both
+  ;; bindings so command completion immediately reports C-c l, never s-l.
+  (define-key lsp-mode-map (kbd lsp-keymap-prefix) lsp-command-map)
+
   (with-eval-after-load 'lsp-completion
     (defun my/lsp-completion-mode-without-company-for-corfu (orig &rest args)
       "Prevent lsp-mode from enabling Company in Corfu buffers.
