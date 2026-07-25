@@ -1,0 +1,76 @@
+#+TITLE: Containers Layer
+#+CATEGORY: tools
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides Dockerfile syntax support via dockerfile-mode and devcontainer development environment
+management via devcontainer.el.
+
+* Emacs Configuration
+** Dockerfile Mode
+#+begin_src emacs-lisp
+(use-package dockerfile-mode
+  :mode "Dockerfile\\'")
+#+end_src
+
+** Devcontainer Integration
+#+begin_src emacs-lisp
+(use-package devcontainer
+  :config
+  (let ((devcontainer-cli-path (executable-find "devcontainer")))
+    (when devcontainer-cli-path
+      (add-to-list 'exec-path (file-name-directory devcontainer-cli-path))))
+
+  (devcontainer-mode 1)
+  (unless (boundp 'devcontainer-engine)
+    (setq devcontainer-engine 'docker))
+
+  (setq devcontainer-execute-outside-container '("grep" "rg" "ripgrep"))
+  (setq devcontainer-term-environment '(("TERM" . "xterm-256color")))
+
+  (add-hook 'devcontainer-post-startup-hook 'devcontainer-tramp-dired)
+
+  (declare-function devcontainer--read-devcontainer-json "devcontainer")
+  (defun cfg-tools/get-devcontainer-shell ()
+    "Searches for a shell preference in devcontainer.json."
+    (condition-case nil
+        (when-let* ((config (devcontainer--read-devcontainer-json))
+                    (customizations (gethash "customizations" config)))
+          (or
+           (when-let ((emacs (gethash "emacs" customizations)))
+             (gethash "shell" emacs))
+           (when-let ((vscode (gethash "vscode" customizations)))
+             (when-let ((settings (gethash "settings" vscode)))
+               (gethash "terminal.integrated.defaultProfile.linux" settings)))))
+      (error nil)))
+
+  (defun cfg-tools/vterm-use-devcontainer-shell-advice (orig-fun &rest args)
+    "Advice for `vterm' to use `devcontainer-term-shell' when in a container."
+    (let ((vterm-shell (if (and (bound-and-true-p devcontainer-mode)
+                                (tramp-tramp-file-p default-directory)
+                                (let ((method (tramp-file-name-method (tramp-dissect-file-name default-directory))))
+                                  (member method (list "docker" "podman"))))
+                           (or (cfg-tools/get-devcontainer-shell)
+                               (bound-and-true-p devcontainer-term-shell)
+                               vterm-shell)
+                         vterm-shell)))
+      (apply orig-fun args)))
+
+  (with-eval-after-load 'vterm
+    (advice-add 'vterm :around 'cfg-tools/vterm-use-devcontainer-shell-advice))
+
+  (defun cfg-tools/devcontainer-skip-remote-customization-advice (orig-fun &rest args)
+    "Skip `devcontainer--read-and-apply-customizations' for remote files."
+    (unless (file-remote-p (or (buffer-file-name) default-directory))
+      (apply orig-fun args)))
+
+  (advice-add 'devcontainer--read-and-apply-customizations :around 'cfg-tools/devcontainer-skip-remote-customization-advice))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Keybindings managed via devcontainer interactive commands
+#+end_src
+
+* System Setup
+No system setup required.

@@ -1,0 +1,145 @@
+#+TITLE: Diagnostics Layer
+#+CATEGORY: lsp
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides on-the-fly syntax checking with Flycheck and real-time code complexity
+metrics via cognitive-complexity. Both tools integrate with LSP and treesit for
+comprehensive code quality feedback.
+
+* Emacs Configuration
+** Flycheck: On-the-fly Syntax Checking
+Flycheck is a modern on-the-fly syntax checking extension for Emacs. It runs
+linters and compilers in the background as you edit, highlighting errors and
+warnings directly in your code buffer. This helps you catch mistakes early by
+providing immediate feedback about code issues (like syntax errors, unused
+variables, or style problems).
+
+By default, Flycheck limits the number of errors it will display in a buffer.
+Some language servers (such as Lean or large LSP projects) can produce many
+diagnostics, which may exceed this limit and cause Flycheck to stop reporting
+errors. To avoid missing important diagnostics, we set the error threshold to a
+reasonably high value (9999), so Flycheck continues to show all errors without
+being excessive.
+
+#+begin_src emacs-lisp
+(use-package flycheck
+  :custom
+  (flycheck-indication-mode nil)
+  (flycheck-highlighting-mode 'symbols)
+  (flycheck-overlay-margin-spec nil)
+  ;; Raise the error threshold to avoid missing diagnostics from language servers.
+  (flycheck-checker-error-threshold 9999)
+  ;; Flycheck behavior:
+  (flycheck-check-syntax-automatically '(save mode-enabled idle-change))
+  (flycheck-idle-change-delay 2)
+
+  ;; Enable Flycheck globally. Disabled for now. I am trying prog-mode hook instead.
+  ;; (global-flycheck-mode t)
+  :hook (prog-mode . cfg-lsp--flycheck-maybe-enable))
+#+end_src
+
+*** Flycheck limitations over TRAMP
+Running Flycheck within TRAMP currently involves a few known friction points.
+The technical challenges and specific limitations are well-documented in the
+following pull requests, and the maintainers are planning to address these
+through a future redesign of the system:
+- [[https://github.com/flycheck/flycheck/pull/1842][Flycheck PR #1842]]
+- [[https://github.com/flycheck/flycheck/pull/1922][Flycheck PR #1922]]
+
+#+begin_src emacs-lisp
+(defun cfg-lsp--flycheck-maybe-enable ()
+  "Enable flycheck-mode only if the file is local (not a TRAMP file).
+This is important because Flycheck does not support TRAMP yet."
+  (when (and (buffer-file-name)
+             (not (tramp-tramp-file-p (buffer-file-name))))
+    (flycheck-mode 1)))
+#+end_src
+
+** Cognitive Complexity: Code Metrics
+The ~cognitive-complexity~ package provides real-time code complexity and
+metrics overlays in supported programming modes. It can show cyclomatic
+complexity, maintainability index, and other metrics inline, helping you spot
+complex or hard-to-maintain code as you work. It is a port of the known
+~codemetrics~ package, but that works with treesit (native on Emacs 29+) instead
+of tree-sitter (external package).
+
+#+begin_src emacs-lisp
+(use-package cognitive-complexity
+  :pin "JCS-ELPA"
+  :hook ((prog-mode . cognitive-complexity-mode))
+  :custom
+  (cognitive-complexity-complexity-threshold 15)
+  (cognitive-complexity-maintainability-threshold 50)
+  ;; Wait 2 s of idle time before (re)running the expensive analysis.
+  (cognitive-complexity-delay 2.0)
+  :config
+  ;; Fix: cognitive-complexity--delete-ovs never resets the overlay list to nil.
+  ;; See https://github.com/emacs-vs/cognitive-complexity/issues/4
+  (advice-add 'cognitive-complexity--enable :before
+              (lambda ()
+                (remove-overlays (point-min) (point-max) 'cognitive-complexity t)
+                (setq cognitive-complexity--ovs nil)))
+
+  ;; CPU throttle: guard against re-entry and back-pressure:
+  ;; Buffer-local flag: non-nil while a synchronous parse is in progress.
+  (defvar-local cfg-lsp/cognitive-complexity--running-p nil)
+  ;; Buffer-local flag: non-nil if a recalculation was requested while one
+  ;; was already running (i.e. the result will be stale when it finishes).
+  (defvar-local cfg-lsp/cognitive-complexity--pending-p nil)
+
+  ;; Intercept the heavy display function: set the running flag, and when done
+  ;; schedule one more pass if the buffer changed during our run.
+  (define-advice cognitive-complexity--display-start
+      (:around (orig buffer) cfg-lsp/cognitive-complexity-running-guard)
+    "Prevent re-entry; reschedule once if a request arrived while running."
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (if cfg-lsp/cognitive-complexity--running-p
+            ;; Another call arrived while we are busy - remember it.
+            (setq cfg-lsp/cognitive-complexity--pending-p t)
+          (setq cfg-lsp/cognitive-complexity--running-p t
+                cfg-lsp/cognitive-complexity--pending-p nil)
+          (unwind-protect
+              (funcall orig buffer)
+            (setq cfg-lsp/cognitive-complexity--running-p nil)
+            ;; Buffer changed while we were running - kick off one more pass.
+            (when cfg-lsp/cognitive-complexity--pending-p
+              (setq cfg-lsp/cognitive-complexity--pending-p nil
+                    cognitive-complexity--display-timer
+                    (run-with-idle-timer cognitive-complexity-delay nil
+                                        #'cognitive-complexity--display-start
+                                        buffer))))))))
+
+  ;; Intercept the change hook: when a run is already in progress just raise the
+  ;; pending flag instead of piling up another timer on top.
+  (define-advice cognitive-complexity--after-change
+      (:override (&rest _) cfg-lsp/cognitive-complexity-debounce)
+    "Debounce with a longer delay; skip new timers while a run is in progress."
+    (if cfg-lsp/cognitive-complexity--running-p
+        ;; Calculation is live right now - flag it and let the guard reschedule.
+        (setq cfg-lsp/cognitive-complexity--pending-p t)
+      (when (timerp cognitive-complexity--display-timer)
+        (cancel-timer cognitive-complexity--display-timer))
+      (setq cognitive-complexity--display-timer
+            (run-with-idle-timer cognitive-complexity-delay nil
+                                 #'cognitive-complexity--display-start
+                                 (current-buffer))))))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(define-key cfg-keys-map (kbd "C-c ! n") #'flycheck-next-error)
+(define-key cfg-keys-map (kbd "C-c ! p") #'flycheck-previous-error)
+(define-key cfg-keys-map (kbd "C-c ! l") #'flycheck-list-errors)
+
+(cfg-keys/leader-def
+  "e"   '(:ignore t :which-key "+errors/diagnostics")
+  "e n" '(flycheck-next-error :whichkey "Next Error")
+  "e p" '(flycheck-previous-error :whichkey "Previous Error")
+  "e l" '(flycheck-list-errors :whichkey "List Errors")
+  "e c" '(flycheck-buffer :whichkey "Check Buffer"))
+#+end_src
+
+* System Setup
+No system setup required.

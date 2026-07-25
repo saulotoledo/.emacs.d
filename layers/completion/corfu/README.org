@@ -1,0 +1,141 @@
+#+TITLE: Corfu Layer
+#+CATEGORY: completion
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides fast, lightweight in-buffer completion popups using Corfu (Completions
+in Region FUnction). Leverages Emacs' native Completion At Point Functions
+(CAPF) API to surface candidates from LSP/eglot, tree-sitter, keywords, dabbrev,
+and snippets without blocking the editor. Includes visual icons via `kind-icon`
+and additional completion backends via `cape`.
+
+* Emacs Configuration
+** Corfu Core Setup
+#+begin_src emacs-lisp
+(defun cfg-completion/corfu-reset-completion-cache ()
+  "Clear stale LSP/Corfu completion caches and restart completion."
+  (interactive)
+  (when (fboundp 'lsp-completion--clear-cache)
+    (lsp-completion--clear-cache))
+  (setq cfg-lsp/lsp-completion--last-resp nil
+        cfg-lsp/lsp-completion--last-resp-time 0
+        cfg-lsp/lsp-completion--last-resp-bounds nil)
+  (when (and (boundp 'cfg-lsp/lsp-completion--refresh-timer)
+             (timerp cfg-lsp/lsp-completion--refresh-timer))
+    (cancel-timer cfg-lsp/lsp-completion--refresh-timer)
+    (setq cfg-lsp/lsp-completion--refresh-timer nil))
+  (setq lsp-completion--cache nil)
+  (when (and (fboundp 'corfu-reset)
+             (bound-and-true-p completion-in-region-mode)
+             completion-in-region--data)
+    (corfu-reset))
+  (when (fboundp 'completion-at-point)
+    (let ((non-essential t))
+      (completion-at-point)))
+  (message "Corfu/LSP completion cache cleared"))
+
+(use-package corfu
+  :demand t
+  :init
+  (global-corfu-mode)
+  :custom
+  (corfu-auto t)
+  (corfu-auto-delay 0.3)
+  (corfu-auto-prefix 3)
+  (corfu-on-exact-match 'quit)
+  ;; Keep popup responsive and predictable:
+  (corfu-cycle t)
+  (corfu-preselect 'prompt)
+  (corfu-quit-no-match t)
+  ;; Reasonable popup limits:
+  (corfu-scroll-margin 3)
+  (corfu-count 20)
+  :config
+  ;; Prevent accidental completion on RET
+  (define-key corfu-map (kbd "RET") nil)
+  (set-face-attribute 'corfu-current nil
+                      :background "#3e4451"
+                      :foreground "#ffffff"
+                      :weight 'bold)
+
+  ;; Disable corfu in some modes where it is noisy
+  (dolist (m '(org-mode shell-mode term-mode vterm-mode))
+    (add-hook (intern (concat (symbol-name m) "-hook"))
+              (lambda () (corfu-mode -1))))
+
+  ;; `corfu-auto--complete-deferred` fires the capf chain directly via
+  ;; run-hook-wrapped, bypassing `corfu--exhibit` which is the only place
+  ;; corfu binds `(non-essential t)`. Without this, our lsp completion
+  ;; debounce (and lsp-mode itself) cannot distinguish auto-completion
+  ;; background requests from interactive ones.
+  (with-eval-after-load 'corfu-auto
+    (advice-add 'corfu-auto--complete-deferred :around
+                (lambda (orig &rest args)
+                  (let ((non-essential t))
+                    (apply orig args))))))
+#+end_src
+
+** Kind Icon
+~kind-icon~ adds a small icon in the Corfu completion margin representing the
+option in the list.
+
+#+begin_src emacs-lisp
+(use-package kind-icon
+  :after corfu
+  :custom
+  (kind-icon-default-face 'corfu-default)
+  :config
+  (add-to-list 'corfu-margin-formatters #'kind-icon-margin-formatter))
+#+end_src
+
+** CAPE (Completion At Point Extensions)
+CAPE provides CAPF-based replacements for common Company backends, exposing file
+names, buffer words, and language keywords through Emacs' standard
+~completion-at-point-functions~ API. This allows Corfu (and other CAPF
+frontends) to consume these sources natively, without Company-specific backends
+or blocking behavior.
+
+#+begin_src emacs-lisp
+(use-package cape
+  :init
+  (add-to-list 'completion-at-point-functions #'cape-file)
+  (add-to-list 'completion-at-point-functions #'cape-dabbrev)
+  (add-to-list 'completion-at-point-functions #'cape-keyword))
+#+end_src
+
+** Yasnippet CAPF
+~yasnippet~ integration with CAPE.
+
+#+begin_src emacs-lisp
+(use-package yasnippet-capf
+  :after (cape yasnippet)
+  :init
+  (add-to-list 'completion-at-point-functions #'yasnippet-capf))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Global completion triggers and direct keybindings
+(define-key cfg-keys-map (kbd "C-<return>") #'completion-at-point)
+
+;; Corfu active popup keymap
+(with-eval-after-load 'corfu
+  (define-key corfu-map (kbd "C-<return>") #'corfu-insert)
+  (define-key corfu-map (kbd "[return]") #'corfu-insert)
+  (define-key corfu-map (kbd "RET") nil)
+  (define-key corfu-map (kbd "TAB") #'corfu-complete)
+  (define-key corfu-map (kbd "<tab>") #'corfu-complete)
+  (define-key corfu-map (kbd "C-n") #'corfu-next)
+  (define-key corfu-map (kbd "C-p") #'corfu-previous)
+  (define-key corfu-map (kbd "S-TAB") #'corfu-previous)
+  (define-key corfu-map (kbd "<backtab>") #'corfu-previous))
+
+;; Leader bindings
+(cfg-keys/leader-def
+  "c"   '(:ignore t :which-key "+code/completion")
+  "c c" '(cfg-completion/corfu-reset-completion-cache :whichkey "Reset Completion Cache")
+  "c a" '(completion-at-point :whichkey "Complete at Point"))
+#+end_src
+
+* System Setup
+No system setup required.

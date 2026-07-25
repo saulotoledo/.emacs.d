@@ -1,0 +1,156 @@
+#+TITLE: Ivy Layer
+#+CATEGORY: completion
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Ivy, Counsel, and Swiper provide minibuffer completion -- they enhance the
+interactive prompts at the bottom of Emacs for commands like ~M-x~, ~find-file~,
+and search. Ivy is the core completion framework. Counsel adds Ivy-powered
+versions of common commands (like ~M-x~, ~find-file~, ~rg~). Swiper integrates
+search with Ivy for better navigation. Together, they replace IDO and Helm for a
+faster, cleaner experience.
+
+* Emacs Configuration
+** Package: ivy
+Core incremental completion framework for minibuffer prompts. ~ivy-mode~ enables
+Ivy's UI for all compatible prompts. ~ivy-switch-buffer~ (from Ivy) provides a
+fast, simple buffer switcher.
+
+#+begin_src emacs-lisp
+(use-package ivy
+  :diminish (ivy-mode)
+  :config
+  (ivy-mode 1)
+  (setq ivy-use-virtual-buffers t)
+  (setq ivy-display-style 'fancy))
+#+end_src
+
+** Package: counsel
+Enhanced interactive replacements for standard Emacs commands. ~counsel-mode~
+remaps standard Emacs commands to their enhanced Counsel
+versions. ~counsel-ibuffer~ (from Counsel) is a powerful buffer manager with
+groups and metadata; we bind it to ~C-x b~ for full buffer management.
+
+*** Toggling hidden buffers in buffer switchers
+By default, hidden buffers are not shown in buffer switchers like =ibuffer= or
+=counsel-ibuffer=. Below we introduce a function to toggle the visibility of
+these hidden buffers, allowing you to see all buffers or only the visible ones.
+
+*Current limitations:* This toggle only works when the buffer switcher is
+already open. For the =counsel-ibuffer= in the minibuffer, it does not
+automatically refresh the list when you open the switcher, you need to type
+something to continue the search. You need to call the toggle function while the
+switcher is active to see the change.
+
+#+begin_src emacs-lisp
+(use-package counsel
+  :after ivy
+  :config
+  (counsel-mode 1))
+
+(defvar cfg-completion/ibuffer-show-all-hidden nil
+  "State flag for `cfg-completion/ibuffer-toggle-hidden-buffers'.
+Non-nil means all hidden buffers (names starting with space) are shown.")
+
+(defun cfg-completion/ibuffer-toggle-hidden-buffers ()
+  "Toggle hidden buffers in both standard Ibuffer and Counsel-Ibuffer."
+  (interactive)
+  (setq cfg-completion/ibuffer-show-all-hidden (not cfg-completion/ibuffer-show-all-hidden))
+  (cond
+   ((and (bound-and-true-p ivy-mode) (minibufferp))
+    (let* ((new-coll
+            (mapcar (lambda (buf) (cons (buffer-name buf) buf))
+                    (seq-filter
+                     (lambda (buf)
+                       (or cfg-completion/ibuffer-show-all-hidden
+                           (not (and (string-prefix-p " " (buffer-name buf))
+                                     (null (buffer-file-name buf))))))
+                     (buffer-list)))))
+      (setf (ivy-state-collection ivy-last) new-coll)
+      (ivy-update-candidates (mapcar #'car new-coll))
+      (ivy--exhibit)))
+   ((derived-mode-p 'ibuffer-mode)
+    (setq ibuffer-display-maybe-show-predicates cfg-completion/ibuffer-show-all-hidden)
+    (ibuffer-update nil t))))
+#+end_src
+
+** Package: swiper
+Swiper gives us incremental search and is integrated with Ivy and Counsel. To
+search for the item at point, type =M-n= with Swiper open.
+
+#+begin_src emacs-lisp
+(declare-function swiper-isearch-thing-at-point "swiper")
+
+(defun cfg-completion/clear-minibuffer-and-run (command)
+  "Execute COMMAND after clearing any existing minibuffer layers.
+This ensures that starting a new search or finding a file
+never \"piles up\" on an old session."
+  (if (> (minibuffer-depth) 0)
+      (progn
+        (run-at-time 0 nil (lambda (cmd)
+                             (let ((this-command cmd))
+                               (call-interactively cmd)))
+                     command)
+        (top-level))
+    (call-interactively command)))
+
+(defun cfg-completion/swiper-thing-or-region ()
+  "Call `swiper-isearch-thing-at-point' or `swiper-isearch'.
+If the region is active and contains more than one character, call
+`swiper-isearch-thing-at-point'. Otherwise, call `swiper-isearch'."
+  (interactive)
+  (if (and (use-region-p)
+           (> (abs (- (point) (mark))) 1))
+      (swiper-isearch-thing-at-point)
+    (swiper-isearch)))
+
+(use-package swiper
+  :after ivy)
+#+end_src
+
+** Package: ivy-rich
+Ivy-rich enhances Ivy's completion menus by adding extra information to each
+candidate (like file paths, buffer modes, or recent file details). It makes Ivy
+and Counsel popups more informative and visually appealing, without changing how
+you interact with them.
+
+#+begin_src emacs-lisp
+(declare-function ivy-rich-mode "ivy-rich")
+(use-package ivy-rich
+  :after ivy
+  :defer t
+  :config
+  (ivy-rich-mode 1))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; --- Counsel Global Overrides ---
+(define-key cfg-keys-map (kbd "M-x") #'counsel-M-x)
+(define-key cfg-keys-map (kbd "C-x b") #'counsel-ibuffer)
+(define-key cfg-keys-map (kbd "C-x C-f") (lambda () (interactive) (cfg-completion/clear-minibuffer-and-run #'counsel-find-file)))
+
+;; --- Swiper Global Overrides ---
+(define-key cfg-keys-map (kbd "C-s") (lambda () (interactive) (cfg-completion/clear-minibuffer-and-run #'cfg-completion/swiper-thing-or-region)))
+(define-key cfg-keys-map (kbd "C-r") (lambda () (interactive) (cfg-completion/clear-minibuffer-and-run #'swiper-isearch-backward)))
+
+;; --- Leader Bindings ---
+(cfg-keys/leader-def
+  "s r" '(ivy-resume :whichkey "Resume last search"))
+
+;; --- Context-Specific Keymaps ---
+(with-eval-after-load 'counsel
+  (define-key minibuffer-local-map (kbd "C-r") #'counsel-minibuffer-history))
+
+(with-eval-after-load 'swiper
+  (define-key read-expression-map (kbd "C-r") #'counsel-expression-history))
+
+(with-eval-after-load 'ibuffer
+  (define-key ibuffer-mode-map (kbd "C-c h") #'cfg-completion/ibuffer-toggle-hidden-buffers))
+
+(with-eval-after-load 'ivy
+  (define-key ivy-minibuffer-map (kbd "C-c h") #'cfg-completion/ibuffer-toggle-hidden-buffers))
+#+end_src
+
+* System Setup
+No system setup required.

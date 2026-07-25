@@ -1,0 +1,87 @@
+#+TITLE: Magit Layer
+#+CATEGORY: vc
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides full Git integration using Magit and Forge, supporting repository
+inspection, commit staging, PR/issue management, and real-time ANSI process output styling.
+
+* Emacs Configuration
+** Compat Dependency
+Magit often requires a newer `compat' version, and this might not be built-in
+with the local Emacs version. We declare it explicitly so package.el
+installs/upgrades the real package instead of silently trusting the built-in
+stub version.
+
+#+begin_src emacs-lisp
+(use-package compat)
+#+end_src
+
+** Transient Dependency
+`transient' (Magit's command-dispatch library, also used by =rg= and =npm=) uses
+`compat' macros like `static-when' at byte-compile time. When `compat' is
+upgraded without recompiling `transient' against it, the stale =.elc= leaves an
+unexpanded `static-when' call as a runtime function call, which fails with
+"Invalid function: static-when" the first time `transient' loads -- and can
+leave `transient--init-suffix-key' partially defined, breaking later loads with
+"already defined as something else than a generic function". Declaring
+`transient' explicitly here keeps it a tracked, upgradable package instead of an
+implicit transitive dependency, and `package-recompile` (see below) can be
+re-run whenever `compat' is upgraded.
+
+#+begin_src emacs-lisp
+(use-package transient)
+#+end_src
+
+** Cond-Let Dependency
+Magit often requires an updated `cond-let', but `cond-let' is a plain
+(non-built-in) ELPA package that package.el never auto-upgrades once installed.
+Left implicit, it can sit at whatever old version was first pulled in as a
+transitive dependency. Declaring it explicitly keeps it a tracked, upgradable
+dependency like `compat' and `transient' above.
+
+#+begin_src emacs-lisp
+(use-package cond-let)
+#+end_src
+
+** Magit Main Setup
+#+begin_src emacs-lisp
+(use-package magit
+  :commands magit-status)
+#+end_src
+
+** ANSI Color Support in Magit Process Buffer
+#+begin_src emacs-lisp
+(defun cfg-vc/magit-color-buffer (proc &rest _args)
+  "Apply ANSI colors to the magit-process buffer in real-time.
+PROC is the process object for the magit-process buffer."
+  (with-current-buffer (process-buffer proc)
+    (read-only-mode -1)
+    (ansi-color-apply-on-region (point-min) (point-max))
+    (read-only-mode 1)))
+
+(declare-function ansi-color-apply-on-region "ansi-color")
+(advice-add 'magit-process-filter :after #'cfg-vc/magit-color-buffer)
+#+end_src
+
+** Forge Integration
+#+begin_src emacs-lisp
+(use-package forge
+  :pin "MELPA Unstable"
+  :after magit
+  :config)
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; --- Global Keybindings via cfg-keys-map ---
+(define-key cfg-keys-map (kbd "C-c m") #'magit-status)
+
+;; --- Leader Bindings ---
+(cfg-keys/leader-def
+  "g"   '(:ignore t :which-key "+git")
+  "g s" #'magit-status)
+#+end_src
+
+* System Setup
+No system setup required.

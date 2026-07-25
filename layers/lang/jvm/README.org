@@ -1,0 +1,407 @@
+#+TITLE: JVM Base Infrastructure Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Provides shared infrastructure for Java Virtual Machine (JVM) languages (Java,
+Kotlin), including SDKMAN! installation management and cross-language stack
+trace navigation.
+
+* Emacs Configuration
+** JVM Stack Trace Navigation
+
+~cfg-lang/java-stack-trace-mode~ is a minor mode that highlights JVM
+(Java/Kotlin) stack trace entries in *any* buffer -- paste a trace in a scratch
+buffer and it works the same as in a ~dap-server-log~ window.
+
+- *Project-internal* classes (prefix listed in
+  ~cfg-lang/java-stack-trace-project-packages~) are rendered in a bright, bold,
+  underlined face so they stand out immediately.
+- *External library* classes are rendered in a muted face to reduce noise.
+- Each ~File.java:42~ reference becomes clickable (=mouse-1=) and is also
+  reachable from the keyboard with =C-c C-j=. The mode uses ~project-current~ /
+  ~directory-files-recursively~ to locate the source file inside the active
+  project tree.
+
+*Configuration*
+
+Set ~cfg-lang/java-stack-trace-project-packages~ to the package prefixes that
+belong to your codebase, or leave it empty to let the mode auto-detect them from
+Maven (=pom.xml=) or Gradle (=build.gradle= / =build.gradle.kts=) files in the
+current project root:
+
+#+begin_example
+;; Manual override (skips auto-detection when set):
+(setq cfg-lang/java-stack-trace-project-packages '("com.corp" "com.mycompany"))
+
+;; Auto-detection: just leave the variable empty (the default).
+;; The mode reads groupId from pom.xml or group = "..." from build.gradle.
+#+end_example
+
+*Usage*
+
+| Key / Action                   | Effect                                    |
+|--------------------------------+-------------------------------------------|
+| =mouse-1= on ~File.java:N~     | Open that file at line N                  |
+| =C-c C-j=                      | Jump to the stack trace entry at point    |
+| =M-x cfg-lang/java-stack-trace-mode= | Toggle the mode in any buffer             |
+
+The mode is automatically activated in ~dap-server-log-mode~ buffers.
+
+#+begin_src emacs-lisp
+(defgroup cfg-lang/java-stack-trace nil
+  "Highlight and navigate JVM stack trace entries."
+  :group 'tools)
+
+(defcustom cfg-lang/java-stack-trace-project-packages '()
+  "Package prefixes that identify your project's classes.
+E.g. \\='(\"com.corp\" \"com.mycompany\").
+Stack trace entries whose fully-qualified class name starts with one of
+these prefixes are rendered with `cfg-jvm/java-stack-trace-project-face';
+all others use `cfg-jvm/java-stack-trace-external-face'."
+  :type '(repeat string)
+  :group 'cfg-lang/java-stack-trace)
+
+(defface cfg-lang/java-stack-trace-project-face
+  '((((background dark))  :foreground "#7ec8e3" :weight bold :underline t)
+    (((background light)) :foreground "#0070a8" :weight bold :underline t))
+  "Face for project-internal stack trace file:line references."
+  :group 'cfg-lang/java-stack-trace)
+
+(defface cfg-lang/java-stack-trace-external-face
+  '((((background dark))  :foreground "#6b7280")
+    (((background light)) :foreground "#9ca3af"))
+  "Face for external-library stack trace file:line references."
+  :group 'cfg-lang/java-stack-trace)
+
+;; Matches lines like:
+;;   \tat com.foo.Bar.method(Bar.java:42)
+;;   \tat com.foo.Bar$$Lambda$1.run(Unknown Source:0)
+;; Group 1: fully-qualified class+method   (e.g. "com.foo.Bar.method")
+;; Group 2: source file                    (e.g. "Bar.java")
+;; Group 3: line number                    (e.g. "42")
+(defconst cfg-lang/java-stack-trace-regexp
+  (rx bol (* (any "\t "))
+      "at "
+      (group (+ (any alnum ?. ?$ ?_)))     ; 1: fqcn
+      "("
+      (group (+? (not (any "()\n"))))      ; 2: source file
+      ":"
+      (group (+ digit))                    ; 3: line number
+      ")")
+  "Regexp matching a single JVM stack trace entry.")
+
+(defvar cfg-lang/java-stack-trace--auto-packages-cache (make-hash-table :test 'equal)
+  "Cache mapping project roots to their auto-detected package prefixes.
+Populated lazily by `cfg-jvm/java-stack-trace--auto-detect-packages'.")
+
+(defun cfg-lang/java-stack-trace--extract-pom-packages (pom-file)
+  "Return a list of package prefixes from POM-FILE.
+Reads the <groupId> of the root and every <module> module pom.xml,
+then returns unique dotted-prefix strings."
+  (let (groups)
+    (with-temp-buffer
+      (insert-file-contents pom-file)
+      ;; Root groupId (may be in <project><groupId> or inherited via <parent>)
+      (goto-char (point-min))
+      (when (re-search-forward "<groupId>\\([^<]+\\)</groupId>" nil t)
+        (push (string-trim (match-string 1)) groups))
+      ;; Also grab parent groupId as fallback
+      (goto-char (point-min))
+      (when (re-search-forward "<parent>.*?<groupId>\\([^<]+\\)</groupId>" nil t)
+        (push (string-trim (match-string 1)) groups)))
+    ;; Scan sub-modules
+    (let ((root-dir (file-name-directory pom-file)))
+      (with-temp-buffer
+        (insert-file-contents pom-file)
+        (goto-char (point-min))
+        (while (re-search-forward "<module>\\([^<]+\\)</module>" nil t)
+          (let* ((mod (string-trim (match-string 1)))
+                 (mod-pom (expand-file-name (concat mod "/pom.xml") root-dir)))
+            (when (file-exists-p mod-pom)
+              (with-temp-buffer
+                (insert-file-contents mod-pom)
+                (goto-char (point-min))
+                (when (re-search-forward "<groupId>\\([^<]+\\)</groupId>" nil t)
+                  (push (string-trim (match-string 1)) groups))))))))
+    (delete-dups (delq nil groups))))
+
+(defun cfg-lang/java-stack-trace--extract-gradle-packages (build-file)
+  "Return a list of package prefixes from BUILD-FILE (build.gradle or .kts).
+Reads `group' assignments of the form:
+  group = \"com.example\"   (Groovy DSL)
+  group.set(\"com.example\") (Kotlin DSL)"
+  (let (groups)
+    (with-temp-buffer
+      (insert-file-contents build-file)
+      (goto-char (point-min))
+      ;; Groovy: group = "com.example"  or  group 'com.example'
+      (while (re-search-forward "^\\s-*group\\s-*=\\s-*['\"]\\([^'\"]+\\)['\"]" nil t)
+        (push (string-trim (match-string 1)) groups))
+      ;; Kotlin DSL: group.set("com.example") or group("com.example")
+      (goto-char (point-min))
+      (while (re-search-forward "^\\s-*group\\.set(['\"]\\([^'\"]+\\)['\"])" nil t)
+        (push (string-trim (match-string 1)) groups)))
+    (delete-dups (delq nil groups))))
+
+(defun cfg-lang/java-stack-trace--auto-detect-packages (root)
+  "Detect JVM package prefixes for the project at ROOT.
+Scans for pom.xml and build.gradle* files up to 2 directory levels deep.
+Results are cached in `cfg-jvm/java-stack-trace--auto-packages-cache'."
+  (or (gethash root cfg-lang/java-stack-trace--auto-packages-cache)
+      (let (packages)
+        ;; Maven: root pom.xml
+        (let ((pom (expand-file-name "pom.xml" root)))
+          (when (file-exists-p pom)
+            (setq packages (append packages (cfg-lang/java-stack-trace--extract-pom-packages pom)))))
+        ;; Gradle: root build.gradle or build.gradle.kts
+        (dolist (gf '("build.gradle" "build.gradle.kts"))
+          (let ((f (expand-file-name gf root)))
+            (when (file-exists-p f)
+              (setq packages (append packages (cfg-lang/java-stack-trace--extract-gradle-packages f))))))
+        ;; Also check settings.gradle for rootProject.name (not a package,
+        ;; but subproject build.gradle files one level deep)
+        (dolist (sub (ignore-errors (directory-files root t "^[^.]" t)))
+          (when (file-directory-p sub)
+            (dolist (gf '("build.gradle" "build.gradle.kts"))
+              (let ((f (expand-file-name gf sub)))
+                (when (file-exists-p f)
+                  (setq packages (append packages (cfg-lang/java-stack-trace--extract-gradle-packages f))))))))
+        (let ((result (delete-dups (delq nil packages))))
+          (puthash root result cfg-lang/java-stack-trace--auto-packages-cache)
+          result))))
+
+(defvar-local cfg-lang/java-stack-trace--root-override nil
+  "Buffer-local project root used when `project-current' returns nil.
+Set automatically when `cfg-jvm/java-stack-trace-mode' is enabled in a
+buffer that does not belong to a recognised project.")
+
+(defun cfg-lang/java-stack-trace--effective-root ()
+  "Return the project root to use for source searches and package detection.
+Prefers `cfg-jvm/java-stack-trace--root-override' when set (explicitly chosen
+on mode activation); falls back to `project-current'.  Returns nil when
+neither is available."
+  (or cfg-lang/java-stack-trace--root-override
+      (when-let* ((proj (project-current nil)))
+        (expand-file-name (project-root proj)))))
+
+(defun cfg-lang/java-stack-trace--project-packages ()
+  "Return the effective list of project package prefixes.
+Uses `cfg-jvm/java-stack-trace-project-packages' when non-nil; otherwise
+auto-detects from Maven/Gradle build files in the effective project root."
+  (or cfg-lang/java-stack-trace-project-packages
+      (when-let ((root (cfg-lang/java-stack-trace--effective-root)))
+        (cfg-lang/java-stack-trace--auto-detect-packages root))))
+
+(defun cfg-lang/java-stack-trace--project-p (fqcn)
+  "Non-nil if FQCN starts with a prefix in the effective project packages.
+Checks `cfg-jvm/java-stack-trace-project-packages' first; falls back to auto-detection
+from Maven/Gradle build files via `cfg-jvm/java-stack-trace--project-packages'."
+  (cl-some (lambda (p) (string-prefix-p p fqcn))
+           (cfg-lang/java-stack-trace--project-packages)))
+
+(defun cfg-lang/java-stack-trace--rel-path (fqcn source-file)
+  "Derive the relative source path for FQCN using SOURCE-FILE's extension.
+Example: \"com.foo.Bar.method\" + \"Bar.java\" -> \"com/foo/Bar.java\"."
+  (let* (;; Drop the method segment (last component starting with lowercase / $ / <)
+         (class (replace-regexp-in-string "\\.[a-z$<][^.]*$" "" fqcn))
+         ;; Drop inner-class qualifier (Outer$Inner -> Outer)
+         (class (replace-regexp-in-string "\\$.*$" "" class))
+         (ext   (file-name-extension source-file)))
+    (concat (replace-regexp-in-string "\\." "/" class) "." ext)))
+
+(defun cfg-lang/java-stack-trace--jump (fqcn file line)
+  "Open the source file for FQCN at LINE in a side window.
+FILE is the short filename (e.g. \"WebClientConfig.java\").
+Uses `cfg-jvm/java-stack-trace--effective-root' to discover the root, then
+searches recursively. Always opens in a separate window so DAP/log
+buffers are not replaced."
+  (let* ((rel  (cfg-lang/java-stack-trace--rel-path fqcn file))
+         (root (cfg-lang/java-stack-trace--effective-root)))
+    (cond
+     ((not root)
+      (message "java-stack-trace: no project root found; cannot locate %s" file))
+     (t
+      (let* ((candidates (directory-files-recursively root (regexp-quote file)))
+             ;; Prefer the candidate whose path ends with the package-derived suffix
+             (best       (cl-find-if (lambda (f) (string-suffix-p rel f)) candidates))
+             (chosen     (or best (car candidates))))
+        (if (not chosen)
+            (message "java-stack-trace: %s not found under %s" file root)
+          (let ((buf (find-file-noselect chosen)))
+            (with-current-buffer buf
+              (goto-char (point-min))
+              (forward-line (1- line)))
+            ;; Open in another window, reusing an existing one if available,
+            ;; but never replacing the log/DAP buffer we came from.
+            (display-buffer buf
+                            '((display-buffer-reuse-window
+                               display-buffer-use-some-window
+                               display-buffer-pop-up-window)
+                              (inhibit-same-window . t))))))))))
+
+(defun cfg-lang/java-stack-trace-jump-at-point ()
+  "Jump to the source location referenced by the stack trace entry at point."
+  (interactive)
+  (save-excursion
+    (beginning-of-line)
+    (if (looking-at cfg-lang/java-stack-trace-regexp)
+        (cfg-lang/java-stack-trace--jump
+         (match-string-no-properties 1)
+         (match-string-no-properties 2)
+         (string-to-number (match-string-no-properties 3)))
+      (message "java-stack-trace: no entry on this line"))))
+
+;;; Overlay management
+
+(defun cfg-lang/java-stack-trace--make-overlay (beg end fqcn file line)
+  "Place a highlighting overlay on BEG..END for the FQCN (FILE:LINE) reference."
+  (let* ((face (if (cfg-lang/java-stack-trace--project-p fqcn)
+                   'cfg-lang/java-stack-trace-project-face
+                 'cfg-lang/java-stack-trace-external-face))
+         (km   (let ((m (make-sparse-keymap))
+                     (f fqcn) (fi file) (ln line))
+                 (define-key m [mouse-1]
+                   (lambda (e) (interactive "e") (cfg-lang/java-stack-trace--jump f fi ln)))
+                 (define-key m (kbd "RET")
+                   (lambda () (interactive) (cfg-lang/java-stack-trace--jump f fi ln)))
+                 m))
+         (ov   (make-overlay beg end)))
+    (overlay-put ov 'face        face)
+    (overlay-put ov 'mouse-face 'highlight)
+    (overlay-put ov 'help-echo  (format "mouse-1 / RET: jump to %s:%d" file line))
+    (overlay-put ov 'keymap     km)
+    (overlay-put ov 'cfg-lang/java-stack-trace t)
+    ov))
+
+(defun cfg-lang/java-stack-trace--apply-overlays (beg end)
+  "Scan BEG..END and add stack trace overlays."
+  (save-excursion
+    (goto-char beg)
+    (while (re-search-forward cfg-lang/java-stack-trace-regexp end t)
+      (let ((fqcn (match-string-no-properties 1))
+            (file (match-string-no-properties 2))
+            (line (string-to-number (match-string-no-properties 3)))
+            ;; Highlight from the file name to the closing ")"
+            (hl-beg (match-beginning 2))
+            (hl-end (match-end 3)))
+        (cfg-lang/java-stack-trace--make-overlay hl-beg hl-end fqcn file line)))))
+
+(defun cfg-lang/java-stack-trace--remove-overlays ()
+  "Remove all stack trace overlays from the current buffer."
+  (remove-overlays (point-min) (point-max) 'cfg-lang/java-stack-trace t))
+
+(defun cfg-lang/java-stack-trace--after-change (beg end _len)
+  "Refresh overlays for the region that changed (BEG..END)."
+  (when cfg-lang/java-stack-trace-mode
+    (let ((scan-beg (save-excursion (goto-char beg) (line-beginning-position)))
+          (scan-end (save-excursion (goto-char end)  (line-end-position))))
+      (remove-overlays scan-beg scan-end 'cfg-lang/java-stack-trace t)
+      (cfg-lang/java-stack-trace--apply-overlays scan-beg scan-end))))
+
+(defvar cfg-lang/java-stack-trace-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-j") #'cfg-lang/java-stack-trace-jump-at-point)
+    map)
+  "Keymap active when `cfg-lang/java-stack-trace-mode' is enabled.")
+
+(define-minor-mode cfg-lang/java-stack-trace-mode
+  "Highlight and navigate JVM stack trace entries in any buffer.
+
+Project-internal classes (matched by
+`cfg-jvm/java-stack-trace-project-packages') are highlighted with
+`cfg-jvm/java-stack-trace-project-face'; external library classes use
+`cfg-jvm/java-stack-trace-external-face'.
+
+Each File.java:N reference is clickable (mouse-1) and reachable with
+\\[cfg-jvm/java-stack-trace-jump-at-point].
+
+When enabled in a buffer that does not belong to a recognised project
+(e.g. a scratch buffer), the mode tries to inherit the root from any
+active lsp-mode or dap session. If that also fails it prompts once for a
+project root directory and stores it buffer-locally so subsequent clicks
+and jumps work without further prompting.
+
+Set `cfg-jvm/java-stack-trace-project-packages' to skip auto-detection:
+  (setq cfg-jvm/java-stack-trace-project-packages \\='(\"com.corp\" \"com.mycompany\"))"
+  :lighter " StackNav"
+  :keymap cfg-lang/java-stack-trace-mode-map
+  (if cfg-lang/java-stack-trace-mode
+      (progn
+        ;; Prompt for a project root only when the buffer has no backing file
+        ;; (scratch, *Messages*, manually-pasted log buffers, etc.).
+        ;; Buffers with a real file already have a project context.
+        (when (and (not (or buffer-file-name
+                            (derived-mode-p 'dap-server-log-mode)
+                            (derived-mode-p 'lsp-log-mode)))
+                   (not cfg-lang/java-stack-trace--root-override)
+                   (not cfg-lang/java-stack-trace-project-packages))
+          (let ((chosen (read-directory-name
+                         "java-stack-trace: project root (for source lookup): "
+                         default-directory nil t)))
+            (when (and chosen (file-directory-p chosen))
+              (setq-local cfg-lang/java-stack-trace--root-override
+                          (expand-file-name chosen))
+              (message "java-stack-trace: using root %s"
+                       cfg-lang/java-stack-trace--root-override))))
+        (cfg-lang/java-stack-trace--apply-overlays (point-min) (point-max))
+        (add-hook 'after-change-functions #'cfg-lang/java-stack-trace--after-change nil t)
+        ;; In scratch/log buffers the minor-mode keymap may be shadowed; pin the
+        ;; jump key directly into the buffer-local map so C-c C-j always works.
+        (when (not buffer-file-name)
+          (local-set-key (kbd "C-c C-j") #'cfg-lang/java-stack-trace-jump-at-point)))
+    (cfg-lang/java-stack-trace--remove-overlays)
+    (remove-hook 'after-change-functions #'cfg-lang/java-stack-trace--after-change t)
+    (when (not buffer-file-name)
+      (local-unset-key (kbd "C-c C-j")))))
+
+;; Auto-enable in DAP server-log buffers (where stack traces appear most often)
+(add-hook 'dap-server-log-mode-hook #'cfg-lang/java-stack-trace-mode)
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "c"   '(:ignore t :which-key "+code")
+  "c j" '(cfg-lang/java-stack-trace-jump-at-point :whichkey "Jump to Stack Trace Source"))
+#+end_src
+
+* System Setup
+** SDKMAN! Management
+SDKMAN! manages JVM-based SDK installations without requiring manual path
+configurations.
+
+#+begin_src sh
+IS_SDKMAN_INITIALIZED=false
+
+is_installed__lang__jvm__sdkman() {
+  if [ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
+    return 0
+  fi
+  return 1
+}
+
+initialize__lang__jvm__sdkman() {
+  if [[ "$IS_SDKMAN_INITIALIZED" == "false" ]]; then
+    if [ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
+      # shellcheck disable=SC1091
+      [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh" > /dev/null 2>&1
+
+      if command -v sdk >/dev/null 2>&1; then
+        IS_SDKMAN_INITIALIZED=true
+      fi
+    else
+      log_error "SDKMAN! initialization script not found."
+      return 1
+    fi
+  fi
+}
+
+install__lang__jvm__sdkman() {
+  if ! is_installed__lang__jvm__sdkman; then
+    run_task "Installing SDKMAN" "curl -s 'https://get.sdkman.io' | bash"
+  fi
+  initialize__lang__jvm__sdkman
+}
+#+end_src

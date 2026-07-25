@@ -1,0 +1,225 @@
+#+TITLE: Treemacs Layer
+#+CATEGORY: navigation
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Treemacs provides a file and project explorer sidebar for Emacs, integrating
+with version control systems and icon themes to visualize project structure.
+
+* Emacs Configuration
+** Treemacs Core Configuration
+#+begin_src emacs-lisp
+(use-package treemacs
+  :after (doom-themes)
+  :demand t
+  :hook (treemacs-mode . (lambda ()
+                           (setq-local context-menu-mode nil)
+                           (display-line-numbers-mode -1)))
+  :preface
+  ;; (defun cfg-navigation/doom-themes-enable-treemacs-variable-pitch-labels (&rest _)
+  ;;   (dolist (face '(treemacs-root-face
+  ;;                   treemacs-git-unmodified-face
+  ;;                   treemacs-git-modified-face
+  ;;                   treemacs-git-renamed-face
+  ;;                   treemacs-git-ignored-face
+  ;;                   treemacs-git-untracked-face
+  ;;                   treemacs-git-added-face
+  ;;                   treemacs-git-conflict-face
+  ;;                   treemacs-directory-face
+  ;;                   treemacs-directory-collapsed-face
+  ;;                   treemacs-file-face
+  ;;                   treemacs-tags-face))
+  ;;      (let ((faces (face-attribute face :inherit nil)))
+  ;;        (set-face-attribute
+  ;;         face nil :inherit
+  ;;         `(variable-pitch
+  ;;          ,@(delq 'unspecified (if (listp faces) faces (list faces))))))))
+
+  (defun cfg-navigation/get-current-folder ()
+    "Get the folder of the current buffer, but only for real Files or Dired."
+    (let ((path (or (buffer-file-name)
+                    (and (derived-mode-p 'dired-mode)
+                         (fboundp 'dired-current-directory)
+                         (dired-current-directory)))))
+      (when path
+        (file-name-as-directory (if (file-directory-p path) path (file-name-directory path))))))
+
+  (defun cfg-navigation/treemacs-toggle ()
+    "Toggle the visibility of the Treemacs window."
+    (interactive)
+    (declare-function treemacs-get-local-window "treemacs")
+    (if (treemacs-get-local-window)
+        (delete-window (treemacs-get-local-window))
+      (treemacs)))
+
+  (declare-function treemacs-do-add-project-to-workspace "treemacs")
+  (declare-function treemacs-get-local-window "treemacs")
+  (declare-function treemacs-refresh "treemacs")
+  (declare-function treemacs-select-window "treemacs")
+
+  (defun cfg-navigation/treemacs-set-root-to-current-folder (&optional target-folder)
+    "Set the root of Treemacs to the folder of the current file or default directory."
+    (let ((folder (or target-folder
+                      (with-current-buffer (other-buffer (current-buffer) t)
+                        (cfg-navigation/get-current-folder)))))
+      (when (and folder (file-directory-p folder))
+        ;; If this is a TRAMP path and a matching local path exists, prefer the
+        ;; local path to avoid adding host:/docker:... entries when the intent
+        ;; was to add the local project root. Otherwise keep the TRAMP path so
+        ;; remote projects still work when intended.
+        (when (and (fboundp 'tramp-dissect-file-name)
+                   (file-remote-p folder))
+          (condition-case _err
+              (let* ((tfn (tramp-dissect-file-name folder))
+                     (local (when tfn
+                              (declare-function tramp-file-name-localname "tramp")
+                              (tramp-file-name-localname tfn))))
+                (when (and local (file-exists-p local))
+                  (setq folder (file-name-as-directory (expand-file-name local)))))
+            (error nil)))
+        (when (and (file-remote-p folder)
+                   (not (file-readable-p folder)))
+          (message "Warning: remote path %s appears unreadable" folder))
+        (ignore-errors
+          (treemacs-select-window)
+          (treemacs-do-add-project-to-workspace folder (file-name-nondirectory (directory-file-name folder)))
+          (treemacs-refresh)))))
+
+  (defun cfg-navigation/update-treemacs-faces-except (excluded-faces)
+    "Update all Treemacs-related faces, excluding specified faces."
+    (dolist (face (face-list))
+      (when (and (string-match-p "treemacs" (symbol-name face))
+                 (not (member face excluded-faces)))
+        (set-face-attribute face nil :family "JetBrainsMono Nerd Font" :height 105))))
+
+  (defun cfg-navigation/set-treemacs-width-pixels (pixels)
+    "Set Treemacs width in pixels."
+    (setq treemacs-width (truncate (/ pixels (frame-char-width)))))
+
+  :config
+  (cfg-navigation/set-treemacs-width-pixels 300)
+
+  (declare-function treemacs-indent-guide-mode "treemacs")
+  (declare-function treemacs-filewatch-mode "treemacs")
+
+  ;; These are minor modes - they must be activated as function calls,
+  ;; not set via setq, so their setup hooks are properly installed.
+  (treemacs-indent-guide-mode 1)
+  (treemacs-project-follow-mode 1)
+  (treemacs-filewatch-mode 1)
+
+  (setq treemacs-is-never-other-window t
+        treemacs-indent-guide-style 'line
+        treemacs-user-mode-line-format 'line
+        treemacs-space-between-root-nodes nil
+        treemacs-width-is-initially-locked t
+        ;; treemacs-icon-size 10
+        ;; treemacs-icon-padding 20
+        ;; treemacs-indentation '(10 px)
+        ;; treemacs-indentation-string (propertize " " 'display '(space :width 15))
+        treemacs-indentation-string "  ")
+
+  (set-window-fringes (treemacs-get-local-window) 0 0 nil)
+  ;; (set-face-attribute 'treemacs-fringe-indicator-face nil :foreground nil)
+
+  ;; Doom theme support
+  ;; (doom-themes-enable-treemacs-variable-pitch-labels)
+  ;; (doom-themes-treemacs-config)
+
+  ;; Icon size
+  ;; (treemacs-resize-icons 44)
+
+  ;; See https://github.com/Alexander-Miller/treemacs?tab=readme-ov-file#all-the-icons-indent-issues
+  ;; Disabled because it causes misalignment between folders and files and affects indentation
+  ;; (treemacs-load-all-the-icons-with-workaround-font "Hermit")
+
+  ;; (advice-add #'load-theme
+  ;;             :after #'doom-themes-enable-treemacs-variable-pitch-labels)
+
+  ;; Custom double-click action
+  ;; (with-eval-after-load 'treemacs-mouse-interface
+  ;;   (treemacs-define-doubleclick-action 'my-action
+  ;;                                       (lambda () (message "Double clicked!"))))
+
+  (with-eval-after-load 'doom-themes
+    ;; Disable variable pitch fonts in Treemacs. Not un use for now
+    ;; (setq doom-themes-treemacs-enable-variable-pitch nil)
+    (cfg-navigation/update-treemacs-faces-except '(treemacs-all-the-icons-file-face
+                                                   treemacs-all-the-icons-root-face
+                                                   treemacs-hl-line-face
+                                                   treemacs-window-background-face))
+    ;; Other settings to investigate later
+    ;; (setq mixed-pitch-set-height t)
+    ;; (set-face-attribute 'variable-pitch nil :height 1.5)
+    ;; (set-face-attribute 'variable-pitch nil :family "Open Sans" :height 1.0)
+    )
+
+  (cfg-navigation/update-treemacs-faces-except '(treemacs-all-the-icons-file-face
+                                                 treemacs-all-the-icons-root-face
+                                                 treemacs-git-ignored-face
+                                                 treemacs-hl-line-face
+                                                 treemacs-window-background-face))
+
+  ;; Uncomment below to start treemacs automatically:
+  ;; (unless (treemacs-get-local-window)
+  ;;   (treemacs))
+  )
+
+;; Fix for for https://github.com/Alexander-Miller/treemacs/issues/1016
+(with-eval-after-load 'treemacs-all-the-icons
+  (treemacs-modify-theme "all-the-icons"
+    :config
+    (progn
+      (load (expand-file-name "treemacs-custom-items-fix.el" user-emacs-directory)))))
+#+end_src
+
+** Treemacs Icons & Theme Setup
+#+begin_src emacs-lisp
+(declare-function treemacs-load-theme "treemacs")
+(use-package treemacs-all-the-icons
+  :after (treemacs all-the-icons)
+  :config
+  (treemacs-load-theme "all-the-icons"))
+
+;; (use-package treemacs-nerd-icons
+;;  :after (nerd-icons)
+;;  ;; :custom-face (cfrs-border-color ((t (:inherit posframe-border))))
+;;  :config
+;;  (treemacs-nerd-icons-config)
+;;  (treemacs-load-theme "nerd-icons"))
+#+end_src
+
+* Keybindings
+Custom keybindings:
+
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "t t" '(cfg-navigation/treemacs-toggle :whichkey "Toggle Treemacs sidebar")
+  "t T" '(treemacs-select-window :whichkey "Focus Treemacs window"))
+
+(with-eval-after-load 'treemacs
+  (define-key treemacs-mode-map (kbd "<delete>") #'treemacs-delete-file))
+#+end_src
+
+If you need to shrink or enlarge the treemacs window later with the keyboard,
+you can use:
+
+- =C-x {= - Shrink the window horizontally.
+- =C-x }= - Enlarge the window horizontally.
+
+Treemacs has also several useful shortcuts. A few examples:
+
+| Key | Action                              | Description                                                           |
+|-----+-------------------------------------+-----------------------------------------------------------------------|
+| th  | treemacs-toggle-show-dotfiles       | Toggle the hiding and displaying of dotfiles.                         |
+| ti  | treemacs-hide-gitignored-files-mode | Toggle the hiding and displaying of gitignored files.                 |
+| tf  | treemacs-follow-mode                | Toggle treemacs-follow-mode.                                          |
+| ta  | treemacs-filewatch-mode             | Toggle treemacs-filewatch-mode.                                       |
+| tv  | treemacs-fringe-indicator-mode      | Toggle treemacs-fringe-indicator-mode.                                |
+| td  | treemacs-git-commit-diff-mode       | Toggle treemacs-git-commit-diff-mode.                                 |
+| =   | treemacs-fit-window-width           | Adjust the width of the treemacs window to that of the longsest line. |
+
+See full list at [[https://github.com/Alexander-Miller/treemacs?tab=readme-ov-file#default-keymaps][this link]].
+
+* System Setup
+No system setup required.

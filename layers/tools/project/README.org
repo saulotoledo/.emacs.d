@@ -1,0 +1,48 @@
+#+TITLE: Project Layer
+#+CATEGORY: tools
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides workspace and project discovery using built-in ~project.el~, with Magit
+and Treemacs integration.
+
+* Emacs Configuration
+** Project.el Management
+#+begin_src emacs-lisp
+(use-package project
+  :preface
+  (defun cfg-tools/treemacs-sync-with-project ()
+    "Restrict Treemacs to display only the current project.
+Skips TRAMP paths as treemacs cannot reliably read remote paths."
+    (with-eval-after-load 'treemacs
+      (when (and (project-current) (treemacs-get-local-window))
+        (let ((project-root (project-root (project-current))))
+          ;; Skip TRAMP paths - treemacs cannot reliably read remote paths
+          (unless (file-remote-p project-root)
+            (save-selected-window
+              (save-current-buffer
+                (treemacs-add-and-display-current-project-exclusively))))))))
+
+  :config
+  (add-to-list 'project-switch-commands '(magit-project-status "Magit" ?m))
+
+  ;; If running as a daemon, prevent 'project.el' from asking for a project root.
+  ;; It should only prompt if run interactively (i.e., when you open emacsclient).
+  (when (daemonp)
+    (setq-default project-find-project-by-default nil))
+
+  (add-to-list 'project-vc-ignores "*~")
+  (add-to-list 'project-vc-ignores ".#*~")
+  (add-to-list 'project-vc-ignores "#*")
+  (add-to-list 'project-vc-ignores ".#*")
+
+  (add-hook 'emacs-startup-hook #'cfg-tools/treemacs-sync-with-project)
+  (add-hook 'find-file-hook #'cfg-tools/treemacs-sync-with-project)
+  (add-hook 'project-switch-functions #'cfg-tools/treemacs-sync-with-project))
+#+end_src
+
+* Keybindings
+No keybindings required.
+
+* System Setup
+No system setup required.

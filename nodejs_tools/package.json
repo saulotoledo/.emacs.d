@@ -1,17 +1,17 @@
 {
   "devDependencies": {
-    "@devcontainers/cli": "^0.83.3",
-    "@github/copilot-language-server": "^1.436.0",
+    "@devcontainers/cli": "^0.88.0",
+    "@github/copilot-language-server": "^1.526.0",
     "@prettier/plugin-python": "^0.0.0-development",
-    "@tailwindcss/language-server": "^0.14.29",
+    "@tailwindcss/language-server": "^0.16.0",
     "@vtsls/language-server": "^0.3.0",
     "bash-language-server": "^5.6.0",
     "dockerfile-language-server-nodejs": "^0.15.0",
-    "prettier": "^3.8.1",
-    "pyright": "^1.1.408",
+    "prettier": "^3.9.6",
+    "pyright": "^1.1.411",
     "sql-language-server": "^1.7.1",
     "typescript": "^5.9.3",
     "vscode-langservers-extracted": "^4.10.0",
-    "yaml-language-server": "^1.21.0"
+    "yaml-language-server": "^1.24.0"
   }
 }

@@ -1,0 +1,96 @@
+#+TITLE: Pairs Layer
+#+CATEGORY: editor
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Manages paired delimiter insertion, wrapping, and smart RET expansion using smartparens.
+
+* Emacs Configuration
+** Smartparens Core Setup
+Smartparens is a minor mode for dealing with pairs in Emacs.
+
+#+begin_src emacs-lisp
+(use-package smartparens
+  :hook (after-init . smartparens-global-mode)
+  :config
+  (require 'smartparens-config)
+  (sp-use-smartparens-bindings)
+  (show-smartparens-global-mode t)
+  ;; Making sure smartparens doesn't interfere with word navigation.
+  (define-key smartparens-mode-map (kbd "C-<left>") #'left-word)
+  (define-key smartparens-mode-map (kbd "C-<right>") #'right-word)
+  ;; Custom rules: Don't pair single quotes in lisp-mode (prevents 'foo')
+  (sp-pair "'" nil :unless '(sp-point-after-word-p sp-point-at-bol-p))
+
+  ;; RET inside an empty paired delimiter or between tags expands into an
+  ;; indented block:
+  ;;
+  ;;   {|}  ->  {          <h1>|</h1>  ->  <h1>
+  ;;               |                           |
+  ;;           }                          </h1>
+  ;;
+  ;; Covers: {}, (), [] (all prog-mode languages) and JSX/TSX inline tags
+  ;; (typescript-ts-mode, tsx-ts-mode, etc.).
+  ;;
+  ;; We avoid `indent-according-to-mode' here because tree-sitter modes
+  ;; (typescript-ts-mode, etc.) haven't reparsed the buffer yet at the
+  ;; moment the newline is inserted, causing them to return column 0.
+  ;; Instead, we snapshot the current line's indentation and apply it
+  ;; manually with `indent-to', which is instant and always correct.
+  (defun cfg-editor/prog-smart-ret ()
+    "Smart RET for prog-mode.
+Expands {|}, (|), [|], and >|</ into indented blocks.
+Falls through to newline-and-indent otherwise."
+    (interactive)
+    (let ((base (current-indentation)))
+      (cond
+       ;; Empty bracket pair: {|}, (|), [|]
+       ((and (memq (char-before) '(?{ ?\( ?\[))
+             (memq (char-after)  '(?} ?\) ?\])))
+        (newline)
+        (indent-to (+ base tab-width))
+        (save-excursion
+          (newline)
+          (indent-to base)))
+       ;; Between JSX/HTML tags: <h1>|</h1>
+       ((and (eq (char-before) ?>)
+             (looking-at "</"))
+        (newline)
+        (indent-to (+ base tab-width))
+        (save-excursion
+          (newline)
+          (indent-to base)))
+       (t
+        (newline-and-indent)))))
+
+  (add-hook 'prog-mode-hook
+            (lambda ()
+              (local-set-key (kbd "RET") #'cfg-editor/prog-smart-ret)))
+
+  (add-hook 'vterm-mode-hook
+            (lambda ()
+              (smartparens-mode -1)))
+
+  (defun cfg-editor/sp-lower-overlay-priority (&rest _)
+    "Lower smartparens overlay priority so it doesn't hide the region."
+    (when (boundp 'sp-show-pair-overlays)
+      (when (car sp-show-pair-overlays)
+        (overlay-put (car sp-show-pair-overlays) 'priority -10))
+      (when (cdr sp-show-pair-overlays)
+        (overlay-put (cdr sp-show-pair-overlays) 'priority -10)))
+    (when (boundp 'sp-show-pair-enc-overlays)
+      (when (car sp-show-pair-enc-overlays)
+        (overlay-put (car sp-show-pair-enc-overlays) 'priority -10))
+      (when (cdr sp-show-pair-enc-overlays)
+        (overlay-put (cdr sp-show-pair-enc-overlays) 'priority -10))))
+
+  (advice-add 'sp-show--pair-create-overlays :after #'cfg-editor/sp-lower-overlay-priority)
+  (advice-add 'sp-show--pair-create-enc-overlays :after #'cfg-editor/sp-lower-overlay-priority)
+  (advice-add 'sp-show--pair-create-mismatch-overlay :after #'cfg-editor/sp-lower-overlay-priority))
+#+end_src
+
+* Keybindings
+Keybindings managed via smartparens keymap.
+
+* System Setup
+No system setup required.

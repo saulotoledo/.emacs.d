@@ -1,0 +1,149 @@
+#+TITLE: Formatting Layer
+#+CATEGORY: editor
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Provides asynchronous code formatting on save via Apheleia and on-the-fly JavaScript/TypeScript
+formatting via prettier-js.
+
+* Emacs Configuration
+** Apheleia Code Formatting
+Apheleia is a lightweight Emacs package for automatic code formatting. It runs
+external formatters (like Prettier, Black, shfmt, etc.) and replaces buffer text
+with the formatted result asynchronously, so Emacs stays responsive. You can map
+modes to formatters, and Apheleia will format files automatically on save or on
+demand. This helps keep your codebase consistent and clean with minimal effort.
+
+For Org mode source blocks, we enable =org-src-tab-acts-natively= so that TAB
+indents according to the source block's language mode.
+
+*Supported languages and formatters:*
+
+The following languages are configured with their respective formatters:
+
+- **Emacs Lisp** (~emacs-lisp-mode~, ~lisp-interaction-mode~) -> Built-in
+  ~lisp-indent~
+- **JavaScript** (~js-mode~, ~js-ts-mode~) -> Prettier (local installation)
+- **TypeScript** (~typescript-mode~, ~typescript-ts-mode~, ~tsx-ts-mode~) ->
+  Prettier (local installation)
+- **Python** (~python-mode~, ~python-ts-mode~) -> Prettier with
+  =@prettier/plugin-python=
+- **JSON** (~json-mode~, ~json-ts-mode~) -> Prettier (local installation)
+- **Web/HTML** (~web-mode~) -> Prettier (local installation)
+
+Note: Prettier is installed locally in =~/.emacs.d/nodejs_tools/= with the
+Python plugin.
+
+*Adding new formatters:*
+
+To add a new formatter, add it to =apheleia-formatters= and map it to the
+appropriate mode in =apheleia-mode-alist=. For example:
+
+#+begin_example
+;; Add a new formatter
+(setf (alist-get 'my-formatter apheleia-formatters)
+      '("my-formatter-command" "--option" "value" file))
+
+;; Map it to a mode
+(setf (alist-get 'my-mode apheleia-mode-alist) 'my-formatter)
+#+end_example
+
+The package setup:
+
+#+begin_src emacs-lisp
+(use-package apheleia
+  :pin "MELPA Unstable"
+  :config
+  (apheleia-global-mode +1)
+
+  ;; Smarter TRAMP support: Only inhibit if the required formatter is missing on the remote.
+  ;; This prevents hangs while allowing formatting if the remote has the tool installed.
+  (defun cfg-editor/apheleia-inhibit-remote-if-no-tool ()
+    (when (file-remote-p (or (buffer-file-name) default-directory))
+      (let* ((formatter (alist-get major-mode apheleia-mode-alist))
+             (cmd (if (listp (alist-get formatter apheleia-formatters))
+                      (car (alist-get formatter apheleia-formatters))
+                    (alist-get formatter apheleia-formatters))))
+        (not (executable-find (or (and (stringp cmd) cmd) "") t)))))
+
+  (add-to-list 'apheleia-inhibit-functions #'cfg-editor/apheleia-inhibit-remote-if-no-tool)
+
+  (setf (alist-get 'prettier-local apheleia-formatters)
+        `(,(expand-file-name "~/.emacs.d/nodejs_tools/bin/prettier.cjs")
+          "--stdin-filepath" filepath
+          "--plugin" ,(expand-file-name "~/.emacs.d/nodejs_tools/node_modules/@prettier/plugin-python")))
+
+  (setf (alist-get 'emacs-lisp apheleia-formatters)
+        '("emacs" "--batch" "-l" "pp"
+          "--eval" "(princ (pp-to-string (read)))"
+          file))
+
+  (setf (alist-get 'emacs-lisp-mode apheleia-mode-alist) 'lisp-indent)
+  (setf (alist-get 'lisp-interaction-mode apheleia-mode-alist) 'lisp-indent)
+  (setf (alist-get 'js-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'js-ts-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'typescript-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'typescript-ts-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'tsx-ts-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'json-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'json-ts-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'web-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'python-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'python-ts-mode apheleia-mode-alist) 'prettier-local))
+#+end_src
+
+** Prettier JS
+Prettier is a popular opinionated code formatter for JavaScript, TypeScript,
+JSON, HTML, CSS, and many other languages. It enforces a consistent style by
+parsing your code and reprinting it with its own rules. This helps keep code
+clean and readable across teams and editors.
+
+In this config, Prettier is used in two ways:
+
+- Via Apheleia for on-save formatting in many modes (see above)
+- Via the ~prettier-js~ package for on-the-fly formatting in JS/TS buffers
+
+The ~prettier-js~ package runs Prettier as you type or on save, depending on
+your settings. It is especially useful for JavaScript and TypeScript projects.
+
+#+begin_src emacs-lisp
+(use-package prettier-js
+  :hook ((js-ts-mode . prettier-js-mode)
+         (typescript-ts-mode . prettier-js-mode)
+         (tsx-ts-mode . prettier-js-mode)
+         (json-ts-mode . prettier-js-mode)
+         ;; (web-mode . prettier-js-mode)
+         ;; (python-ts-mode . prettier-js-mode)
+         ;; (markdown-mode . prettier-js-mode)
+         ;; (css-mode . prettier-js-mode)
+         ;; (scss-mode . prettier-js-mode)
+         ;; (html-mode . prettier-js-mode)
+         )
+  :config
+  ;; Use the prettier executable found in our PATH
+  (setq prettier-js-command (executable-find "prettier")))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "c a" '(apheleia-format-buffer :which-key "Format buffer with Apheleia"))
+#+end_src
+
+* System Setup
+#+begin_src sh
+is_installed__editor__formatting__prettier() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/prettier" ] || command -v prettier >/dev/null 2>&1
+}
+
+install__editor__formatting__prettier() {
+  install_nodejs_tools
+}
+
+uninstall__editor__formatting__prettier() {
+  uninstall_nodejs_tools
+}
+
+register_action "Editor / Formatting / Install Prettier" "-editor--formatting--prettier" "node"
+#+end_src

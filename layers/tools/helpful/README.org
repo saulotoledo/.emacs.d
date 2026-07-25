@@ -1,0 +1,36 @@
+#+TITLE: Helpful Layer
+#+CATEGORY: tools
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Replaces default Emacs help buffers with contextual, rich documentation via
+helpful.
+
+* Emacs Configuration
+** Helpful
+#+begin_src emacs-lisp
+(use-package helpful
+  :custom
+  (counsel-describe-function-function #'helpful-callable)
+  (counsel-describe-variable-function #'helpful-variable))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Global remappings for describe commands
+(define-key cfg-keys-map [remap describe-function] #'counsel-describe-function)
+(define-key cfg-keys-map [remap describe-command] #'helpful-command)
+(define-key cfg-keys-map [remap describe-variable] #'counsel-describe-variable)
+(define-key cfg-keys-map [remap describe-key] #'helpful-key)
+
+;; Leader bindings
+(cfg-keys/leader-def
+  "h"   '(:ignore t :which-key "+help")
+  "h f" '(counsel-describe-function :whichkey "Describe Function")
+  "h v" '(counsel-describe-variable :whichkey "Describe Variable")
+  "h k" '(helpful-key :whichkey "Describe Key")
+  "h c" '(helpful-command :whichkey "Describe Command"))
+#+end_src
+
+* System Setup
+No system setup required.

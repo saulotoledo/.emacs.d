@@ -1,0 +1,34 @@
+#+TITLE: Undo Layer
+#+CATEGORY: editor
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Visualizes and manages buffer undo history trees using undo-tree.
+
+* Emacs Configuration
+** Undo Tree
+Undo-Tree preserves and visualizes your undo history as a tree, making it
+easier to navigate complex edits and to revert to earlier states.
+
+#+begin_src emacs-lisp
+(defvar undo-tree-incompatible-major-modes
+  nil
+  "List of major modes incompatible with undo-tree.")
+
+(use-package undo-tree
+  :config
+  (add-to-list 'undo-tree-incompatible-major-modes #'nxml-mode)
+  (global-undo-tree-mode)
+  :custom
+  (undo-tree-history-directory-alist '(("." . "~/.emacs.d/undo-tree"))))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "u"   '(:ignore t :which-key "+undo")
+  "u u" #'undo-tree-visualize)
+#+end_src
+
+* System Setup
+No system setup required.

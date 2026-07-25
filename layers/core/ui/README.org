@@ -1,0 +1,223 @@
+#+TITLE: Core UI Layer
+#+CATEGORY: core
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Configures core visual themes, icon fonts, real-time color highlighting, and line
+ending visual indicators.
+
+* Emacs Configuration
+** Color Preview (Colorful Mode)
+~colorful-mode~ is a minor mode that allow highlight and preview of colors
+(e.g., hex and color names) in the current buffer in real time. It is based on
+the classic =rainbow-mode.el=, but uses overlays instead and is more modern.
+
+#+begin_src emacs-lisp
+(use-package colorful-mode
+  :custom
+  (colorful-add-hex-colors t)
+  (colorful-add-color-names t)
+  (colorful-add-css-variables-colors t)
+  (colorful-add-rgb-colors t)
+  (colorful-add-oklab-oklch-colors t)
+  (colorful-add-hsl-colors t)
+  (colorful-add-latex-colors t)
+  (colorful-use-prefix t)
+  (colorful-only-strings 'only-prog)
+  (css-fontify-colors nil)
+  :config
+  (global-colorful-mode t)
+  (add-to-list 'global-colorful-modes 'helpful-mode))
+#+end_src
+
+** Cursor & Line Display Attributes
+Configure bar cursors and enable global line-level visual feedback modes.
+
+#+begin_src emacs-lisp
+(setq-default cursor-type 'bar)
+
+(column-number-mode 1)
+(global-hl-line-mode 1)
+(global-visual-line-mode 1)
+(which-key-mode 1)
+#+end_src
+
+** Doom Themes
+#+begin_src emacs-lisp
+(use-package doom-themes
+  :pin "MELPA Unstable"
+  :custom
+  ;; Global settings (defaults)
+  (doom-themes-enable-bold t)   ; if nil, bold is universally disabled
+  (doom-themes-enable-italic t) ; if nil, italics is universally disabled
+  ;; for treemacs users
+  ;; (doom-themes-treemacs-theme "doom-nova") ; use "doom-colors" for less minimal icon theme
+  :config
+  (load-theme 'doom-one t) ; See also doom-nord or doom-nord-light
+
+  ;; (custom-set-faces
+  ;;   '(org-block ((t (:background "#ff0000")))))
+
+  ;; Enable flashing mode-line on errors
+  ;; (doom-themes-visual-bell-config)
+  ;; For treemacs users
+  ;; (doom-themes-treemacs-config)
+  ;; Corrects (and improves) org-mode's native fontification.
+  ;; Ensure we only call `doom-themes-org-config' when it's defined. This
+  ;; prevents native-compiler warnings and avoids trying to call the
+  ;; function before the package has been loaded.
+  (cond
+   ((fboundp 'doom-themes-org-config)
+    (doom-themes-org-config))
+   (t
+    (with-eval-after-load 'doom-themes
+      (when (fboundp 'doom-themes-org-config)
+        (doom-themes-org-config))))))
+#+end_src
+
+** Icon Fonts
+#+begin_src emacs-lisp
+(use-package all-the-icons
+  :pin "MELPA Unstable"
+  :config
+  (unless (file-exists-p (expand-file-name "~/.local/share/fonts/all-the-icons.ttf"))
+    (all-the-icons-install-fonts t)))
+#+end_src
+
+;; We are using All Icons, but doom-modeline requires Nerd Icons for some parts.
+(use-package nerd-icons
+  :pin "MELPA Unstable"
+  :init
+  ;; (setq nerd-icons-font-family "Symbols Nerd Font Mono")
+  :config
+  (unless (file-exists-p (expand-file-name "~/.local/share/fonts/NFM.ttf"))
+    (nerd-icons-install-fonts t)))
+#+end_src
+
+** Feedback & Minibuffer Behavior
+Configure echo keystroke speeds, recursive minibuffers, bell suppressions, and
+history deduplication.
+
+#+begin_src emacs-lisp
+(setq echo-keystrokes 0.1)
+(setq enable-recursive-minibuffers t)
+(setq history-delete-duplicates t)
+(setq ring-bell-function 'ignore)
+(setq visible-bell t)
+(setq scroll-margin 1)
+(setq sentence-end-double-space nil)
+(setq vc-handled-backends '(Git))
+(setq jit-lock-antiblink-grace nil)
+
+(setq-default recentf-max-saved-items 10000)
+(setq-default which-key-idle-delay 0)
+#+end_src
+
+** Maximize frame at startup
+#+begin_src emacs-lisp
+(add-hook 'emacs-startup-hook 'toggle-frame-maximized)
+#+end_src
+
+** Startup & Window Splitting
+Disable startup splash screens, clear scratch buffer messages, optimize frame
+resizing, and enforce vertical window splitting thresholds.
+
+#+begin_src emacs-lisp
+(setq inhibit-startup-screen t)
+(setq initial-scratch-message nil)
+(setq frame-inhibit-implied-resize 1)
+
+(setq-default split-width-threshold 160)
+(setq-default split-height-threshold nil)
+(setq-default frame-resize-pixelwise t)
+#+end_src
+
+** Terminal Resize & Geometry Recovery
+When moving a terminal window between monitors or resizing it quickly, Emacs
+running in a tty can briefly see inconsistent size or DPI info. That can make
+Emacs compute the wrong number of rows/columns and push lines or UI elements
+off-screen even though the terminal already grew.
+
+The root causes are timing and handshake differences between the terminal
+emulator and Emacs (TERM or DPI changes and delayed resize notifications). The
+terminal may update geometry after Emacs has already calculated layout.
+
+As a workaround, we force an immediate redisplay, a gentle recenter, and a few
+retry attempts after short delays; as a last resort it re-applies the frame
+size. These retries catch late-arriving terminal updates and bring Emacs' view
+into alignment with the terminal once the emulator finishes reporting geometry.
+
+The code only runs for non-graphical (tty) sessions and uses safe ignore-errors
+wrappers, so risk is low.
+
+#+begin_src emacs-lisp
+(defun cfg-core/tty-resize-fix (&rest _args)
+  "Robustly fix terminal/frame resize artifacts.
+When running in a terminal, some resize events (DPI/monitor switch)
+leave the UI in a bad state. Try several redisplay/recenter attempts
+and a safe frame-size reapply as a fallback."
+  (interactive)
+  (let ((dap-active (and (fboundp 'dap--cur-session) (dap--cur-session))))
+    (unless dap-active
+      (ignore-errors
+        (when (not (display-graphic-p))
+          (redisplay)
+          (run-with-idle-timer 0.03 nil (lambda () (redisplay)))
+          (run-with-idle-timer 0.07 nil (lambda () (redisplay) (ignore-errors (recenter 0))))
+          (run-with-idle-timer 0.15 nil
+                               (lambda ()
+                                 (redisplay)
+                                 (ignore-errors (recenter 0))
+                                 (when (fboundp 'set-frame-size)
+                                   (let ((fw (frame-width)) (fh (frame-height)))
+                                     (set-frame-size (selected-frame) fw fh))))))))))
+
+(add-hook 'window-size-change-functions #'cfg-core/tty-resize-fix)
+(add-hook 'frame-size-change-functions #'cfg-core/tty-resize-fix)
+(add-hook 'window-configuration-change-hook #'cfg-core/tty-resize-fix)
+#+end_src
+
+** Trailing Newline Indicator
+
+Trailing newline indicator is my own package. It displays a customizable visual
+indicator (⏎ by default) in the left margin for the trailing newline at the end
+of a file in Emacs. Optionally shows the next line number, making it clear where
+the file ends.
+
+#+begin_src emacs-lisp
+(use-package trailing-newline-indicator
+  :init
+  (global-trailing-newline-indicator-mode 1)
+  (setq trailing-newline-indicator-show-line-number t))
+#+end_src
+
+** Typography & Faces
+Configure fixed-pitch monospace and variable-pitch fonts, falling back
+gracefully if preferred font families are unavailable on the host system.
+
+#+begin_src emacs-lisp
+(when (member "Roboto Mono" (font-family-list))
+  (set-face-attribute 'default nil :font "Roboto Mono" :height 108)
+  (set-face-attribute 'fixed-pitch nil :family "Roboto Mono"))
+
+(when (member "Source Sans Pro" (font-family-list))
+  (set-face-attribute 'variable-pitch nil :family "Source Sans Pro" :height 1.18))
+#+end_src
+
+** Visual Chrome & Frame Decor
+Disable default GUI menus, scrollbars, and toolbars while setting consistent
+fringe padding and replacing binary prompt queries with shorter keypresses.
+
+#+begin_src emacs-lisp
+(fset 'yes-or-no-p 'y-or-n-p)
+(menu-bar-mode -1)
+(scroll-bar-mode -1)
+(tool-bar-mode -1)
+(set-fringe-mode 10)
+#+end_src
+
+* Keybindings
+No keybindings registered.
+
+* System Setup
+No system setup required.

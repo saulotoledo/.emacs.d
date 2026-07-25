@@ -1,0 +1,1924 @@
+#+TITLE: Java Language Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Provides IDE capabilities for Java development using Eclipse JDTLS, ~lsp-java~,
+JAL agent support, ~dap-mode~ debugging via a custom =compile_attach= provider,
+and Google Java Format via Apheleia.
+
+* Emacs Configuration
+** Java Agent Loader (JAL)
+**Java Agent Loader (JAL)** is a utility package I develop and maintain to
+streamline the detection, configuration, and management of Java Agents within
+your Java applications. Java Agents are special components that can instrument
+Java bytecode at runtime, enabling advanced features such as monitoring,
+profiling, code coverage analysis, security auditing, and more, without
+modifying your application's source code.
+
+With JAL, you can automatically discover and configure Java Agents for your
+projects, eliminating the need for manual setup. This ensures your applications
+are always instrumented with the necessary tools for observability, diagnostics,
+or specialized runtime enhancements.
+
+**Common examples of Java Agents include:**
+- **Monitoring tools** (e.g., New Relic, AppDynamics, Java Flight Recorder)
+- **Profilers** (e.g., YourKit, VisualVM)
+- **Code coverage analyzers** (e.g., JaCoCo)
+- **Security and tracing agents** (e.g., OpenTelemetry Java agent, Dynatrace)
+
+In addition to that, while not a traditional Java Agent, **Lombok** is often
+configured in a similar manner, using the `-javaagent` parameter in the JVM
+options. This means Lombok is specified on the command line or in IDE
+configurations as if it were a Java agent, even though it acts as an *annotation
+processor* at compile time rather than as a runtime bytecode modifier.
+
+JAL seamlessly integrates with popular build systems such as **Gradle** and
+**Maven**, making agent management part of your standard build pipeline.
+Additionally, it supports Java language servers like **LSP-java** and
+**eglot-java**, ensuring agent configuration works smoothly during development
+for in-editor tooling and code analysis.
+
+JAL must be configured **before** ~lsp-java~.
+
+#+begin_src emacs-lisp
+(use-package jal
+  :custom
+  (jal-auto-setup t)
+  :config
+  (jal-lsp-java-mode 1))
+#+end_src
+
+** LSP Java & Formatting Configuration
+The ~lsp-java~ package integrates the Java language server, providing rich
+editing support for Java projects. We need to configure the path in our Emacs
+configuration (this is set in the ~lsp-java~ section below).
+
+The block below also contains cross-cutting LSP session hygiene settings that
+apply to all language servers:
+
+#+begin_src emacs-lisp
+(when (boundp 'cfg-lsp/server-file-extensions)
+  (add-to-list 'cfg-lsp/server-file-extensions '(jdtls . ("java"))))
+
+(defconst cfg-lang/google-java-format-bin
+  (expand-file-name "google-java-format/google-java-format" user-emacs-directory)
+  "Path to the google-java-format native binary.")
+
+;; Register google-java-format as an Apheleia formatter for Java.
+;; The native binary reads stdin (via "-") and writes formatted
+;; code to stdout. Apheleia handles the rest.
+(with-eval-after-load 'apheleia
+  (setf (alist-get 'google-java-format apheleia-formatters) (list cfg-lang/google-java-format-bin "-"))
+  (setf (alist-get 'java-mode apheleia-mode-alist) 'google-java-format)
+  (setf (alist-get 'java-ts-mode apheleia-mode-alist) 'google-java-format))
+
+;; Disable LSP-based Java formatting. Apheleia with
+;; google-java-format handles formatting instead.
+(with-eval-after-load 'lsp-java
+  (setq lsp-java-format-enabled nil)
+
+  ;; JDTLS handles java.completion.onDidSelect by sending a workspace/applyEdit
+  ;; back to the client with the resolved method signature (parentheses, params).
+  ;; The default lsp--execute-command path uses lsp-workspace-command-execute
+  ;; which calls lsp-request (blocking). lsp-mode blocks inside accept-process-output
+  ;; waiting for the executeCommand response; the workspace/applyEdit arrives during
+  ;; that wait and is processed, inserting the params. But the wait itself is the
+  ;; multi-second freeze visible in corfu--prepare.
+  ;;
+  ;; By sending the executeCommand asynchronously, lsp-mode no longer blocks.
+  ;; JDTLS still sends workspace/applyEdit through the normal event loop, so the
+  ;; method signature is inserted without stalling Emacs.
+  (cl-defmethod lsp-execute-command
+    ((_server  (eql jdtls))
+     (_command (eql java.completion.onDidSelect))
+     args)
+    (lsp-request-async
+     "workspace/executeCommand"
+     (if args
+         (list :command "java.completion.onDidSelect" :arguments args)
+       (list :command "java.completion.onDidSelect"))
+     #'ignore
+     :error-handler #'ignore
+     :mode 'detached)))
+
+(defun cfg-lang/dap-java--check-requirements ()
+  "Return non-nil if the Java LSP server is running in this buffer."
+  (if (and (fboundp 'lsp-find-workspace)
+           (lsp-find-workspace 'jdtls (buffer-file-name)))
+      t
+    (message "jdtls is not running in this buffer. Open a Java file and wait for LSP to initialize.")
+    nil))
+
+(defun cfg-lang/dap-java--start-debug ()
+  "Launch a Java DAP session for the current project."
+  (let ((root (lsp-workspace-root)))
+    (if (and root (file-exists-p (expand-file-name ".vscode/launch.json" root)))
+        (call-interactively 'dap-debug)
+      (dap-java-debug))))
+
+(defun cfg-lang/dap-java--force-stop ()
+  "Force-stop the active Java DAP session."
+  (when-let* ((session (dap--cur-session))
+              (proc (dap--debug-session-program-proc session))
+              (pid (process-id proc)))
+    (ignore-errors (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string pid)))
+    (ignore-errors (call-process "kill" nil nil nil "-9" (number-to-string pid))))
+  (dap-force-quit))
+
+(use-package lsp-java
+  :pin "MELPA Unstable"
+  :after java-ts-mode
+  :init
+  ;; Disable jdtls auto-build to prevent it from overwriting Maven's compiled output in target/classes with its own
+  ;; (sometimes incorrect) class files. When auto-build is on, jdtls compiles in the background and can write error-stub
+  ;; class files (e.g. "Unresolved compilation problem") on top of a clean Maven build. With auto-build off, Maven is
+  ;; the sole authority on target/classes and the DAP classpath is always consistent with what `mvn compile' produced.
+  (setq lsp-java-autobuild-enabled nil)
+
+  ;; Performance tuning: Defer expensive Java completion work (e.g. imports and
+  ;; deep type resolution) until completion is explicitly requested via
+  ;; `completion-at-point` (e.g. M-TAB or a manual Corfu trigger), avoiding costly
+  ;; background completion on every trigger character.
+  (setq lsp-java-completion-on-demand t)
+
+  (add-to-list 'auto-mode-alist '("\\.java.*\\'" . java-ts-mode))
+
+  (defun cfg-lang/java-ts-chained-argument-list-p (_node parent _bol)
+    "Return non-nil if PARENT is an `argument_list' of a chained method.
+This handles chains like `obj.method()', `obj.method().method()', or
+`some.field.method()'. It detects the chain by checking for an 'object'
+field or a dot node in the parent `method_invocation'."
+    (and (equal (treesit-node-type parent) "argument_list")
+         (let* ((method-node (treesit-node-parent parent)))
+           (and (equal (treesit-node-type method-node) "method_invocation")
+                ;; If it has an object field, it's called on an object
+                (or (treesit-node-child-by-field-name method-node "object")
+                    ;; Fallback for partial ASTs: check if any child is "."
+                    (let ((has-dot nil))
+                      (dolist (child (treesit-node-children method-node))
+                        (when (equal (treesit-node-type child) ".")
+                          (setq has-dot t)))
+                      has-dot))))))
+
+  (defun cfg-lang/java-ts-indent-fix ()
+    "Prepend Google-style continuation rules to `java-ts-mode'.
+Specifically ensures that argument lists and chained methods receive
+a 4-space or 8-space offset relative to the statement start."
+    (setq-local java-ts-mode-indent-offset 2)
+    (setq-local treesit-simple-indent-rules
+                (let ((style (alist-get 'java treesit-simple-indent-rules)))
+                  `((java
+                     ;; Priority Rules: Match these before the defaults
+                     ;;
+                     ;; 1. Handle chained methods arguments (e.g. val1 in .values(val1))
+                     ;; Using standalone-parent ensures it's an absolute +8 from the start of the whole statement.
+                     (cfg-lang/java-ts-chained-argument-list-p standalone-parent 8)
+                     ;; 2. Standard continuations
+                     ((parent-is "argument_list") standalone-parent 4)
+                     ((parent-is "formal_parameters") standalone-parent 4)
+                     ((parent-is "binary_expression") standalone-parent 4)
+                     ;; 3. Handle chained method calls (the .values part)
+                     ;; Using standalone-parent ensures it's +4 from the start of the chain.
+                     ((parent-is "method_invocation") standalone-parent 4)
+                     ;; Splice in the rest of the existing rules
+                     ,@style))))
+    ;; Refresh the indentation engine
+    (treesit-major-mode-setup))
+
+  ;; Execute on hack-local-variables-hook to guarantee java-ts-mode has fully populated
+  ;; its default treesit-simple-indent-rules before we append our custom rules.
+  (add-hook 'java-ts-mode-hook
+            (lambda ()
+              (add-hook 'hack-local-variables-hook #'cfg-lang/java-ts-indent-fix nil t)))
+
+  ;; Register DAP launcher variables here in :init, not in :config.
+  ;; :config runs inside with-eval-after-load, which fires on the first
+  ;; java-ts-mode buffer -- but session-restore (desktop-save) can open
+  ;; Java buffers before that, causing java-ts-mode-hook to run before the
+  ;; add-hook below is ever evaluated.  Registering in :init is
+  ;; unconditional once `java-ts-mode' loads. The entry functions themselves
+  ;; are defined above the deferred `use-package' form.
+  (add-hook 'java-ts-mode-hook
+            (lambda ()
+              (setq-local cfg-lang/dap-check-requirements #'cfg-lang/dap-java--check-requirements)
+              (setq-local cfg-lang/dap-start-debug #'cfg-lang/dap-java--start-debug)
+              (setq-local cfg-lang/dap-force-stop #'cfg-lang/dap-java--force-stop)))
+
+  :hook
+  (java-ts-mode . lsp-deferred)
+
+  :config
+  (setq lsp-java-server-install-dir (expand-file-name "~/.emacs.d/lsp_language_servers/eclipse.jdt.ls/"))
+  (setq lsp-java-vmargs
+        '("-Xms1G"
+          "-Xmx6G"
+          "-XX:+UseG1GC"
+          "-XX:MaxGCPauseMillis=200"
+          "-XX:+UseStringDeduplication"
+          "-XX:InitiatingHeapOccupancyPercent=45"
+          "-XX:+UnlockExperimentalVMOptions"
+          "-XX:G1NewSizePercent=20"
+          "-XX:G1MaxNewSizePercent=60"
+          ;; JDK 17+ reflective access needed by the Java debug plugin's Gson use.
+          "--add-opens=java.base/java.lang=ALL-UNNAMED"))
+
+  (defun cfg-lang/lsp-java-discover-runtimes ()
+    "Discover SDKMAN! java versions and return them as a vector for lsp-java.
+
+Maps SDKMAN version directories to JDT execution environment names
+(e.g. `JavaSE-17'). When multiple patch versions of the same major
+exist only the lexicographically latest one is kept. All discovered
+runtimes are passed to jdtls; if jdtls does not recognise an environment
+it emits an \"Invalid runtime\" warning which is intercepted by
+`cfg-lang/lsp-java-invalid-runtime-advice' to show an actionable hint."
+    (let ((sdk-dir (expand-file-name "~/.sdkman/candidates/java")))
+      (when (file-exists-p sdk-dir)
+        (let* ((dirs (seq-filter
+                      (lambda (dir)
+                        (and (file-directory-p dir)
+                             (not (string-equal (file-name-nondirectory dir) "current"))))
+                      (directory-files sdk-dir t "^[^.]")))
+               (major->path (make-hash-table :test 'equal)))
+          (dolist (path dirs)
+            (let* ((dir-name (file-name-nondirectory path))
+                   (major (when (string-match "^\\([0-9]+\\)" dir-name)
+                            (string-to-number (match-string 1 dir-name)))))
+              (when major
+                (let ((existing (gethash major major->path)))
+                  (when (or (null existing)
+                            (string> dir-name (file-name-nondirectory existing)))
+                    (puthash major path major->path))))))
+          (let (runtime-list)
+            (maphash (lambda (major path)
+                       (let ((env-name (if (= major 8) "JavaSE-1.8" (format "JavaSE-%d" major))))
+                         (push `(:name ,env-name :path ,path) runtime-list)))
+                     major->path)
+            (vconcat runtime-list))))))
+
+  (setq lsp-java-configuration-runtimes (cfg-lang/lsp-java-discover-runtimes))
+
+  ;; jdtls is the source of truth for supported execution environments.
+  ;; When it sends back an "Invalid runtime" warning (meaning a JDK we passed
+  ;; is newer than what this jdtls release knows about), intercept it and
+  ;; append an actionable hint so upgrading jdtls is the obvious next step.
+  (defun cfg-lang/lsp-java-invalid-runtime-advice (format-string &rest args)
+    "Intercept jdtls \"Invalid runtime\" warnings and add an actionable hint."
+    (let ((msg (apply #'format format-string args)))
+      (when (string-match "Invalid runtime for \\(JavaSE-[0-9.]+\\)" msg)
+        (message "lsp-java: '%s' is not supported by the installed jdtls." (match-string 1 msg)))))
+
+  (advice-add 'lsp--warn :after #'cfg-lang/lsp-java-invalid-runtime-advice))
+#+end_src
+
+** m2e Compliance Workaround
+~lsp-java~ uses the Eclipse JDT Language Server (=jdtls=), which delegates Maven
+project import and POM processing to Maven Integration for Eclipse (=m2e=).
+During import, =m2e= computes the effective POM, resolves dependencies, and
+generates Eclipse project metadata -- such as =.classpath=, =.project=, and
+=.settings= -- that =jdtls= consumes to build its project model and classpath.
+Because =jdtls= relies on that generated metadata, any incorrect property
+resolution performed by =m2e= (for example, resolving a property against a
+parent POM instead of a child override) will propagate into the language server
+as an incorrect Java compliance level or JRE container, resulting in missing
+APIs, spurious diagnostics, and other incorrect language-server behavior.
+
+When =m2e= evaluates Maven properties that use indirection (for example, when
+=maven.compiler.source=, =maven.compiler.target= or =maven.compiler.release= are
+defined in terms of another property such as =${project.build.java.target}=), it
+can sometimes resolve the reference against the parent POM rather than a child
+module's override. The result is generated Eclipse settings and workspace
+metadata that claim an incorrect, older Java compliance level and place an older
+JRE container on the module classpath (for example, =JavaSE-1.8=). That mismatch
+causes language servers and editors to report missing APIs or incorrect
+diagnostics.
+
+This issue is reported at eclipse-m2e/m2e-core/issues/2156.
+
+Solution implemented here (local workaround): after =m2e= finishes importing
+projects (=jdtls= reports "Started"), the functions in this section read the
+intended Java compliance value and rewrite the generated JDT workspace and
+module files to match. Concretely, the code below:
+
+- updates =.settings/org.eclipse.jdt.core.prefs= entries in the =jdtls=
+  workspace metadata to set =org.eclipse.jdt.core.compiler.compliance=,
+  =org.eclipse.jdt.core.compiler.source= and
+  =org.eclipse.jdt.core.compiler.codegen.targetPlatform= to the resolved value;
+- patches module =.classpath= entries that reference the =JRE_CONTAINER= so they
+  point to the correct =JavaSE-<version>= container.
+
+These changes are generic and apply to any Maven multi-module project where
+property indirection (for example, a parent property =project.build.java.target=
+and a child override) leads to a discrepancy between Maven's effective model and
+the files =m2e= generates.
+
+*Example:*
+
+~Parent POM properties:~
+
+#+begin_example xml
+<project.build.java.target>1.8</project.build.java.target>
+<maven.compiler.source>${project.build.java.target}</maven.compiler.source>
+#+end_example
+
+~Child POM override:~
+
+#+begin_example xml
+<project.build.java.target>25</project.build.java.target>
+#+end_example
+
+Follows the implementation of the workaround:
+
+#+begin_src emacs-lisp
+(defun cfg-lang/clean-jdtls-project-files (&optional root)
+  "Delete stale Eclipse/jdtls project files.
+It deletes `.classpath', `.project', `.settings' and `.factorypath'.
+ROOT defaults to the current `lsp-workspace-root' or `projectile-project-root'.
+These files are regenerated by jdtls/m2e on reimport. Delete them when
+jdtls shows a wrong Java compliance level (e.g. reports Java-8 errors
+on a Java-25 project) because m2e cached stale settings."
+  (interactive)
+  (let* ((root (or root
+                   (and (fboundp 'lsp-workspace-root) (lsp-workspace-root))
+                   (and (fboundp 'projectile-project-root) (projectile-project-root))
+                   (read-directory-name "Project root: ")))
+         (patterns '(".classpath" ".project" ".settings" ".factorypath"))
+         (files '()))
+    (dolist (pat patterns)
+      (let ((found (directory-files-recursively root (concat "\\`" (regexp-quote pat) "\\'") t)))
+        (setq files (append files found))))
+    (if (null files)
+        (message "No Eclipse project files found under %s" root)
+      (when (yes-or-no-p (format "Delete %d Eclipse project files under %s? " (length files) root))
+        (dolist (f files)
+          (if (file-directory-p f) (delete-directory f t) (delete-file f)))
+        (message "Deleted %d Eclipse project files. Restart LSP to reimport." (length files))))))
+
+(defun cfg-lang/clean-jdtls-full (&optional root)
+  "Full jdtls cleanup: delete workspace cache AND stale Eclipse project files.
+Use when jdtls shows wrong Java compliance or persistent stale diagnostics.
+ROOT is the project root to clean; if nil, prompts."
+  (interactive)
+  (cfg-lang/clean-jdtls-project-files root)
+  (when (fboundp 'cfg-lang/clean-lsp-workspace-cache)
+    (cfg-lang/clean-lsp-workspace-cache)))
+
+(defun cfg-lang/jdtls--extract-pom-property (name)
+  "Extract a literal property value for NAME from the current buffer's POM.
+Returns nil if the property is not found or is a property reference."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward (format "<%s>\\([^$<]+\\)</%s>" (regexp-quote name) (regexp-quote name)) nil t)
+      (string-trim (match-string 1)))))
+
+(defun cfg-lang/jdtls--extract-pom-property-raw (name)
+  "Extract a raw property value (including ${refs}) for NAME from the current buffer."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward (format "<%s>\\([^<]+\\)</%s>" (regexp-quote name) (regexp-quote name)) nil t)
+      (string-trim (match-string 1)))))
+
+(defun cfg-lang/jdtls--detect-maven-java-version (root)
+  "Detect the Java version from Maven compiler settings in ROOT.
+Reads `maven.compiler.release', falling back to `maven.compiler.source',
+then `maven.compiler.target'. Returns the version string (e.g. \"25\")
+or nil."
+    (let ((pom (expand-file-name "pom.xml" root)))
+    (when (file-exists-p pom)
+      (with-temp-buffer
+        (insert-file-contents pom)
+        (or (cfg-lang/jdtls--extract-pom-property "maven.compiler.release")
+            (cfg-lang/jdtls--extract-pom-property "maven.compiler.source")
+            (cfg-lang/jdtls--extract-pom-property "maven.compiler.target")
+            ;; Try resolving the property indirection one level
+            (let ((prop-ref (cfg-lang/jdtls--extract-pom-property-raw "maven.compiler.release")))
+              (when (and prop-ref (string-match "\\${\\(.+\\)}" prop-ref))
+                (cfg-lang/jdtls--extract-pom-property (match-string 1 prop-ref)))))))))
+
+(defun cfg-lang/jdtls--write-compliance-prefs (dir java-version)
+  "Write `.settings/org.eclipse.jdt.core.prefs' in DIR with JAVA-VERSION."
+  (let* ((settings-dir (expand-file-name ".settings" dir))
+         (prefs-file (expand-file-name "org.eclipse.jdt.core.prefs" settings-dir))
+         (content (format "\
+eclipse.preferences.version=1
+org.eclipse.jdt.core.compiler.codegen.methodParameters=generate
+org.eclipse.jdt.core.compiler.codegen.targetPlatform=%s
+org.eclipse.jdt.core.compiler.compliance=%s
+org.eclipse.jdt.core.compiler.problem.enablePreviewFeatures=disabled
+org.eclipse.jdt.core.compiler.problem.forbiddenReference=warning
+org.eclipse.jdt.core.compiler.problem.reportPreviewFeatures=ignore
+org.eclipse.jdt.core.compiler.processAnnotations=enabled
+org.eclipse.jdt.core.compiler.release=enabled
+org.eclipse.jdt.core.compiler.source=%s
+" java-version java-version java-version)))
+    (make-directory settings-dir t)
+    (write-region content nil prefs-file)))
+
+(defun cfg-lang/jdtls--fix-classpath-jre (dir env-name)
+  "Set the JRE container in DIR/.classpath to ENV-NAME.
+This is useful when m2e generates `.classpath' with another JRE (e.g.,
+JavaSE-1.8) due to a property indirection bug (see
+https://github.com/eclipse-m2e/m2e-core/issues/2156 for details). The
+JRE container determines which class library is on the build path, so
+even with correct compliance settings, APIs like List.of() are missing
+if the container points to a version like JavaSE-1.8, for example."
+  (let ((classpath-file (expand-file-name ".classpath" dir)))
+    (when (file-exists-p classpath-file)
+      (with-temp-buffer
+        (insert-file-contents classpath-file)
+        (when (re-search-forward "JRE_CONTAINER/org\\.eclipse\\.jdt\\.internal\\.debug\\.ui\\.launcher\\.StandardVMType/JavaSE-[0-9.]+" nil t)
+          (let ((old (match-string 0))
+                (new (format "JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/%s" env-name)))
+            (unless (string= old new)
+              (goto-char (point-min))
+              (while (search-forward old nil t) (replace-match new t t))
+              (write-region (point-min) (point-max) classpath-file))))))))
+
+(defun cfg-lang/jdtls-fix-m2e-compliance ()
+  "Fix m2e setting the wrong Java compliance for Maven projects.
+m2e in jdtls 1.57 does not resolve `maven.compiler.release' (or
+`maven.compiler.source'/`target') correctly when the property uses
+indirection through a parent POM. It falls back to the parent's default
+\\(often Java 1.8) even though the child overrides the property to a higher
+version. This function reads the effective `maven.compiler.release' (or
+`source') from the project POM and writes the correct compliance to each
+module's `.settings/org.eclipse.jdt.core.prefs'. jdtls picks up project-
+directory settings with higher priority than its workspace metadata, so
+this overrides the wrong m2e-generated values."
+  (interactive)
+  (let* ((root (or (and (fboundp 'lsp-workspace-root) (lsp-workspace-root))
+                   (and (fboundp 'projectile-project-root) (projectile-project-root))
+                   (read-directory-name "Project root: ")))
+         (java-version (cfg-lang/jdtls--detect-maven-java-version root)))
+    (if (null java-version)
+        (message "Could not detect Java version from Maven for %s" root)
+      (let ((count 0))
+        ;; Write .settings for each submodule that has a src/main/java
+        (dolist (pom (directory-files-recursively root "\\`pom\\.xml\\'"))
+          (let ((mod-dir (file-name-directory pom)))
+            (when (or (file-directory-p (expand-file-name "src/main/java" mod-dir))
+                      (string= (file-truename (expand-file-name root))
+                               (file-truename mod-dir)))
+              (cfg-lang/jdtls--write-compliance-prefs mod-dir java-version)
+              (setq count (1+ count)))))
+        (message "Wrote Java %s compliance to %d module(s) under %s. Restart LSP to apply."
+                 java-version count root)))))
+
+(defun cfg-lang/jdtls--fix-compliance-after-import (workspace status)
+  "Advice :after `lsp-java--language-status-callback'.
+
+Advises jdtls's `language/status' callback to detect when jdtls reports
+type=\"Started\" (meaning m2e has finished importing the project). At that
+point, m2e has written its incorrect `.settings' files (e.g., defaulting to
+`compliance=1.8').
+
+This function overwrites those settings files with the correct Java version
+resolved directly from the POM in memory, then notifies jdtls via
+`workspace/didChangeWatchedFiles' to force a reload.
+
+Runs on every \"Started\" event (including after rebuild/restart) because
+m2e re-imports and overwrites `.settings' each time. This approach ensures
+the POM is never modified on disk.
+
+WORKSPACE is the lsp workspace, STATUS is the notification payload."
+  (when-let* ((type (if (hash-table-p status) (gethash "type" status) (plist-get status :type)))
+              (_started (string= type "Started"))
+              (root (lsp--workspace-root workspace))
+              (pom (expand-file-name "pom.xml" root))
+              (_has-pom (file-exists-p pom))
+              (java-version (cfg-lang/jdtls--detect-maven-java-version root)))
+    (let ((count 0)
+          (env-name (if (string= java-version "8") "JavaSE-1.8" (format "JavaSE-%s" java-version))))
+      ;; 1. Write .settings in every module that has a pom.xml
+      (dolist (mod-pom (directory-files-recursively root "\\`pom\\.xml\\'"))
+        (let ((mod-dir (file-name-directory mod-pom)))
+          (cfg-lang/jdtls--write-compliance-prefs mod-dir java-version)
+          (setq count (1+ count))))
+      ;; 1b. Patch every .classpath found anywhere under the project root.
+      ;; m2e writes .classpath files into dirs co-located with pom.xml AND
+      ;; occasionally into dirs without a pom.xml (generated-source dirs,
+      ;; synthetic Eclipse sub-projects). Scanning for .classpath directly
+      ;; covers both cases in a single pass with no redundancy.
+      (dolist (cp-file (directory-files-recursively root "\\`\\.classpath\\'"))
+        (cfg-lang/jdtls--fix-classpath-jre (file-name-directory cp-file) env-name))
+      ;; 2. Overwrite the jdtls workspace metadata .settings AND .classpath
+      (let ((ws-projects (expand-file-name ".metadata/.plugins/org.eclipse.core.resources/.projects" lsp-java-workspace-dir)))
+        (when (file-directory-p ws-projects)
+          (dolist (proj-dir (directory-files ws-projects t "^[^.]"))
+            (when (file-directory-p proj-dir)
+              (cfg-lang/jdtls--write-compliance-prefs proj-dir java-version)
+              (cfg-lang/jdtls--fix-classpath-jre proj-dir env-name)))))
+      ;; 3. Overwrite the global workspace JDT prefs
+      (let ((global-prefs-dir (expand-file-name ".metadata/.plugins/org.eclipse.core.runtime/.settings" lsp-java-workspace-dir)))
+        (when (file-directory-p global-prefs-dir)
+          (cfg-lang/jdtls--write-compliance-prefs (file-name-directory global-prefs-dir) java-version)))
+      ;; 4. Notify jdtls about the changes via workspace/didChangeWatchedFiles
+      (with-lsp-workspace workspace
+        (let (changes)
+          (dolist (mod-pom (directory-files-recursively root "\\`pom\\.xml\\'"))
+            (let* ((mod-dir (file-name-directory mod-pom))
+                   (prefs (expand-file-name ".settings/org.eclipse.jdt.core.prefs" mod-dir)))
+              (when (file-exists-p prefs)
+                (push (list :uri (lsp--path-to-uri prefs) :type 2) changes))))
+          ;; Notify about ALL .classpath files anywhere under the project root --
+          ;; deep scan so we catch files not co-located with a pom.xml too.
+          (dolist (cp-file (directory-files-recursively root "\\`\\.classpath\\'"))
+            (push (list :uri (lsp--path-to-uri cp-file) :type 2) changes))
+          ;; Also notify about .classpath changes in workspace metadata
+          (let ((ws-projects (expand-file-name
+                              ".metadata/.plugins/org.eclipse.core.resources/.projects"
+                              lsp-java-workspace-dir)))
+            (when (file-directory-p ws-projects)
+              (dolist (proj-dir (directory-files ws-projects t "^[^.]"))
+                (let ((cp (expand-file-name ".classpath" proj-dir)))
+                  (when (file-exists-p cp)
+                    (push (list :uri (lsp--path-to-uri cp) :type 2) changes))))))
+          (when changes
+            (lsp-notify "workspace/didChangeWatchedFiles"
+                        (list :changes (apply #'vector changes))))))
+      (message "m2e compliance fix: wrote Java %s (%s) to %d module(s) + workspace metadata under %s"
+               java-version env-name count root))))
+
+(with-eval-after-load 'lsp-java
+  (unless (advice-member-p #'cfg-lang/jdtls--fix-compliance-after-import
+                           #'lsp-java--language-status-callback)
+    ;; After m2e finishes importing (jdtls reports "Started"), overwrite the
+    ;; wrong .settings files with correct Java compliance resolved from POM.
+    (advice-add 'lsp-java--language-status-callback :after
+                #'cfg-lang/jdtls--fix-compliance-after-import)))
+#+end_src
+
+** DAP Java Setup
+Debugging Java via ~dap-mode~ with a custom =compile_attach= provider. The
+default JDT =launch= + =integratedTerminal= path uses =server=n=
+(=runInTerminal=), which dap-mode cannot intercept before the connection model
+is fixed. =compile_attach= starts the JVM with =server=y= so Emacs owns
+=vmArgs=, =args=, and =env= from =.vscode/launch.json=. Also includes safe
+unit-test runners and inline test links.
+
+*** DAP Java: debug adapter installation
+Ensures the Java debug plugin jar is present. The jar ships with ~dap-mode~ and
+is downloaded automatically on first use when opening a Java buffer.
+
+#+begin_src emacs-lisp
+(defun dap-java-debug-install ()
+  "Ensure the configured Java debug plugin version is installed.
+Download it from Open VSX when that exact version is absent."
+  (let* ((version "0.59.0") ;; You can use latest or a specific version like 0.59.0
+         (dest-dir (expand-file-name
+                    "github/microsoft.java-debug/extension/server"
+                    dap-utils-extension-path))
+         (jar-name (format "com.microsoft.java.debug.plugin-%s.jar" version))
+         (jar-path (expand-file-name jar-name dest-dir))
+         ;; Use Open VSX which serves standard ZIP files without gzip streaming wrappers
+         (vsix-url (format "https://open-vsx.org/api/vscjava/vscode-java-debug/%s/file/vscjava.vscode-java-debug-%s.vsix" version version)))
+    (unless (file-exists-p jar-path)
+      (make-directory dest-dir t)
+      (let ((tmp-vsix (make-temp-file "java-debug-vsix-" nil ".zip"))
+            (extract-dir (make-temp-file "java-debug-extract-" t)))
+        (unwind-protect
+            (progn
+              ;; The VSIX version and its bundled jar version need not have
+              ;; identical names. Fetch the configured VSIX, then install
+              ;; its adapter jar under the configured cache filename.
+              (url-copy-file vsix-url tmp-vsix t)
+              (unless (zerop (call-process
+                              "unzip" nil nil nil "-j" "-o" "-d" extract-dir
+                              tmp-vsix
+                              "extension/server/com.microsoft.java.debug.plugin-*.jar"))
+                (error "Could not extract Java debug adapter %s" version))
+              (let ((extracted-jar
+                     (car (directory-files
+                           extract-dir t
+                           "\\`com\\.microsoft\\.java\\.debug\\.plugin-.*\\.jar\\'"))))
+                (unless extracted-jar
+                  (error "Java debug adapter %s contains no plugin jar" version))
+                (copy-file extracted-jar jar-path t)))
+          (ignore-errors (delete-file tmp-vsix))
+          (ignore-errors (delete-directory extract-dir t)))))
+    jar-path))
+#+end_src
+
+*** DAP Java: =compile_attach= helpers
+The Eclipse JDT language server, when told to =launch= with
+=integratedTerminal=, builds the java command with =-agentlib:jdwp=...server=n=:
+the debug adapter listens and the JVM connects to it. This model is sent via a
+=runInTerminal= DAP reverse-request, and none of the standard dap-mode hooks can
+intercept it before the connection model is agreed upon.
+
+The solution is to replace the =launch= flow entirely with =compile_attach=:
+Emacs starts the JVM itself with =server=y= (the JVM listens), then the debug
+adapter connects to it as a client. This also allows =vmArgs=, =args=, and =env=
+from =launch.json= to be forwarded correctly.
+
+Shared helpers: normalize launch.json fields, merge JVM flags, detect
+Maven/Gradle compile commands, and wait for the JDWP listen line before the
+adapter attaches.
+
+#+begin_src emacs-lisp
+;; JDK 17+ --add-opens flags for the debugged process and other variables.
+;; Many frameworks (Spring, Hibernate, etc.) require these.
+;; Customise as needed.
+(defvar cfg-lang/dap-java--extra-vmargs
+  '("--add-opens=java.base/java.util=ALL-UNNAMED"
+    "--add-opens=java.base/java.lang=ALL-UNNAMED"
+    "--add-opens=java.base/java.math=ALL-UNNAMED"
+    "--add-opens=java.base/java.nio=ALL-UNNAMED"
+    "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+    "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED"
+    "--add-opens=java.base/java.net=ALL-UNNAMED"
+    "--add-modules=ALL-SYSTEM"
+    "-Dsun.zip.disableMemoryMapping=true"
+    "-Xms100m"
+    "-XX:AdaptiveSizePolicyWeight=90")
+  "JDK 17+ reflective access and other flags appended to vmArgs when debugging.")
+
+(defun cfg-lang/dap-java--normalize-to-list (value)
+  "Normalize VALUE to a flat list of strings.
+VALUE may be nil, a string, a vector, or a list of strings."
+  (cond
+   ((null value)    nil)
+   ((stringp value) (split-string value "[ \t]+" t))
+   ((vectorp value) (append value nil))
+   ((listp value)   (seq-filter #'stringp value))
+   (t               nil)))
+
+(defun cfg-lang/dap-java--merge-vmargs (conf)
+  "Return merged vmArgs string from CONF plus compat flags.
+Reads :vmArgs (or :vmargs) from CONF, normalizes the value,
+appends `cfg-lang/dap-java--extra-vmargs', and returns a single
+space-separated string.
+CONF is the launch configuration plist or hash-table."
+  (let* ((raw (or (plist-get conf :vmArgs)
+                  (plist-get conf :vmargs)
+                  (when (hash-table-p conf)
+                    (or (gethash "vmArgs" conf)
+                        (gethash "vmargs" conf)))))
+         (user-list (cfg-lang/dap-java--normalize-to-list raw))
+         (lsp-list (when (boundp 'lsp-java-vmargs)
+                     (cfg-lang/dap-java--normalize-to-list lsp-java-vmargs)))
+         (merged (delete-dups (append user-list lsp-list cfg-lang/dap-java--extra-vmargs))))
+    (mapconcat #'identity merged " ")))
+
+(defun cfg-lang/dap-java--normalize-prog-args (conf)
+  "Return program args as a single space-separated string from CONF.
+Handles nil, string, vector, and list values for :args.
+CONF is the launch configuration plist or hash-table."
+  (let ((raw (or (plist-get conf :args)
+                 (when (hash-table-p conf) (gethash "args" conf)))))
+    (cond
+     ((null raw)      "")
+     ((stringp raw)   raw)
+     ((sequencep raw) (mapconcat #'identity (append raw nil) " "))
+     (t               ""))))
+
+(defun cfg-lang/dap-java--env-to-alist (env)
+  "Convert an ENV map from launch.json to an alist for dap-mode.
+Input ENV may be a hash-table with string keys, or a plist with
+keyword keys. Output is an alist of (\"KEY\" . \"value\") pairs."
+  (cond
+   ((null env) nil)
+   ((hash-table-p env)
+    (let (result)
+      (maphash (lambda (k v) (push (cons k v) result)) env)
+      result))
+   ((listp env)
+    (cl-loop for (k v) on env by #'cddr
+             collect (cons (if (keywordp k)
+                               (substring (symbol-name k) 1)
+                             (format "%s" k))
+                           v)))
+   (t nil)))
+
+(defun cfg-lang/dap-java--is-terminal-launch (conf)
+  "Return t when CONF targets an integrated or external terminal.
+A config is a terminal launch when :request is \"launch\" and
+:console is \"integratedTerminal\" or \"externalTerminal\".
+CONF is the launch configuration plist or hash-table."
+  (let ((request (or (plist-get conf :request)
+                     (when (hash-table-p conf) (gethash "request" conf))))
+        (console  (or (plist-get conf :console)
+                      (when (hash-table-p conf) (gethash "console" conf)))))
+    (and (equal request "launch")
+         (member console '("integratedTerminal" "externalTerminal")))))
+
+(defun cfg-lang/dap-java--default-compilation-command (root)
+  "Return the default DAP compilation command for a Java project at ROOT.
+ROOT should be the top-level workspace root (not a submodule), obtained
+from the jdtls workspace struct via `lsp--workspace-root'. Detects Maven
+\\(pom.xml) or Gradle (build.gradle / build.gradle.kts) and returns the
+appropriate compile command string. Logs a message and returns nil when
+no recognised build file is found, so the build step is skipped."
+  (cond
+   ((file-exists-p (expand-file-name "pom.xml" root))
+    "mvn compile")
+   ((or (file-exists-p (expand-file-name "build.gradle" root))
+        (file-exists-p (expand-file-name "build.gradle.kts" root)))
+    "gradle compileJava")
+   (t
+    (message "DAP Java: no pom.xml or build.gradle found in %s; skipping compilation step" root)
+    nil)))
+
+(defun cfg-lang/dap-java--wait-for-jdwp (launch-args)
+  "Wait until the compile_attach JVM in LAUNCH-ARGS is accepting JDWP.
+This waits for the JVM's own log line instead of opening a TCP probe: a
+probe that disconnects without completing JDWP's handshake makes the JVM
+reject the real debug adapter connection."
+  (let* ((port (plist-get launch-args :port))
+         (buffer (get-buffer (format " * %s log*"
+                                     (plist-get launch-args :name))))
+         (pattern (format "Listening for transport dt_socket at address: %s" port))
+         (deadline (+ (float-time) 30)))
+    (while (and (< (float-time) deadline)
+                (not (and (buffer-live-p buffer)
+                          (with-current-buffer buffer
+                            (save-excursion
+                              (goto-char (point-min))
+                              (search-forward pattern nil t))))))
+      (accept-process-output nil 0.05))
+    (unless (and (buffer-live-p buffer)
+                 (with-current-buffer buffer
+                   (save-excursion
+                     (goto-char (point-min))
+                     (search-forward pattern nil t))))
+      (user-error "Java JVM did not open JDWP port %s within 30 seconds" port))))
+
+#+end_src
+
+*** DAP Java: =compile_attach= session builder
+Builds the attach session plist: resolve classpath via jdtls, start the JVM with
+=server=y=, obtain a debug-adapter port, and hand dap-mode an attach config. The
+debug provider routes terminal launches through this path.
+
+#+begin_src emacs-lisp
+(defun cfg-lang/dap-java--build-compile-attach (conf)
+  "Build a compile_attach session plist from CONF.
+Implements server=y: the JVM opens a debug socket and the debug
+adapter connects to it. This avoids the default server=n path
+used by JDT for launch+integratedTerminal configurations.
+
+Keys read from CONF:
+  :vmArgs / :vmargs    -- JVM flags merged with compat flags
+  :args                -- program arguments after the main class
+  :env                 -- environment variables (hash-table or plist)
+  :mainClass           -- fully qualified main class name
+  :projectName         -- Eclipse project name
+  :cwd                 -- project working directory (used to find jdtls)
+  :dap-compilation     -- optional shell command to run before attaching
+  :dap-compilation-dir -- working directory for the build command
+
+CONF is the launch configuration plist from the launch.json entry."
+  (let* (;; Use mainClass and projectName directly from conf.
+         ;; dap-java--populate-launch-args is intentionally bypassed: it
+         ;; calls (lsp-find-workspace 'jdtls) internally without a path
+         ;; arg, which falls back to the current buffer's LSP server when
+         ;; called from a non-Java buffer, causing a
+         ;; workspace/executeCommand error.
+         (main-class    (or (plist-get conf :mainClass)
+                            (user-error
+                             "No :mainClass in launch configuration")))
+         (project-name  (or (plist-get conf :projectName)
+                            (user-error
+                             "No :projectName in launch configuration")))
+         (cwd           (or (plist-get conf :cwd) (lsp-java--get-root)))
+         ;; Find the jdtls workspace using the project cwd as the lookup
+         ;; key. lsp-find-workspace with a path uses
+         ;; lsp-find-session-folder, which searches registered workspace
+         ;; roots -- reliable even when called from a non-Java buffer.
+         ;; Falls back to any jdtls workspace in the session if the path
+         ;; lookup fails (e.g. if cwd is a subdirectory not cached yet).
+         (jdtls-ws      (or (lsp-find-workspace 'jdtls cwd)
+                            (lsp-find-workspace 'jdtls)
+                            (user-error
+                             (concat "jdtls is not running for %s. "
+                                     "Open a Java file first")
+                             cwd)))
+         ;; Resolve the classpath via jdtls using the explicit workspace.
+         ;; If jdtls's debug plugin is still initializing (e.g. right
+         ;; after a failed session) this command may fail; the error
+         ;; message instructs the user to wait and retry.
+         ;; resolveClasspath returns [modulepaths, classpaths] -- a JSON array
+         ;; that lsp-mode may decode as either a list or a vector depending
+         ;; on the active JSON parser. `cl-second' (= `cadr') only works on
+         ;; lists; use `seq-elt' which handles both.
+         ;; Upstream dap-java.el uses index 1 for :classPaths (classpaths are
+         ;; the second element). Validate with sequencep to catch cases where
+         ;; the debug plugin is not yet loaded and returns a bare number or nil
+         ;; instead of a string array. Fall back to index 0 for environments
+         ;; where the order differs (e.g. older plugin versions).
+         ;; Use lsp-request-async + accept-process-output for the same reason
+         ;; as startDebugSession: lsp-request / sit-for returns immediately
+         ;; when keyboard input is pending (the F5 keypress), handing back the
+         ;; outgoing request plist (:jsonrpc "2.0" ...) instead of the actual
+         ;; classpath array.  accept-process-output drains LSP output regardless
+         ;; of pending keyboard events.
+         (cp-raw        (let (result done)
+                          (with-lsp-workspace jdtls-ws
+                            (lsp-request-async
+                             "workspace/executeCommand"
+                             (list :command "vscode.java.resolveClasspath"
+                                   :arguments (vector main-class project-name))
+                             (lambda (res) (setq result res done t))
+                             :error-handler
+                             (lambda (err)
+                               (message "DAP Java: resolveClasspath error: %S" err)
+                               (setq done t))
+                             :mode 'detached))
+                          (let ((deadline (+ (float-time) 30)))
+                            (while (and (not done) (< (float-time) deadline))
+                              (accept-process-output nil 0.1)))
+                          result))
+         (classpaths    (let* ((arr1 (and (sequencep cp-raw)
+                                          (> (length cp-raw) 1)
+                                          (seq-elt cp-raw 1)))
+                               (arr0 (and (sequencep cp-raw)
+                                          (> (length cp-raw) 0)
+                                          (seq-elt cp-raw 0)))
+                               (lst (or (and (sequencep arr1)
+                                             (cfg-lang/dap-java--normalize-to-list arr1))
+                                        (and (sequencep arr0)
+                                             (cfg-lang/dap-java--normalize-to-list arr0)))))
+                          (or lst
+                              (user-error
+                               (concat "Cannot resolve classpath for %s "
+                                       "(resolveClasspath returned: %S). "
+                                       "Ensure the Java debug plugin bundle "
+                                       "is loaded (check `lsp-java-bundles') "
+                                       "and that jdtls has finished indexing")
+                               main-class cp-raw))))
+         (vmargs-str    (cfg-lang/dap-java--merge-vmargs conf))
+         (prog-args-str (cfg-lang/dap-java--normalize-prog-args conf))
+         (env-alist     (cfg-lang/dap-java--env-to-alist
+                         (or (plist-get conf :env)
+                             (when (hash-table-p conf) (gethash "env" conf)))))
+         (port          (dap--find-available-port))
+         ;; The JVM listens on PORT (server=y). Use localhost:PORT form
+         ;; explicitly: Java 9+ changed the default binding for bare-port
+         ;; addresses and some versions refuse to accept connections without
+         ;; the explicit host. Do NOT use quiet=y here so that JDWP errors
+         ;; are visible in the compilation log for troubleshooting.
+         (jdwp-arg
+          (format
+           "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=localhost:%d"
+           port))
+         ;; Reference the classpath via an env variable to avoid shell
+         ;; quoting issues when the classpath contains spaces.
+         (cp-var (format dap-java--var-format "CLASSPATH_ARGS"))
+         ;; Build the full java invocation. seq-filter removes empty
+         ;; tokens so no stray spaces appear when args are absent.
+         (java-command
+          (string-trim
+           (mapconcat
+            #'identity
+            (seq-filter (lambda (s) (not (string-empty-p s)))
+                        (list dap-java-java-command
+                              vmargs-str jdwp-arg
+                              "-cp" cp-var
+                              main-class prog-args-str))
+            " ")))
+         ;; Merge the classpath env var with application env vars from conf.
+         (env-variables
+          (append
+           (list (cons "CLASSPATH_ARGS"
+                       (s-join dap-java--classpath-separator classpaths)))
+           env-alist))
+         ;; Start the JDT debug adapter synchronously and capture its port.
+         ;; lsp-send-execute-command delegates to lsp-request, which in Emacs
+         ;; 29+ uses (sit-for 0.01) to wait for the response.  sit-for returns
+         ;; immediately when keyboard input is pending (e.g. the F5 keypress
+         ;; that triggered this call is still in the event queue), so the
+         ;; response is never read and lsp-request returns the outgoing
+         ;; request plist instead of the port integer -- causing
+         ;; dap--open-network-stream to receive a plist where it expects a
+         ;; string.  Using lsp-request-async with accept-process-output avoids
+         ;; this: accept-process-output is specifically designed to drain
+         ;; process output regardless of pending keyboard input.
+         (debug-adapter-port
+          (let (result done)
+            (with-lsp-workspace jdtls-ws
+              (lsp-request-async
+               "workspace/executeCommand"
+               (list :command "vscode.java.startDebugSession")
+               (lambda (res) (setq result res done t))
+               :error-handler
+               (lambda (err)
+                 (message "DAP Java: startDebugSession error: %S" err)
+                 (setq done t))
+               :mode 'detached))
+            (let ((deadline (+ (float-time) 30)))
+              (while (and (not done) (< (float-time) deadline))
+                (accept-process-output nil 0.1)))
+            (or result
+                (user-error
+                 (concat "vscode.java.startDebugSession did not return a port. "
+                         "Ensure the Java debug plugin bundle is loaded "
+                         "(check `lsp-java-bundles') and that jdtls has "
+                         "finished indexing"))))))
+    (message "DAP Java (compile_attach): %s:%s port=%d"
+             project-name main-class port)
+    (let* ((base-conf
+            (dap-java--populate-attach-args
+             (list :type              "java"
+                   :request           "attach"
+                   :hostName          "localhost"
+                   :projectName       project-name
+                   :host              "localhost"
+                   ;; :port is the JVM's JDWP port.  dap-mode removes
+                   ;; :debugServer from the plist before forwarding the
+                   ;; attach request to the JDT debug adapter, so the
+                   ;; adapter relies on :port to know where to connect.
+                   ;; Do NOT add :wait-for-port here: dap--wait-for-port
+                   ;; makes a raw TCP probe to :port (the JDWP socket);
+                   ;; that bare connection triggers a failed JDWP
+                   ;; handshake which can resume the JVM early and cause
+                   ;; ClassNotFoundException before the debugger attaches.
+                   ;; The JDT debug adapter has its own JDWP connection
+                   ;; retry logic; the JVM will not run until it attaches
+                   ;; (suspend=y).
+                   :port              port
+                   :program-to-start  java-command
+                   :environment-variables env-variables
+                   :startup-function  #'cfg-lang/dap-java--wait-for-jdwp
+                   ;; Forward the optional build step from launch.json.
+                   ;; If absent, auto-detect Maven or Gradle from the
+                   ;; top-level workspace root (not cwd, which may be a
+                   ;; submodule). Using lsp--workspace-root ensures we
+                   ;; always compile the root project.
+                   :dap-compilation
+                   (or (plist-get conf :dap-compilation)
+                       (when (hash-table-p conf)
+                         (gethash "dap-compilation" conf))
+                       (cfg-lang/dap-java--default-compilation-command
+                        (lsp--workspace-root jdtls-ws)))
+                   :dap-compilation-dir
+                   (or (plist-get conf :dap-compilation-dir)
+                       (when (hash-table-p conf)
+                         (gethash "dap-compilation-dir" conf))
+                       (lsp--workspace-root jdtls-ws))
+                   ;; Debug adapter port obtained synchronously above.
+                   ;; dap-mode connects here; the adapter then connects
+                   ;; to the JVM via JDWP on :port above.
+                   :debugServer       debug-adapter-port
+                   :__sessionId       (number-to-string (float-time))))))
+      base-conf)))
+
+(defun cfg-lang/dap-java--debug-provider (conf)
+  "Java debug provider: use compile_attach for terminal launches.
+For launch configs with console integratedTerminal or
+externalTerminal, delegates to `cfg-lang/dap-java--build-compile-attach'
+which starts the JVM with server=y and has the debug adapter
+attach to it. This avoids the runInTerminal (server=n) path
+sent by JDT that cannot be intercepted by standard dap-mode hooks.
+For all other configurations (attach, internalConsole), falls
+back to `dap-java--populate-default-args'.
+CONF is the launch configuration plist or hash-table."
+  (if (cfg-lang/dap-java--is-terminal-launch conf)
+      (cfg-lang/dap-java--build-compile-attach conf)
+    (dap-java--populate-default-args conf)))
+#+end_src
+
+*** DAP Java: unit test runners
+Safe replacements for upstream ~dap-java~ test commands. They avoid synchronous
+=lsp-request= races, validate classpath response shapes, compile test sources
+when stale, and resolve parameterized JUnit method selectors via =javap=.
+
+#+begin_src emacs-lisp
+(defun cfg-lang/dap-java--resolve-test-classpath (test-class-name)
+  "Resolve the runtime classpath for TEST-CLASS-NAME via jdtls.
+Safe replacement for the classpath resolution inside upstream
+`dap-java--run-unit-test-command', which calls
+`lsp-send-execute-command' synchronously and blindly does \(cl-second
+...\) followed by `s-join' on the result. When jdtls's debug plugin
+briefly returns a non-array response (a bare number or nil, e.g. while
+it is still finishing initialization), that crashes with \"s-join: Wrong
+type argument: sequencep, N\" -- this is the same class of bug worked
+around in `cfg-lang/dap-java--build-compile-attach'. Uses `lsp-request-async'
++ `accept-process-output' for the same reason as there (a synchronous
+`lsp-request' can return early when keyboard input is pending), and
+validates the response shape with `sequencep' before joining, falling
+back to index 0 if the classpath is not at index 1."
+  (let* ((jdtls-ws (or (lsp-find-workspace 'jdtls)
+                       (user-error "jdtls is not running. Open a Java file first")))
+         (cp-raw (let (result done)
+                   (with-lsp-workspace jdtls-ws
+                     (lsp-request-async
+                      "workspace/executeCommand"
+                      (list :command "vscode.java.resolveClasspath"
+                            :arguments (vector test-class-name nil))
+                      (lambda (res) (setq result res done t))
+                      :error-handler
+                      (lambda (err)
+                        (message "DAP Java: resolveClasspath error: %S" err)
+                        (setq done t))
+                      :mode 'detached))
+                   (let ((deadline (+ (float-time) 30)))
+                     (while (and (not done) (< (float-time) deadline))
+                       (accept-process-output nil 0.1)))
+                   result))
+         (arr1 (and (sequencep cp-raw) (> (length cp-raw) 1) (seq-elt cp-raw 1)))
+         (arr0 (and (sequencep cp-raw) (> (length cp-raw) 0) (seq-elt cp-raw 0)))
+         (lst (or (and (sequencep arr1) (cfg-lang/dap-java--normalize-to-list arr1))
+                  (and (sequencep arr0) (cfg-lang/dap-java--normalize-to-list arr0)))))
+    (or lst
+        (user-error
+         (concat "Cannot resolve classpath for %s "
+                 "(resolveClasspath returned: %S). "
+                 "Ensure the Java debug plugin bundle is loaded "
+                 "(check `lsp-java-bundles') and that jdtls has "
+                 "finished indexing")
+         test-class-name cp-raw))))
+
+(defun cfg-lang/dap-java--default-test-compilation-command (root)
+  "Auto-detect the Maven/Gradle *test* compile command for ROOT.
+Companion to `cfg-lang/dap-java--default-compilation-command' (which only
+builds main sources). Running or debugging a JUnit test happens in a
+separate `java' process invoking
+`junit-platform-console-standalone.jar', which only ever sees whatever
+Maven/Gradle already wrote to disk (target/test-classes or
+build/classes/test). `lsp-java-autobuild-enabled' is deliberately
+off (see the `lsp-java' :init block) so that jdtls never writes its own
+class files there and Maven/Gradle remains the sole authority -- but
+that also means jdtls never compiles test sources either. Without this
+step, an edited or newly added test method silently runs against a stale
+or missing .class file, surfacing as \"failed to discover tests\"
+instead of a normal compile error."
+  (cond
+   ((file-exists-p (expand-file-name "pom.xml" root))
+    "mvn -q test-compile")
+   ((or (file-exists-p (expand-file-name "build.gradle" root))
+        (file-exists-p (expand-file-name "build.gradle.kts" root)))
+    "gradle -q compileTestJava")
+   (t
+    (message "DAP Java: no pom.xml or build.gradle found in %s; skipping test compile step" root)
+    nil)))
+
+(defun cfg-lang/dap-java--test-class-relative-path (test-file)
+  "Return (MODULE-ROOT . PKG-PATH) locating TEST-FILE's compiled class.
+MODULE-ROOT is the nearest directory above TEST-FILE containing pom.xml,
+build.gradle, or build.gradle.kts. PKG-PATH is TEST-FILE's path relative
+to MODULE-ROOT with the leading src/test/java/ stripped and the .java
+extension removed -- i.e. the same relative path javac writes the
+compiled .class under (target/test-classes/ for Maven,
+build/classes/java/test/ for Gradle). Returns nil when TEST-FILE is not
+under a recognised src/test/java layout or no module root is found."
+  (-when-let* ((module-root (locate-dominating-file
+                             test-file
+                             (lambda (dir)
+                               (or (file-exists-p (expand-file-name "pom.xml" dir))
+                                   (file-exists-p (expand-file-name "build.gradle" dir))
+                                   (file-exists-p (expand-file-name "build.gradle.kts" dir))))))
+              (rel (file-relative-name test-file module-root))
+              (_ (string-prefix-p "src/test/java/" rel)))
+    (cons module-root
+          (s-chop-suffix ".java" (s-chop-prefix "src/test/java/" rel)))))
+
+(defun cfg-lang/dap-java--candidate-test-class-files (test-file)
+  "Return the Maven and Gradle compiled .class candidates for TEST-FILE.
+Built from `cfg-lang/dap-java--test-class-relative-path'. Neither candidate is
+required to already exist: `cfg-lang/dap-java--compiled-test-class-file' uses
+this to check what is already on disk, and
+`cfg-lang/dap-java--run-unit-test-command' embeds both paths in a shell
+snippet that probes for whichever exists once compilation has run.
+Returns nil when `cfg-lang/dap-java--test-class-relative-path' does."
+  (-when-let ((module-root . pkg-path) (cfg-lang/dap-java--test-class-relative-path test-file))
+    (list (expand-file-name (concat "target/test-classes/" pkg-path ".class") module-root)
+          (expand-file-name (concat "build/classes/java/test/" pkg-path ".class") module-root))))
+
+(defun cfg-lang/dap-java--compiled-test-class-file (test-file)
+  "Return TEST-FILE's already-compiled .class path, or nil.
+The first of `cfg-lang/dap-java--candidate-test-class-files' that exists on
+disk, or nil if neither does (or TEST-FILE's layout is not recognised)
+-- callers must treat nil as \"unknown\", not \"unchanged\"."
+  (-first #'file-exists-p (cfg-lang/dap-java--candidate-test-class-files test-file)))
+
+(defun cfg-lang/dap-java--test-needs-compile-p (test-file)
+  "Return non-nil when TEST-FILE is newer than its compiled .class.
+Failsafe against recompiling (running Maven/Gradle test-compile, see
+`cfg-lang/dap-java--default-test-compilation-command') on every test run even
+when nothing changed. Defaults to t (recompile) whenever
+`cfg-lang/dap-java--compiled-test-class-file' cannot locate the compiled class
+-- an unrecognised project layout must never be mistaken for \"already
+up to date\", since that would silently reintroduce the stale-.class bug
+this compile step exists to fix."
+  (let ((class-file (cfg-lang/dap-java--compiled-test-class-file test-file)))
+    (or (null class-file)
+        (file-newer-than-file-p test-file class-file))))
+
+(defun cfg-lang/dap-java--method-selector-shell-snippet (test-file class-name method-name)
+  "Return a shell snippet exporting TEST_SELECTOR for METHOD-NAME.
+JUnit Platform Console's bare \"CLASS-NAME#METHOD-NAME\" method selector
+only resolves to a zero-argument method: for a `@ParameterizedTest' (or
+any test method that takes arguments), resolution fails with \"Could not
+find method with name ...\" even though the method exists and is
+compiled, because the selector's reflection lookup has no parameter
+types to match against.
+
+The returned snippet looks up METHOD-NAME's parameter types with `javap'
+against whichever of `cfg-lang/dap-java--candidate-test-class-files' exists
+once the compile step above has actually run (this must happen at
+shell-execution time, not here in Lisp, since a first-time compile means
+neither candidate class file exists yet), and sets TEST_SELECTOR to
+\"CLASS-NAME#METHOD-NAME(param, types)\" when found -- matching the
+parameter-type format `javap -p' already prints, which is also the
+format JUnit's method selector expects. Falls back to the bare
+\"CLASS-NAME#METHOD-NAME\" (the previous, still-correct behaviour for
+zero-argument test methods) when no class file or matching method line
+can be found."
+  (let ((selector (concat class-name "#" method-name))
+        (candidates (cfg-lang/dap-java--candidate-test-class-files test-file)))
+    (format "TEST_SELECTOR=%s
+for __cf in %s; do
+  if [ -f \"$__cf\" ]; then
+    __line=$(javap -p \"$__cf\" 2>/dev/null | grep -E \"[ .]%s\\(\" | head -1)
+    if [ -n \"$__line\" ]; then
+      __params=$(echo \"$__line\" | sed -E 's/.*%s\\(([^)]*)\\).*/\\1/')
+      TEST_SELECTOR=%s\"($__params)\"
+    fi
+    break
+  fi
+done
+"
+            (shell-quote-argument selector)
+            (mapconcat #'shell-quote-argument candidates " ")
+            method-name
+            method-name
+            (shell-quote-argument selector))))
+
+(defun cfg-lang/dap-java--run-unit-test-command (runner dwim?)
+  "Safe replacement for upstream `dap-java--run-unit-test-command'.
+RUNNER is the test executor. DWIM? when t tries to run the surrounding
+method, otherwise the surrounding test class. Classpath resolution goes
+through `cfg-lang/dap-java--resolve-test-classpath' instead of the crash-prone
+synchronous call in the upstream version, and a Maven/Gradle
+test-compile step (see `cfg-lang/dap-java--default-test-compilation-command')
+is prepended so the runner never executes against stale .class files --
+unless `cfg-lang/dap-java--test-needs-compile-p' finds the compiled .class is
+already newer than the test source, in which case the compile step is
+skipped entirely. The build runs at the reactor root
+\(`lsp--workspace-root'), not the buffer's own module directory, so
+multi-module inter-project dependencies resolve the same way
+`cfg-lang/dap-java--build-compile-attach' already relies on for regular app
+launches.
+
+For a JUnit method run (not TestNG, not a whole-class run), the \"-m\"
+selector is resolved at shell-execution time via
+`cfg-lang/dap-java--method-selector-shell-snippet' rather than passed as the
+literal method name, so parameterized test methods resolve
+correctly (see that function's docstring)."
+  (-let* ((run-method? (and dwim? (dap-java-test-method-at-point t)))
+          (to-run (if run-method?
+                      (dap-java-test-method-at-point)
+                    (dap-java-test-class)))
+          (test-class-name (cl-first (s-split "#" to-run)))
+          (method-name (and run-method? (cl-second (s-split "#" to-run))))
+          (jdtls-ws (or (lsp-find-workspace 'jdtls)
+                       (user-error "jdtls is not running. Open a Java file first")))
+          (class-path (s-join dap-java--classpath-separator
+                              (cfg-lang/dap-java--resolve-test-classpath test-class-name)))
+          (test-file (buffer-file-name))
+          (selector-snippet (and method-name (not dap-java-use-testng) test-file
+                                 (cfg-lang/dap-java--method-selector-shell-snippet
+                                  test-file test-class-name method-name)))
+          (method-selector-arg (if selector-snippet
+                                   (format dap-java--var-format "TEST_SELECTOR")
+                                 to-run))
+          (prog-list (if dap-java-use-testng
+                         (cl-list* runner
+                                   "-cp" (format dap-java--var-format "JUNIT_CLASS_PATH")
+                                   "org.testng.TestNG"
+                                   "-d" dap-java-testng-report-dir
+                                   (if (and (s-contains? "#" to-run) run-method?) "-methods" "-testclass")
+                                   (if run-method? (s-replace "#" "." to-run) test-class-name)
+                                   dap-java-test-additional-args)
+                       (cl-list* runner "-jar" dap-java-test-runner
+                                 "-cp" (format dap-java--var-format "JUNIT_CLASS_PATH")
+                                 (if (and (s-contains? "#" to-run) run-method?) "-m" "-c")
+                                 (if run-method? method-selector-arg test-class-name)
+                                 dap-java-test-additional-args)))
+          (test-run-cmd (s-join " " prog-list))
+          (run-block (concat (or selector-snippet "") test-run-cmd))
+          (build-root (lsp--workspace-root jdtls-ws))
+          (needs-compile? (or (null test-file)
+                              (cfg-lang/dap-java--test-needs-compile-p test-file)))
+          (build-cmd (and needs-compile?
+                          (cfg-lang/dap-java--default-test-compilation-command build-root)))
+          (full-cmd (if build-cmd
+                        (format "(cd %s && %s) && { %s ; }"
+                                (shell-quote-argument build-root)
+                                build-cmd
+                                run-block)
+                      run-block)))
+    (unless needs-compile?
+      (message "DAP Java: %s is up to date; skipping test-compile" test-class-name))
+    (list :program-to-start full-cmd
+          :environment-variables `(("JUNIT_CLASS_PATH" . ,class-path))
+          :name to-run
+          :cwd (lsp-java--get-root))))
+
+(defun cfg-lang/dap-java-run-test-method ()
+  "Safe replacement for `dap-java-run-test-method'.
+Runs the JUnit test method at point without the debugger, falling back
+to the test class if there is no method under the cursor. Uses
+`cfg-lang/dap-java--run-unit-test-command' to avoid the classpath resolution
+crash described there."
+  (interactive)
+  (setq dap-java--latest-test
+        (-> (cfg-lang/dap-java--run-unit-test-command dap-java-java-command t)
+            (plist-put :skip-debug-session t)))
+  (dap-start-debugging dap-java--latest-test))
+
+(defun cfg-lang/dap-java-run-test-class ()
+  "Safe replacement for `dap-java-run-test-class'.
+See `cfg-lang/dap-java-run-test-method'."
+  (interactive)
+  (setq dap-java--latest-test
+        (-> (cfg-lang/dap-java--run-unit-test-command dap-java-java-command nil)
+            (plist-put :skip-debug-session t)))
+  (dap-start-debugging dap-java--latest-test))
+
+(defun cfg-lang/dap-java--start-debug-adapter-port ()
+  "Return a fresh JDT debug adapter port for the running jdtls session.
+Same pattern as the `debug-adapter-port' binding in
+`cfg-lang/dap-java--build-compile-attach': uses `lsp-request-async' +
+`accept-process-output' instead of `lsp-send-execute-command'.
+
+Debug test method/class used to get `:debugServer' for free from
+upstream's `dap-java--populate-default-args' (via `dap-debug'), which
+calls `(lsp-send-execute-command \"vscode.java.startDebugSession\")'
+synchronously. That command is the FIRST thing to trigger jdtls's debug
+plugin to actually initialize its debug-session machinery in a given
+jdtls process, so only the very first invocation in a session is
+slow/racy; every later call hits an already-warm plugin and returns
+quickly, which is why the failure this function fixes --
+`dap--open-network-stream: Wrong type argument: stringp, \(:jsonrpc
+...)', i.e. :debugServer ending up bound to the raw outgoing request
+object instead of the port, followed by the JVM sitting stuck at
+\"Listening for transport dt_socket\" forever -- only ever showed up on
+the first debug-test run per Emacs session. Polling via
+`accept-process-output' with a generous 30s deadline, instead of
+whatever synchronous wait upstream's call relies on, covers that slow
+first response directly rather than needing any special-casing for it."
+  (let* ((jdtls-ws (or (lsp-find-workspace 'jdtls)
+                       (user-error "jdtls is not running. Open a Java file first")))
+         (result nil)
+         (done nil))
+    (with-lsp-workspace jdtls-ws
+      (lsp-request-async
+       "workspace/executeCommand"
+       (list :command "vscode.java.startDebugSession")
+       (lambda (res) (setq result res done t))
+       :error-handler
+       (lambda (err)
+         (message "DAP Java: startDebugSession error: %S" err)
+         (setq done t))
+       :mode 'detached))
+    (let ((deadline (+ (float-time) 30)))
+      (while (and (not done) (< (float-time) deadline))
+        (accept-process-output nil 0.1)))
+    (or result
+        (user-error
+         (concat "vscode.java.startDebugSession did not return a port. "
+                 "Ensure the Java debug plugin bundle is loaded "
+                 "(check `lsp-java-bundles') and that jdtls has "
+                 "finished indexing")))))
+
+(defun cfg-lang/dap-java-debug-test-method (port)
+  "Safe replacement for `dap-java-debug-test-method'.
+Debug the JUnit test method at point. Compiles test sources first \(see
+`cfg-lang/dap-java--default-test-compilation-command'), starts the test JVM
+with JDWP suspend=y, and attaches the debugger. PORT is the JDWP attach
+port.
+
+Calls `dap-start-debugging' directly (not `dap-debug') so that
+:debugServer can be set explicitly via
+`cfg-lang/dap-java--start-debug-adapter-port' -- see that function's docstring
+for why the equivalent synchronous call in upstream's
+`dap-java--populate-default-args' is not safe to rely on here.
+
+Also deliberately does NOT set `:wait-for-port' (unlike upstream): that
+option makes `dap-start-debugging-noexpand' open a bare TCP connection
+to the JDWP port and immediately close it again without completing the
+handshake. Once the JVM is actually listening, that premature close is
+what the JVM reports as \"Debugger failed to attach: handshake failed -
+connection prematurely closed\", instead of waiting for the real
+debugger. As in `cfg-lang/dap-java--build-compile-attach', the JDT debug
+adapter retries the JDWP connection on its own (the JVM stays suspended
+until it attaches), so Emacs does not need to probe the port at all."
+  (interactive (list (dap--find-available-port)))
+  (dap-start-debugging
+   (append (list :type "java"
+                 :request "attach"
+                 :hostName "localhost"
+                 :host "localhost"
+                 :port port
+                 :debugServer (cfg-lang/dap-java--start-debug-adapter-port))
+           (cfg-lang/dap-java--run-unit-test-command
+            (format "%s -Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=%s"
+                    dap-java-java-command port)
+            t))))
+
+(defun cfg-lang/dap-java-debug-test-class (port)
+  "Safe replacement for `dap-java-debug-test-class'.
+See `cfg-lang/dap-java-debug-test-method'."
+  (interactive (list (dap--find-available-port)))
+  (dap-start-debugging
+   (append (list :type "java"
+                 :request "attach"
+                 :hostName "localhost"
+                 :host "localhost"
+                 :port port
+                 :debugServer (cfg-lang/dap-java--start-debug-adapter-port))
+           (cfg-lang/dap-java--run-unit-test-command
+            (format "%s -Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=%s"
+                    dap-java-java-command port)
+            nil))))
+#+end_src
+
+*** DAP Java: provider registration
+Install the debug adapter jar into =lsp-java-bundles=, enable
+=.vscode/launch.json= settings, and register the =compile_attach=-aware Java
+provider.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'lsp-java
+  (with-eval-after-load 'dap-mode
+    (let ((java-debug-jar (dap-java-debug-install)))
+      ;; Load only the configured Java debug version, even when older jars
+      ;; remain in the extension cache from a previous configuration.
+      (setq lsp-java-bundles
+            (cons java-debug-jar
+                  (cl-remove-if
+                   (lambda (bundle)
+                     (string-match-p
+                      "/com\\.microsoft\\.java\\.debug\\.plugin-[^/]+\\.jar\\'"
+                      bundle))
+                   lsp-java-bundles))))
+
+    ;; Enable reading debug settings from .vscode/launch.json.
+    (setq dap-java-use-project-settings t)
+
+    ;; Override the built-in Java provider with our =compile_attach=-aware one.
+    ;; For launch+integratedTerminal, this replaces the server=n+runInTerminal
+    ;; flow with server=y, which correctly propagates vmArgs and env from the
+    ;; launch configuration.
+    (dap-register-debug-provider "java" #'cfg-lang/dap-java--debug-provider)))
+#+end_src
+
+*** DAP Java: project =.vscode/launch.json= configuration
+~dap-mode~ is the Emacs client for the [[https://microsoft.github.io/debug-adapter-protocol/][Debug Adapter Protocol (DAP)]]. DAP is the
+same wire protocol used by VS Code to communicate with language-specific debug
+adapters (such as the Microsoft Java Debug Extension). Emacs with ~dap-mode~
+acts as a DAP client in the same way VS Code does, so the two share the same
+configuration file format: =.vscode/launch.json=.
+
+The connection is:
+
+#+begin_example
+  =.vscode/launch.json=          (project config, shared with VS Code)
+         │
+         │  =M-x dap-debug= reads the JSON, expands =${workspaceFolder}=,
+         │  and presents the "name" fields as a selection menu.
+         ▼
+  =cfg-lang/dap-java--debug-provider=  (provider registration)
+         │
+         │  Inspects "console" field; if "integratedTerminal" ->
+         │  converts to compile_attach (=server=y=) flow.
+         ▼
+  Eclipse JDT Debug Adapter    (=~/.emacs.d/eclipse.jdt.ls/...=)
+         │
+         │  DAP protocol over TCP (port from =vscode.java.startDebugSession=)
+         ▼
+  JVM JDWP agent               (=-agentlib:jdwp=…,server=y,address=localhost:PORT=)
+#+end_example
+
+Because ~dap-mode~ understands the standard VS Code launch schema, the same
+=.vscode/launch.json= you use with VS Code works in Emacs without modification.
+Fields prefixed with =dap-= (e.g. =dap-compilation=) are Emacs extensions
+understood only by ~dap-mode~ and ignored by VS Code.
+
+Therefore, each Java project that you want to debug must have a
+=.vscode/launch.json= file at the workspace root. ~dap-mode~ reads this file
+when you invoke =dap-debug= (=M-x dap-debug=) and selects a configuration by
+name. The =cfg-lang/dap-java--debug-provider= installed under provider
+registration then routes any =launch= configuration that targets
+=integratedTerminal= through the =compile_attach= flow described above.
+
+
+**** Minimum required fields
+
+| Field                 | Purpose                                                          |
+|-----------------------+------------------------------------------------------------------|
+| =type=                | Must be ="java"= - selects the Java debug provider.              |
+| =request=             | Must be ="launch"= - the provider converts it to compile_attach. |
+| =name=                | Human-readable label shown in the dap-debug selection menu.      |
+| =mainClass=           | Fully-qualified main class (e.g. =com.example.app.Application=). |
+| =projectName=         | Maven/Gradle project name, used to resolve the classpath.        |
+| =cwd=                 | Working directory; use =${workspaceFolder}= for the repo root.   |
+| =console=             | Must be ="integratedTerminal"= to trigger the compile_attach     |
+|                       | flow. Use ="internalConsole"= to fall back to the default        |
+|                       | JDT launch flow (no vmArgs forwarding).                          |
+| =vmArgs=              | JVM arguments for the *debugged process* (not the language       |
+|                       | server). Spring Boot =−D= properties belong here.                |
+| =args=                | Program arguments passed after the main class name.              |
+| =env=                 | Extra environment variables (e.g. =SPRING_PROFILES_ACTIVE=).     |
+
+
+**** Optional =dap-*= fields
+
+| Field                 | Purpose                                                          |
+|-----------------------+------------------------------------------------------------------|
+| =dap-compilation=     | **Optional.** Shell command run by dap-mode *before* launching.  |
+|                       | If omitted, auto-detected as described above.                    |
+| =dap-compilation-dir= | **Optional.** Directory for =dap-compilation=.                   |
+|                       | If omitted, defaults to =${workspaceFolder}=.                    |
+
+Fields prefixed with =dap-= (e.g. =dap-compilation=, =dap-compilation-dir=) are
+**optional** Emacs extensions. If omitted, our ~dap-mode~ helpers provide
+sensible fallbacks:
+
+- If =dap-compilation= is missing, we will attempt to auto-detect the build tool
+  at the workspace root:
+  - If a =pom.xml= is found, it uses =mvn compile=.
+  - If a =build.gradle= or =build.gradle.kts= is found, it uses =gradle
+    compileJava=.
+  - If neither is found, no build step is run (the value is nil).
+- If =dap-compilation-dir= is missing, the workspace root is used as the working
+  directory for the build command.
+
+These fields are ignored by VS Code and only affect Emacs. You only need to
+specify them if you want to override the auto-detected defaults (for example, to
+use a custom build script or a submodule directory).
+
+
+**** Example =.vscode/launch.json= for a Spring Boot application
+
+#+begin_src json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "App Name - dev - Build and Debug",
+      "mainClass": "com.example.app.Application",
+      "projectName": "my-spring-application",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "vmArgs": [
+        "-Dserver.port=8081",
+        "-Dspring.datasource.url=jdbc:postgresql://localhost:5432/orders"
+      ],
+      "args": [],
+      "env": {
+        "SPRING_PROFILES_ACTIVE": "local,dev"
+      },
+      // The following dap-* fields are optional:
+      // "dap-compilation": "mvn compile -q", // If omitted, auto-detected or skipped
+      // "dap-compilation-dir": "${workspaceFolder}" // If omitted, defaults to workspace root
+    }
+  ]
+}
+#+end_src
+
+**** Notes
+
+- =projectName= must match the =<artifactId>= in the root =pom.xml= (Maven) or
+  the Gradle project name exactly--JDT uses it to resolve classpaths.
+- =vmArgs= here controls *your application*, not the language server. Do not
+  confuse it with =lsp-java-vmargs= which is for the JDT LS process itself.
+- The =dap-compilation= step (if present or auto-detected) runs synchronously
+  before the JVM starts; if it fails, the debug session is aborted. For Maven,
+  use =-q= (Maven quiet) to reduce noise.
+- Add =.vscode/launch.json= to your project =.gitignore= if the values contain
+  environment-specific secrets or local paths.
+
+*** DAP Java: inline test links in =*Test.java= buffers
+In test files (matching =*Test.java=), class names and test method names are
+decorated as clickable inline links so you can run or debug a specific test
+without leaving the buffer. The links are only added in files whose name ends
+with =Test.java=, so production code is not affected.
+
+Each link style is distinct so you can see at a glance what an action will do:
+
+- Class name links are underlined in green -> run or debug all tests in class.
+- Method name links are underlined in orange -> run or debug that method only.
+
+Test method detection covers all visibility modifiers (=public=, =protected=,
+=private=, or package-private) so it handles both JUnit 4 (=public void=) and
+JUnit 5 (package-private =void=) conventions.
+
+Keyboard and mouse shortcuts (only active in =*Test.java= buffers):
+
+- =click= - run the test at point (no debugger, fast feedback).
+- =C-S-click= - debug the test at point (attaches the debugger, hits
+  breakpoints).
+- =C-c j= - run the test at point (keyboard equivalent of click).
+- =C-c C-j= - debug the test at point (keyboard equivalent of C-S-click).
+
+All shortcuts work whether the cursor is on a link or anywhere else in the file;
+when on a link the link action is used, otherwise LSP symbols resolve the
+enclosing class or method.
+
+#+begin_src emacs-lisp
+(defun cfg-lang/dap-java-run-test-at-point ()
+  "Run the test at point without the debugger.
+If point is on an inline test link, activate its run action.
+Otherwise fall back to `cfg-lang/dap-java-run-test-method'."
+  (interactive)
+  (if (button-at (point))
+      (push-button)
+    (cfg-lang/dap-java-run-test-method)))
+
+(defun cfg-lang/dap-java-debug-test-at-point ()
+  "Debug the test at point, attaching the DAP debugger.
+If point is on an inline test link, call the link's debug-action.
+Otherwise fall back to `cfg-lang/dap-java-debug-test-method'."
+  (interactive)
+  (let* ((btn (button-at (point)))
+         (debug-fn (and btn (button-get btn 'debug-action))))
+    (if debug-fn
+        (funcall debug-fn)
+      (cfg-lang/dap-java-debug-test-method (dap--find-available-port)))))
+
+(defun cfg-lang/dap-java--ctrl-click-debug (event)
+  "Debug the test at the position of a C-S-click mouse EVENT."
+  (interactive "e")
+  (mouse-set-point event)
+  (cfg-lang/dap-java-debug-test-at-point))
+
+(defun cfg-lang/dap-java--add-test-links ()
+  "Decorate class and method names in *Test.java buffers as inline links.
+Links are added for:
+- Class names (underlined green): run/debug all tests in the class.
+- Method names (underlined orange): run/debug the individual test.
+Only activates when the buffer file name ends with Test.java.
+Visibility modifiers are optional, covering JUnit 4 (public void)
+and JUnit 5 (package-private void) conventions."
+  (when (and buffer-file-name
+             (string-match-p "Test\\.java\\'" buffer-file-name))
+    (save-excursion
+      ;; --- Class declarations ---
+      (goto-char (point-min))
+      (while (re-search-forward
+              "^\\s-*\\(?:public\\|protected\\|private\\)?\\s-*class\\s-+\\([A-Za-z0-9_]+\\)"
+              nil t)
+        (make-button (match-beginning 1) (match-end 1)
+                     'action       (lambda (_b) (cfg-lang/dap-java-run-test-class))
+                     'debug-action (lambda ()
+                                     (cfg-lang/dap-java-debug-test-class
+                                      (dap--find-available-port)))
+                     'help-echo    "click: run | C-S-click: debug | C-c j: run | C-c C-j: debug"
+                     'face         '(:underline t :foreground "green")))
+      ;; --- void methods (any visibility or none) ---
+      (goto-char (point-min))
+      (while (re-search-forward
+              (concat "^\\s-*\\(?:public\\|protected\\|private\\)?\\s-*"
+                      "void\\s-+\\([A-Za-z0-9_]+\\)\\s-*(")
+              nil t)
+        (make-button (match-beginning 1) (match-end 1)
+                     'action       (lambda (_b) (cfg-lang/dap-java-run-test-method))
+                     'debug-action (lambda ()
+                                     (cfg-lang/dap-java-debug-test-method
+                                      (dap--find-available-port)))
+                     'help-echo    "click: run | C-S-click: debug | C-c j: run | C-c C-j: debug"
+                     'face         '(:underline t :foreground "orange"))))))
+
+(defun cfg-lang/dap-java--setup-test-buffer ()
+  "Set up inline test links and keybindings in *Test.java buffers."
+  (cfg-lang/dap-java--add-test-links)
+  (when (and buffer-file-name
+             (string-match-p "Test\\.java\\'" buffer-file-name))
+    (local-set-key (kbd "C-c j")        #'cfg-lang/dap-java-run-test-at-point)
+    (local-set-key (kbd "C-c C-j")      #'cfg-lang/dap-java-debug-test-at-point)
+    (local-set-key (kbd "<C-S-mouse-1>") #'cfg-lang/dap-java--ctrl-click-debug)))
+
+(add-hook 'java-ts-mode-hook #'cfg-lang/dap-java--setup-test-buffer)
+(add-hook 'java-mode-hook    #'cfg-lang/dap-java--setup-test-buffer)
+#+end_src
+
+** Java environment bootstrap
+~exec-path-from-shell~ uses a login shell (=-l= flag), which on Linux sources
+=.zprofile= / =.profile= but NOT =.zshrc= / =.bashrc=. SDKMAN installs its
+initialisation into =.zshrc= / =.bashrc=, so Emacs never picks up the
+SDKMAN-managed Java from the login shell alone. The fix is to read the
+=~/.sdkman/candidates/java/current= symlink directly -- this is always set by
+=sdk use= / =sdk default= and requires no hardcoded version.
+
+If SDKMAN is not installed the function is a no-op and Emacs falls back to
+whatever Java is already on =exec-path=.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'lsp-java
+  (defvar lsp-java-java-path)
+
+  (defun cfg-lang/bootstrap-sdkman-java ()
+    "Bootstrap SDKMAN's current Java into Emacs's environment.
+Sets JAVA_HOME, exec-path, PATH, and `lsp-java-java-path' from the
+`~/.sdkman/candidates/java/current' symlink. No version is hardcoded.
+IDempotent: skips PATH/JAVA_HOME patches when SDKMAN is already present.
+Falls back silently to system Java when SDKMAN is not installed.
+Call interactively after switching Java with `sdk use java X.X.X'
+outside Emacs, then invoke `jal-lsp-java-switch-java-version' to
+update LSP without restarting Emacs."
+    (interactive)
+    (let* ((sdkman-java-dir (expand-file-name "~/.sdkman/candidates/java/current"))
+           (java-bin-dir    (expand-file-name "bin" sdkman-java-dir))
+           (java-bin        (expand-file-name "java" java-bin-dir)))
+      (cond
+       ((file-executable-p java-bin)
+        ;; Only patch JAVA_HOME/PATH if exec-path-from-shell did not already
+        ;; pick up SDKMAN (idempotent: skip when JAVA_HOME already points there).
+        (unless (string-prefix-p sdkman-java-dir (or (getenv "JAVA_HOME") ""))
+          (setenv "JAVA_HOME" sdkman-java-dir)
+          (setenv "PATH" (concat java-bin-dir path-separator (getenv "PATH")))
+          (add-to-list 'exec-path java-bin-dir))
+        ;; Pin lsp-java-java-path only when it has not already been set to a
+        ;; non-SDKMAN-current path by the user (e.g. via cfg-lang/java-switch-version).
+        ;; This prevents re-loading the config from undoing a live version switch.
+        (let ((current-path (bound-and-true-p lsp-java-java-path)))
+          (when (or (null current-path)
+                    (string= current-path "java")
+                    ;; Still pointing at SDKMAN current: safe to update.
+                    (string-prefix-p sdkman-java-dir current-path))
+            (setq lsp-java-java-path java-bin)
+            (message "SDKMAN Java bootstrapped: %s" java-bin))))
+       ((file-directory-p (expand-file-name "~/.sdkman/candidates/java"))
+        ;; SDKMAN is installed but no `current' version is selected.
+        (message "SDKMAN found but no current Java selected; using system Java."))
+       ;; SDKMAN not installed -- silent fallback to system Java.
+       )))
+
+  (cfg-lang/bootstrap-sdkman-java))
+#+end_src
+
+** LSP workspace cache and Java switch workflow
+Since =lsp-java-configuration-runtimes= is already populated with all SDKMAN
+versions (via =cfg-lang/lsp-java-discover-runtimes=), there is no need to touch the
+system SDKMAN default (=sdk use= / =sdk default=) when switching Java within
+Emacs. The switch is Emacs-session-local only: it does not affect your shell,
+other terminals, or other projects.
+
+Set =cfg-lang/java-clean-workspace-on-switch= to =nil= if you want to skip the
+workspace cache deletion when switching Java versions (useful when staying on
+the same major version and wanting a faster iteration cycle).
+
+#+begin_src emacs-lisp
+(defvar cfg-lang/java-clean-workspace-on-switch t
+  "When non-nil, delete the LSP workspace cache on every Java version switch.
+Set to nil to skip cache deletion when staying on the same major version.")
+
+(defun cfg-lang/java--candidate-from-runtime (runtime)
+  "Return the java binary path from RUNTIME plist, or nil if not executable."
+  (when-let ((home (plist-get runtime :path)))
+    (let ((bin (expand-file-name "bin/java" home)))
+      (when (file-executable-p bin) bin))))
+
+(defun cfg-lang/java--collect-candidates (current-path)
+  "Return a deduplicated list of java executables to offer for selection.
+Starts from CURRENT-PATH, adds system java if available, then all
+runtimes from `lsp-java-configuration-runtimes'."
+  (let* ((from-runtimes
+          (delq nil
+                (mapcar #'cfg-lang/java--candidate-from-runtime
+                        (append (bound-and-true-p lsp-java-configuration-runtimes) nil))))
+         (system-java (executable-find "java"))
+         (all (delete-dups
+               (delq nil
+                     (append (list current-path)
+                             (when (and system-java
+                                        (not (string= current-path system-java)))
+                               (list system-java))
+                             from-runtimes)))))
+    all))
+
+(defun cfg-lang/java--sync-env (java-bin)
+  "Patch JAVA_HOME, PATH, and variable `exec-path' for JAVA-BIN in this session.
+Does not affect the shell or any system processes."
+  (let* ((java-home (file-name-directory
+                     (directory-file-name (file-name-directory java-bin))))
+         (bin-dir   (expand-file-name "bin" java-home)))
+    (setenv "JAVA_HOME" java-home)
+    (setenv "PATH" (concat bin-dir path-separator (getenv "PATH")))
+    (add-to-list 'exec-path bin-dir)))
+
+(defun cfg-lang/java--clean-workspace ()
+  "Delete ~/.emacs.d/workspace/ unconditionally (no prompt).
+Respects `cfg-lang/java-clean-workspace-on-switch'."
+  (when cfg-lang/java-clean-workspace-on-switch
+    (let ((workspace-dir (expand-file-name "workspace" user-emacs-directory)))
+      (when (file-directory-p workspace-dir)
+        (delete-directory workspace-dir t)
+        (message "LSP workspace cache cleared.")))))
+
+(defun cfg-lang/java--apply-selection (chosen current-path)
+  "Set `lsp-java-java-path' to CHOSEN and, if changed, sync env and restart LSP.
+Also syncs JAVA_HOME, PATH, and the variable `exec-path' and deletes the
+workspace cache before restarting, so jdtls starts fresh with the correct JDK.
+CURRENT-PATH is the existing JDK path."
+  (defvar lsp-java-java-path)
+  (setq lsp-java-java-path chosen)
+  (if (string= chosen current-path)
+      (message "Java version unchanged (%s)." chosen)
+    (message "Switching to Java at '%s'..." chosen)
+    (cfg-lang/java--sync-env chosen)
+    (cfg-lang/java--clean-workspace)
+    ;; jal--lsp-java-restart is still used so jal's vmargs/agent injection runs.
+    (when (fboundp 'jal--lsp-java-restart)
+      (jal--lsp-java-restart))))
+
+(defun cfg-lang/java-switch-version ()
+  "Interactively switch the Java version for this Emacs session.
+Picks from all versions in `lsp-java-configuration-runtimes'. Updates
+JAVA_HOME, PATH, the variable `exec-path', and `lsp-java-java-path'
+session-locally. Optionally cleans the LSP workspace cache before
+restarting jdtls, controlled by `cfg-lang/java-clean-workspace-on-switch'."
+  (interactive)
+  (require 'lsp-java)
+  (defvar lsp-java-java-path)
+  (let* ((current (or (bound-and-true-p lsp-java-java-path) "java"))
+         (candidates (cfg-lang/java--collect-candidates current)))
+    (if (< (length candidates) 2)
+        (message "No alternative Java versions found; only available: %s" current)
+      (let ((chosen (completing-read
+                     (format "Java version (current: %s): " current)
+                     candidates nil t)))
+        (cfg-lang/java--apply-selection chosen current)))))
+
+(defun cfg-lang/java--detect-build-command (dir)
+  "Return the build command for project in DIR, or nil if none is found.
+Detects Maven (pom.xml) and Gradle (build.gradle / build.gradle.kts).
+Returns nil and messages the user when no recognised build file exists."
+  (cond
+   ((file-exists-p (expand-file-name "pom.xml" dir))
+    "mvn clean install -DskipTests")
+   ((file-exists-p (expand-file-name "build.gradle" dir))
+    "./gradlew clean build -x test")
+   ((file-exists-p (expand-file-name "build.gradle.kts" dir))
+    "./gradlew clean build -x test")
+   (t
+    (message "No pom.xml or build.gradle found in %s; skipping rebuild." dir)
+    nil)))
+
+(defun cfg-lang/java-switch-and-rebuild (project-dir)
+  "Switch Java, clean workspace, and rebuild PROJECT-DIR.
+Calls `cfg-lang/java-switch-version' (session-local, no SDKMAN system change),
+auto-detects Maven or Gradle, and runs the appropriate build command with
+the newly selected JAVA_HOME. Aborts the build step if no build file is found."
+  (interactive
+   (list (read-directory-name "Project directory: "
+                              (or (and (fboundp 'lsp-workspace-root)
+                                       (lsp-workspace-root))
+                                  default-directory))))
+  (cfg-lang/java-switch-version)
+  (let* ((project-dir   (expand-file-name project-dir))
+         (build-command (cfg-lang/java--detect-build-command project-dir)))
+    (when build-command
+      (let* ((java-bin  (bound-and-true-p lsp-java-java-path))
+             (java-home (when java-bin
+                          (file-name-directory
+                           (directory-file-name (file-name-directory java-bin)))))
+             (default-directory project-dir)
+             (process-environment
+              (if java-home
+                  (cons (format "JAVA_HOME=%s" java-home) process-environment)
+                process-environment)))
+        (message "Rebuilding %s with: %s" project-dir build-command)
+        (compilation-start build-command 'compilation-mode)))))
+#+end_src
+
+** Java Snippets
+#+begin_src emacs-lisp
+(use-package java-snippets
+  :after yasnippet
+  :hook (java-ts-mode . yas-minor-mode))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Major mode leader bindings for Java
+(cfg-keys/leader-def
+  "m"     '(:ignore t :which-key "+major-mode")
+  "m j"   '(:ignore t :which-key "+java")
+  "m j v" '(cfg-lang/java-switch-version :whichkey "Switch Java Version")
+  "m j c" '(cfg-lang/clean-jdtls-full :whichkey "Clean JDTLS Cache")
+  "m j d" '(cfg-lang/dap-java--start-debug :whichkey "Debug Java Program"))
+#+end_src
+
+* System Setup
+** JDTLS
+#+begin_src sh
+JDTLS_VERSION="1.60.0"
+JDTLS_DATE="202606262232"
+JDTLS_TARGET_DIR="$HOME/.emacs.d/lsp_language_servers/eclipse.jdt.ls"
+
+is_installed__lang__java__jdtls() {
+  [ -f "$JDTLS_TARGET_DIR/bin/jdtls" ]
+}
+
+install__lang__java__jdtls() {
+  if ! is_installed__lang__java__jdtls; then
+    local JDTLS_TMP_DIR
+    JDTLS_TMP_DIR=$(mktemp -d)
+    mkdir -p "$JDTLS_TARGET_DIR"
+    run_task "Downloading JDTLS" "curl -L -o $JDTLS_TMP_DIR/jdtls.tar.gz https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/jdt-language-server-${JDTLS_VERSION}-${JDTLS_DATE}.tar.gz"
+    run_task "Extracting JDTLS" "tar -xzf $JDTLS_TMP_DIR/jdtls.tar.gz -C $JDTLS_TARGET_DIR"
+    rm -rf "$JDTLS_TMP_DIR"
+  fi
+}
+
+uninstall__lang__java__jdtls() {
+  if is_installed__lang__java__jdtls; then
+    run_task "Removing existing JDTLS installation" "rm -Rf${VERBOSE:+v} $JDTLS_TARGET_DIR"
+  fi
+}
+#+end_src
+
+**  Google Java Format
+The [[https://github.com/google/google-java-format][Google Java Format]] tool reformats Java source code to comply with the [[https://google.github.io/styleguide/javaguide.html][Google
+Java Style Guide]] (2-space indentation). We use the pre-built native binary
+(GraalVM-based) so no JDK is required at formatting time, and formatting is fast
+({{{<}}}100 ms per file).
+
+The native binary is downloaded from the latest GitHub release and placed under
+=~/.emacs.d/google-java-format/=. Apheleia uses it as an external formatter for
+Java buffers (see the Java setup section below).
+
+#+begin_src sh
+GOOGLE_JAVA_FORMAT_VERSION="1.25.0"
+GOOGLE_JAVA_FORMAT_DIR="$HOME/.emacs.d/google-java-format"
+GOOGLE_JAVA_FORMAT_BIN="$GOOGLE_JAVA_FORMAT_DIR/google-java-format"
+
+is_installed__lang__java__google_java_format() {
+  [ -x "$GOOGLE_JAVA_FORMAT_BIN" ]
+}
+
+install__lang__java__google_java_format() {
+  if ! is_installed__lang__java__google_java_format; then
+    local arch os binary_name
+    arch="$(uname -m)"
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    case "${os}_${arch}" in
+      linux_x86_64)  binary_name="google-java-format_linux-x86-64" ;;
+      linux_aarch64) binary_name="google-java-format_linux-arm64" ;;
+      darwin_arm64)  binary_name="google-java-format_darwin-arm64" ;;
+      ,*)
+        log_error "No pre-built google-java-format binary for ${os}_${arch}."
+        return 1
+        ;;
+    esac
+    mkdir -p "$GOOGLE_JAVA_FORMAT_DIR"
+    local url="https://github.com/google/google-java-format/releases/download/v${GOOGLE_JAVA_FORMAT_VERSION}/${binary_name}"
+    run_task "Downloading google-java-format v${GOOGLE_JAVA_FORMAT_VERSION}" "curl -L -o '$GOOGLE_JAVA_FORMAT_BIN' '$url'"
+    chmod +x "$GOOGLE_JAVA_FORMAT_BIN"
+  fi
+}
+
+uninstall__lang__java__google_java_format() {
+  if is_installed__lang__java__google_java_format; then
+    run_task "Removing google-java-format" "rm -Rf${VERBOSE:+v} $GOOGLE_JAVA_FORMAT_DIR"
+  fi
+}
+
+register_action "Lang / Java / Install Google Java Format" "-lang--java--google-java-format" "jvm"
+
+#+end_src
+
+**  Installing multiple Java Versions
+We have standardized on Eclipse Temurin for our JVM development. We use Temurin
+because it provides reliable, TCK-certified, and high-performance binaries that
+are fully open-source and vendor-neutral, ensuring consistent behavior across
+all developer machines. This configuration defaults to Temurin for its
+stability; should your specific project require a different distribution (such
+as Oracle or Amazon Corretto), we can implement a custom setup for that
+environment as needed.
+
+#+begin_src sh
+is_installed__lang__java__java() {
+  return 1
+}
+
+install__lang__java__java() {
+  install__lang__java__jdtls
+  install__lang__jvm__sdkman
+
+  JAVA_VERSIONS_TO_INSTALL=(
+    "8.0.482-tem"
+    "11.0.30-tem"
+    "17.0.18-tem"
+    "21.0.10-tem"
+    "25.0.2-tem"
+  )
+
+  for v in "${JAVA_VERSIONS_TO_INSTALL[@]}"; do
+    run_task "Java $v" "sdk install java $v > /dev/null 2>&1"
+  done
+}
+
+uninstall__lang__java__java() {
+  uninstall__lang__java__jdtls
+  log_skip "Java SDKs (SDKMAN!)."
+}
+
+register_action "Lang / Java / Install Java" "-lang--java--java" "jvm"
+#+end_src

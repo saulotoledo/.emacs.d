@@ -1,0 +1,82 @@
+#+TITLE: Terraform Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Provides editing support and language server integration for Terraform and
+HashiCorp Configuration Language (HCL). Enables syntax highlighting,
+auto-formatting, and LSP features like auto-completion and diagnostics for
+managing Infrastructure as Code (IaC).
+
+* Emacs Configuration
+** Terraform Mode
+#+begin_src emacs-lisp
+(use-package terraform-mode
+  :defer t
+  :hook (terraform-mode . lsp-deferred))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "m"   '(:ignore t :which-key "+major-mode")
+  "m f" '(terraform-format-buffer :whichkey "Format Buffer"))
+#+end_src
+
+* System Setup
+We need to install the Terraform Language Server on our system:
+
+#+begin_src sh
+is_installed__cloud__terraform__terraformls() {
+  is_system_package_installed "terraformls"
+}
+
+register_system_package "terraformls" \
+                        "alpine:terraform-ls" \
+                        "fedora:terraform-ls" \
+                        "linuxbrew:hashicorp/tap/terraform-ls" \
+                        "mac:hashicorp/tap/terraform-ls" \
+                        "debian-ubuntu:terraform-ls"
+
+install__cloud__terraform__terraformls() {
+  log_info "Starting Terraform Language Server..."
+
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    brew tap hashicorp/tap
+  elif [ -f /etc/debian_version ]; then
+    if [ ! -f /usr/share/keyrings/hashicorp-archive-keyring.gpg ] || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor --yes -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+    fi
+    if [ ! -f /etc/apt/sources.list.d/hashicorp.list ] || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list > /dev/null
+    fi
+  elif [ -f /etc/fedora-release ] || command -v dnf >/dev/null 2>&1; then
+    if [ ! -f /etc/yum.repos.d/hashicorp.repo ] || [[ "$FORCE_REINSTALL" == "true" ]]; then
+      sudo dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.com/fedora/hashicorp.repo --overwrite
+    fi
+  elif [ -f /etc/alpine-release ] || command -v apk >/dev/null 2>&1; then
+    # We need to enable the comunity repo on Alpine
+    VERSION=$(cut -d. -f1,2 /etc/alpine-release)
+    REPO_URL="https://dl-cdn.alpinelinux.org/alpine/v${VERSION}/community"
+
+    if ! grep -q "$REPO_URL" /etc/apk/repositories; then
+      echo "$REPO_URL" >> /etc/apk/repositories
+      apk update
+    fi
+  elif command -v brew >/dev/null 2>&1; then
+    brew tap hashicorp/tap
+  else
+    log_error "OS not supported for auto-installation."
+    return 1
+  fi
+
+  install_system_packages "terraformls"
+}
+
+uninstall__cloud__terraform__terraformls() {
+  log_skip "Terraform Language Server" "Terraform Language Server is system package and will not be uninstalled automatically"
+}
+
+register_action "Cloud / Terraform / Install Terraform Language Server" "-cloud--terraform--terraformls" "cloud"
+#+end_src

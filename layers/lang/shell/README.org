@@ -1,0 +1,92 @@
+#+TITLE: Shell Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Provides a modern shell scripting environment in Emacs, integrating ~sh-mode~
+with ~lsp-mode~ and ~bash-language-server~ for IDE-grade features including
+real-time diagnostics, code navigation, and context-aware completion.
+
+Key capabilities:
+- **Corfu & CAPF Integration**: Asynchronous completion via Emacs' standard
+  Completion-At-Point Function (CAPF) interface, powered by Corfu for a
+  responsive, non-blocking workflow.
+- **Static Analysis**: Integrated linting via =shellcheck= to catch syntax
+  errors, portability issues, and common logic bugs early.
+- **Interactive Shell Completion**: Enhanced command-line completion in
+  ~shell-mode~ buffers using ~bash-completion~.
+
+* Emacs Configuration
+** Built-in Shell Mode & Completion
+#+begin_src emacs-lisp
+(defun cfg-lang/sh-mode-setup ()
+  "Hook setup for shell-script mode."
+  (lsp-deferred)
+  (flycheck-mode 1))
+
+(use-package sh-mode
+  :ensure nil
+  :mode ("\\.sh\\'" . sh-mode)
+  :hook (sh-mode . cfg-lang/sh-mode-setup))
+
+(use-package bash-completion
+  :defer t
+  :hook (shell-mode . bash-completion-mode))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Major mode leader bindings for Shell scripts
+(cfg-keys/leader-def
+  "m"   '(:ignore t :which-key "+major-mode")
+  "m c" '(bash-completion-mode :whichkey "Toggle Bash Completion"))
+#+end_src
+
+* System Setup
+** Bash Language Server
+#+begin_src sh
+LSP_BASH_LANGUAGE_SERVER_PATH="$HOME/.emacs.d/.cache/lsp/npm/bash-language-server"
+
+is_installed__lang__shell__bash_language_server() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/bash-language-server" ] || command -v bash-language-server >/dev/null 2>&1
+}
+
+install__lang__shell__bash_language_server() {
+  install_nodejs_tools
+  # Small hack for bash-language-server to work with lsp-mode: setting `lsp-bash-bash-language-server-path`
+  # did not work as expected for unknown reasons.
+  run_task "Linking Bash LS" "rm -Rf $LSP_BASH_LANGUAGE_SERVER_PATH && mkdir -p $LSP_BASH_LANGUAGE_SERVER_PATH/bin/ && ln -s $TOOLS_DIR/node_modules/.bin/bash-language-server $LSP_BASH_LANGUAGE_SERVER_PATH/bin/bash-language-server"
+}
+
+uninstall__lang__shell__bash_language_server() {
+  uninstall_nodejs_tools
+  run_task "Cleaning Bash LS cache" "rm -Rf $LSP_BASH_LANGUAGE_SERVER_PATH"
+}
+
+register_action "Lang / Shell / Install Bash Language Server" "-lang--shell--bash-language-server" "node"
+#+end_src
+
+** ShellCheck
+#+begin_src sh
+is_installed__lang__shell__shellcheck() {
+  command -v shellcheck >/dev/null 2>&1
+}
+
+register_system_package "ShellCheck" \
+                        "alpine:shellcheck" \
+                        "fedora:shellcheck" \
+                        "linuxbrew:shellcheck" \
+                        "mac:shellcheck" \
+                        "debian-ubuntu:shellcheck"
+
+install__lang__shell__shellcheck() {
+  install_system_packages "ShellCheck"
+}
+
+uninstall__lang__shell__shellcheck() {
+  log_skip "ShellCheck" "ShellCheck is a system package and will not be uninstalled automatically"
+}
+
+register_action "Lang / Shell / Install ShellCheck" "-lang--shell--shellcheck" "standalone"
+#+end_src

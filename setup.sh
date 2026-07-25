@@ -33,6 +33,9 @@ INSTALLER_GROUPS=(
   "secrets|Security & Credentials"
   "node|Node.js Toolchain (Shared)"
   "jvm|JVM Toolchain (SDKMAN!)"
+  "cloud|Cloud"
+  "cpp|C++ Development"
+  "utils|Utilities"
   "standalone|General Purpose Tools"
 )
 
@@ -86,11 +89,11 @@ run_task() {
 
     if eval "$cmd"; then
       log_success "$label completed successfully."
-      echo -e "${TITLE_COLOR}----------------------------------------------------${NC}"
+      echo -e "${TITLE_COLOR}-------------------------------------------------------------${NC}"
       return 0
     else
       log_error "$label failed."
-      echo -e "${TITLE_COLOR}----------------------------------------------------${NC}"
+      echo -e "${TITLE_COLOR}-------------------------------------------------------------${NC}"
       return 1
     fi
   else
@@ -143,17 +146,17 @@ register_action() {
 # --- UI Helpers ---
 print_titled_header() {
   local title_text="$1"
-  echo -e "${TITLE_COLOR}────────────────────────────────────────────────────${NC}"
+  echo -e "${TITLE_COLOR}─────────────────────────────────────────────────────────────${NC}"
   printf "${TITLE_COLOR}%b${NC}\n" "$title_text"
-  echo -e "${TITLE_COLOR}────────────────────────────────────────────────────${NC}"
+  echo -e "${TITLE_COLOR}─────────────────────────────────────────────────────────────${NC}"
 }
 
 log_action() {
   local action="$1"
   local name="$2"
-  echo -e "\n${TITLE_COLOR}----------------------------------------------------${NC}"
+  echo -e "\n${TITLE_COLOR}-------------------------------------------------------------${NC}"
   echo -e "${TITLE_COLOR}[${NC} ${WARN_COLOR}${action}${NC} ${TITLE_COLOR}]${NC} ${KEY_COLOR}${name}${NC}"
-  echo -e "${TITLE_COLOR}----------------------------------------------------${NC}"
+  echo -e "${TITLE_COLOR}-------------------------------------------------------------${NC}"
 }
 
 log_installing() {
@@ -264,9 +267,9 @@ menu_select_actions() {
       fi
     done
 
-    frame+="${TITLE_COLOR}────────────────────────────────────────────────────${NC}\n"
+    frame+="${TITLE_COLOR}─────────────────────────────────────────────────────────────${NC}\n"
     frame+=" $(printf "%b↑/↓/n/p%b Navigate  %bSPACE%b Toggle  %bENTER%b Run  %bA%b Abort" "${KEY_COLOR}" "${NC}" "${KEY_COLOR}" "${NC}" "${CHECK_COLOR}" "${NC}" "${ERR_COLOR}" "${NC}")\n"
-    frame+="${TITLE_COLOR}────────────────────────────────────────────────────${NC}\n"
+    frame+="${TITLE_COLOR}─────────────────────────────────────────────────────────────${NC}\n"
     frame+="$(tput ed)"
 
     echo -ne "$frame"
@@ -729,11 +732,13 @@ if [ ! -f "./init.el" ]; then
   cp -v "init-bootstrap.el" "init.el"
 fi
 
-is_installed_list_of_secrets() {
+# --- Core Auth Source Layer ---
+
+is_installed__core__auth__list_of_secrets() {
   false
 }
 
-_secrets_wizard_gpg_key() {
+__core__auth__has__core__auth__secrets_wizard_gpg_key() {
   echo -e "\nNo GPG keys found. Would you like to:"
   echo "  1) Generate a new GPG key (Quick Setup)"
   echo "  2) Use an existing GPG key (Ensure it's available via smartcard, etc.)"
@@ -782,7 +787,7 @@ _secrets_wizard_gpg_key() {
   return 0
 }
 
-_secrets_init_vault() {
+__core__auth__secrets_init_vault() {
   if [ -f "$AUTH_FILE" ]; then
     if ! SECRETS_CONTENT=$(gpg --quiet --pinentry-mode loopback --decrypt "$AUTH_FILE" 2>&1); then
       log_error "Decryption failed. Aborting to prevent data loss."
@@ -795,7 +800,7 @@ _secrets_init_vault() {
     local key_count
     key_count=$(gpg --list-keys --with-colons 2>/dev/null | awk -F: '/^pub/ {print $1}' | wc -l)
     if [ "$key_count" -eq 0 ]; then
-      if ! _secrets_wizard_gpg_key; then
+      if ! __core__auth__has__core__auth__secrets_wizard_gpg_key; then
         return 1
       fi
     fi
@@ -805,7 +810,7 @@ _secrets_init_vault() {
   return 0
 }
 
-_secrets_load_current_keys() {
+__core__auth__secrets_load_current_keys() {
   while read -r line; do
     if [[ "$line" =~ ^machine\ ([^\ ]+)\ login\ ([^\ ]+)\ password\ (.+)$ ]]; then
       local m="${BASH_REMATCH[1]}"
@@ -816,7 +821,7 @@ _secrets_load_current_keys() {
   done <<< "$SECRETS_CONTENT"
 }
 
-_secrets_parse_selection() {
+__core__auth__secrets_parse_selection() {
   local host_selection="$1"
   local ADDR
   IFS=',' read -ra ADDR <<< "$host_selection"
@@ -834,7 +839,7 @@ _secrets_parse_selection() {
   done
 }
 
-_secrets_select_hosts() {
+__core__auth__secrets_select_hosts() {
   print_titled_header "API Key Management"
   echo "Available hosts:"
 
@@ -862,11 +867,11 @@ _secrets_select_hosts() {
     return 1
   fi
 
-  _secrets_parse_selection "$host_selection"
+  __core__auth__secrets_parse_selection "$host_selection"
   return 0
 }
 
-_secrets_prompt_custom_host() {
+__core__auth__secrets_prompt_custom_host() {
   local c_machine c_login c_name
   read -r -p "Enter custom machine (e.g., api.custom.com): " c_machine
   read -r -p "Enter login (Default: 'apikey'): " c_login
@@ -884,7 +889,7 @@ _secrets_prompt_custom_host() {
   fi
 }
 
-_secrets_prompt_action_for_host() {
+__core__auth__secrets_prompt_action_for_host() {
   local h="$1"
   local machine login name
   IFS='|' read -r machine login name <<< "$h"
@@ -933,13 +938,13 @@ _secrets_prompt_action_for_host() {
   fi
 }
 
-_secrets_edit_keys() {
+__core__auth__secrets_edit_keys() {
   local num_predefined=${#predefined_hosts[@]}
   local add_custom_idx=$((num_predefined + 1))
 
   for idx in "${selected_indices[@]}"; do
     if [ "$idx" -eq "$add_custom_idx" ]; then
-      if _secrets_prompt_custom_host; then
+      if __core__auth__secrets_prompt_custom_host; then
         idx=${#display_hosts[@]}
       else
         continue
@@ -950,11 +955,11 @@ _secrets_edit_keys() {
       continue
     fi
 
-    _secrets_prompt_action_for_host "${display_hosts[$((idx-1))]}"
+    __core__auth__secrets_prompt_action_for_host "${display_hosts[$((idx-1))]}"
   done
 }
 
-_secrets_build_preview_file() {
+__core__auth__secrets_build_preview_file() {
   PREVIEW_CONTENT=""
   while read -r line; do
     [ -z "$line" ] && continue
@@ -985,7 +990,7 @@ _secrets_build_preview_file() {
   done
 }
 
-_secrets_print_preview() {
+__core__auth__secrets_print_preview() {
   echo -e "\nPreview of edited entries:"
   while read -r line; do
     [ -z "$line" ] && continue
@@ -1001,7 +1006,7 @@ _secrets_print_preview() {
   done <<< "$PREVIEW_CONTENT"
 }
 
-_secrets_confirm_and_save() {
+__core__auth__secrets_confirm_and_save() {
   local confirm
   read -r -p "Proceed with encryption and save? (y/N/s for backup only): " confirm
   if [[ "$confirm" =~ ^[yY]$ ]]; then
@@ -1029,7 +1034,7 @@ _secrets_confirm_and_save() {
   fi
 }
 
-_secrets_apply_changes() {
+__core__auth__secrets_apply_changes() {
   if [ ${#pending_updates[@]} -eq 0 ] && [ ${#pending_removals[@]} -eq 0 ]; then
     log_info "No changes to apply."
     return 0
@@ -1038,13 +1043,13 @@ _secrets_apply_changes() {
   print_titled_header "Summary of Changes"
   echo "The following changes will be applied to $AUTH_FILE:"
 
-  _secrets_build_preview_file
-  _secrets_print_preview
+  __core__auth__secrets_build_preview_file
+  __core__auth__secrets_print_preview
   echo ""
-  _secrets_confirm_and_save
+  __core__auth__secrets_confirm_and_save
 }
 
-_secrets_detect_unknown_hosts() {
+__core__auth__secrets_detect_unknown_hosts() {
   local key
   for key in "${!current_keys[@]}"; do
     local m l
@@ -1065,7 +1070,7 @@ _secrets_detect_unknown_hosts() {
   done
 }
 
-install_list_of_secrets() {
+install__core__auth__list_of_secrets() {
   local AUTH_FILE="$HOME/.authinfo.gpg"
   local SECRETS_CONTENT="" PREVIEW_CONTENT=""
 
@@ -1085,28 +1090,28 @@ install_list_of_secrets() {
   local display_hosts=()
   local selected_indices=()
 
-  if ! _secrets_init_vault; then
+  if ! __core__auth__secrets_init_vault; then
     return 1
   fi
 
-  _secrets_load_current_keys
+  __core__auth__secrets_load_current_keys
 
-  _secrets_detect_unknown_hosts
+  __core__auth__secrets_detect_unknown_hosts
 
   while true; do
     display_hosts=()
     selected_indices=()
 
-    if ! _secrets_select_hosts; then
+    if ! __core__auth__secrets_select_hosts; then
       break
     fi
 
-    _secrets_edit_keys
+    __core__auth__secrets_edit_keys
     echo ""
   done
 
   if [ ${#pending_updates[@]} -gt 0 ] || [ ${#pending_removals[@]} -gt 0 ]; then
-    _secrets_apply_changes
+    __core__auth__secrets_apply_changes
   else
     log_info "No changes to apply."
   fi
@@ -1114,13 +1119,13 @@ install_list_of_secrets() {
   run_task "Cleaning memory" "unset SECRETS_CONTENT PREVIEW_CONTENT"
 }
 
-uninstall_list_of_secrets() {
+uninstall__core__auth__list_of_secrets() {
   log_skip "Encrypted secrets vault"
 }
 
-register_action "Manage GPG-encrypted authinfo secrets" "list-of-secrets" "secrets"
+register_action "Core / Auth / Manage GPG-encrypted authinfo secrets" "-core--auth--list-of-secrets" "secrets"
 
-is_installed_terraformls() {
+is_installed__cloud__terraform__terraformls() {
   is_system_package_installed "terraformls"
 }
 
@@ -1131,7 +1136,7 @@ register_system_package "terraformls" \
                         "mac:hashicorp/tap/terraform-ls" \
                         "debian-ubuntu:terraform-ls"
 
-install_terraformls() {
+install__cloud__terraform__terraformls() {
   log_info "Starting Terraform Language Server..."
 
   if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -1166,262 +1171,39 @@ install_terraformls() {
   install_system_packages "terraformls"
 }
 
-uninstall_terraformls() {
+uninstall__cloud__terraform__terraformls() {
   log_skip "Terraform Language Server" "Terraform Language Server is system package and will not be uninstalled automatically"
 }
 
-register_action "Install Terraform Language Server" "terraformls" "Cloud"
+register_action "Cloud / Terraform / Install Terraform Language Server" "-cloud--terraform--terraformls" "cloud"
 
-DIRVISH_UTILITIES=(
-  "fd" "git"
-  "mediainfo" "imagemagick" "ffmpegthumbnailer" "vipsthumbnail"
-  "poppler" "unzip" "glow" "pandoc"
-)
-
-is_installed_dirvish_utilities_bundle() {
-  are_these_system_packages_installed "${DIRVISH_UTILITIES[@]}"
-}
-
-# --- Core Performance & Navigation ---
-# Used for fast searching, jumping to files, and directory rendering.
-register_system_package "fd" \
-                        "alpine:fd" \
-                        "fedora:fd-find" \
-                        "linuxbrew:fd" \
-                        "mac:fd" \
-                        "debian-ubuntu:fd-find"
-
-register_system_package "git" \
-                        "alpine:git" \
-                        "fedora:git" \
-                        "linuxbrew:git" \
-                        "mac:git" \
-                        "debian-ubuntu:git"
-
-# --- Media Metadata & Previews ---
-# Used by dispatchers to show technical info and thumbnails for video/audio/images.
-register_system_package "mediainfo" \
-                        "alpine:mediainfo" \
-                        "fedora:mediainfo" \
-                        "linuxbrew:mediainfo" \
-                        "mac:mediainfo" \
-                        "debian-ubuntu:mediainfo"
-
-register_system_package "imagemagick" \
-                        "alpine:imagemagick" \
-                        "fedora:ImageMagick" \
-                        "linuxbrew:imagemagick" \
-                        "mac:imagemagick" \
-                        "debian-ubuntu:imagemagick"
-
-register_system_package "ffmpegthumbnailer" \
-                        "alpine:ffmpegthumbnailer" \
-                        "fedora:ffmpegthumbnailer" \
-                        "linuxbrew:ffmpegthumbnailer" \
-                        "mac:ffmpegthumbnailer" \
-                        "debian-ubuntu:ffmpegthumbnailer"
-
-register_system_package "vipsthumbnail" \
-                        "alpine:vips-tools" \
-                        "fedora:vips-tools" \
-                        "linuxbrew:vips" \
-                        "mac:vips" \
-                        "debian-ubuntu:libvips-tools"
-
-# --- Document & Archive Parsing ---
-# Used to peek inside PDFs, archives, and formatted text files.
-register_system_package "poppler" \
-                        "alpine:poppler-utils" \
-                        "fedora:poppler" \
-                        "linuxbrew:poppler" \
-                        "mac:poppler" \
-                        "debian-ubuntu:poppler-utils"
-
-register_system_package "unzip" \
-                        "alpine:unzip" \
-                        "fedora:unzip" \
-                        "linuxbrew:unzip" \
-                        "mac:unzip" \
-                        "debian-ubuntu:unzip"
-
-register_system_package "glow" \
-                        "alpine:glow" \
-                        "fedora:glow" \
-                        "linuxbrew:glow" \
-                        "mac:glow" \
-                        "debian-ubuntu:glow"
-
-register_system_package "pandoc" \
-                        "alpine:pandoc" \
-                        "fedora:pandoc" \
-                        "linuxbrew:pandoc" \
-                        "mac:pandoc" \
-                        "debian-ubuntu:pandoc"
-
-install_dirvish_utilities_bundle() {
-  log_info "Starting Dirvish utilities setup..."
-
-  if [ -f /etc/debian_version ]; then
-    # Debian/Ubuntu: There is no official Personal Package Archive (PPA) for Glow on Ubuntu.
-    # Instead, the developers provide a dedicated APT repository and other official installation methods.
-    sudo mkdir -p /etc/apt/keyrings
-    if [ ! -f /etc/apt/keyrings/charm.gpg ]; then
-      curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
-    fi
-    echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
-  fi
-
-  install_system_packages "${DIRVISH_UTILITIES[@]}"
-}
-
-uninstall_dirvish_utilities_bundle() {
-  log_skip "Dirvish utilities" "The packages used with Dirvish are system packages and will not be uninstalled automatically"
-}
-
-register_action "Install Dirvish utilities" "dirvish_utilities_bundle" "Utils"
-
-is_installed_ripgrep() {
-  is_system_package_installed "ripgrep"
-}
-
-register_system_package "ripgrep" \
-                        "alpine:ripgrep" \
-                        "fedora:ripgrep" \
-                        "linuxbrew:ripgrep" \
-                        "mac:ripgrep" \
-                        "debian-ubuntu:ripgrep"
-
-install_ripgrep() {
-  log_info "Starting Ripgrep setup..."
-  install_system_packages "ripgrep"
-}
-
-uninstall_ripgrep() {
-  log_skip "Ripgrep" "Ripgrep is system package and will not be uninstalled automatically"
-}
-
-register_action "Install Ripgrep" "ripgrep" "Utils"
-
-VTERM_BUILD_PACKAGES=(
-  "libvterm" "cmake" "build-essential"
-)
-
-is_installed_vterm_build_bundle() {
-  are_these_system_packages_installed "${VTERM_BUILD_PACKAGES[@]}"
-}
-
-register_system_package "libvterm" \
-                        "alpine:libvterm-dev" \
-                        "fedora:libvterm-devel" \
-                        "linuxbrew:libvterm" \
-                        "mac:libvterm" \
-                        "debian-ubuntu:libvterm-dev"
-
-register_system_package "cmake" \
-                        "alpine:cmake" \
-                        "fedora:cmake" \
-                        "linuxbrew:cmake" \
-                        "mac:cmake" \
-                        "debian-ubuntu:cmake"
-
-register_system_package "build-essential" \
-                        "alpine:build-base" \
-                        "fedora:gcc-c++" \
-                        "linuxbrew:gcc" \
-                        "mac:xcode" \
-                        "debian-ubuntu:build-essential"
-
-install_vterm_build_bundle() {
-  log_info "Starting C++ Development environment setup..."
-  install_system_packages "${VTERM_BUILD_PACKAGES[@]}"
-}
-
-uninstall_vterm_build_bundle() {
-  log_skip "vterm build bundle" "The packages used for vterm builds are system packages and will not be uninstalled automatically"
-}
-
-register_action "Install vterm build bundle" "vterm_build_bundle" "Utils"
-
-is_installed_semgrep() {
-  command -v semgrep >/dev/null 2>&1
-}
-
-install_semgrep() {
-  install_via_pipx "Semgrep" "semgrep"
-}
-
-uninstall_semgrep() {
-  run_task "Uninstalling Semgrep" "pipx uninstall semgrep 2>/dev/null || true"
-}
-
-register_action "Install Semgrep" "semgrep" "standalone"
-
-register_system_package "jq" \
-                        "alpine:jq" \
-                        "fedora:jq" \
-                        "linuxbrew:jq" \
-                        "mac:jq" \
-                        "debian-ubuntu:jq"
-
-is_installed_jq() {
-  command -v jq >/dev/null 2>&1
-}
-
-is_installed_rtk() {
-  command -v rtk >/dev/null 2>&1
-}
-
-install_rtk() {
-  if ! is_installed_jq; then
-    install_system_packages "jq"
-  else
-    log_skip "jq is already installed."
-  fi
-  if ! is_installed_rtk; then
-    if curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh; then
-      return 0
-    else
-      log_error "RTK installation failed."
-      return 1
-    fi
-  else
-    log_skip "RTK is already installed."
-  fi
-}
-
-uninstall_rtk() {
-  log_skip "RTK" "RTK might be in use by another tool in the system. If required, please uninstall it manually."
-}
-
-register_action "Install Rust Token Killer (rtk)" "rtk" "RTK"
-
-is_installed_copilot() {
-  [ -f "$TOOLS_DIR/node_modules/.bin/copilot-language-server" ] || command -v copilot-language-server >/dev/null 2>&1
-}
-
-install_copilot() {
-  install_nodejs_tools
-}
-
-uninstall_copilot() {
-  uninstall_nodejs_tools
-}
-
-register_action "Install GitHub Copilot" "copilot" "node"
-
-is_installed_prettier() {
+is_installed__editor__formatting__prettier() {
   [ -f "$TOOLS_DIR/node_modules/.bin/prettier" ] || command -v prettier >/dev/null 2>&1
 }
 
-install_prettier() {
+install__editor__formatting__prettier() {
   install_nodejs_tools
 }
 
-uninstall_prettier() {
+uninstall__editor__formatting__prettier() {
   uninstall_nodejs_tools
 }
 
-register_action "Install Prettier" "prettier" "node"
+register_action "Editor / Formatting / Install Prettier" "-editor--formatting--prettier" "node"
+
+is_installed__tools__autotools__language_server() {
+  command -v autotools-language-server >/dev/null 2>&1
+}
+
+install__tools__autotools__language_server() {
+  install_via_pipx "Autotools Language Server" "autotools-language-server"
+}
+
+uninstall__tools__autotools__language_server() {
+  run_task "Uninstalling Autotools LS" "pipx uninstall autotools-language-server 2>/dev/null || true"
+}
+
+register_action "Tools / Autotools / Install Autotools Language Server" "-tools--autotools--language-server" "standalone"
 
 CPP_MIN_DEV_PACKAGES=(
   "gcc-c++" "gdb" "cmake" "make" "clang-tools-extra" "bear"
@@ -1429,7 +1211,7 @@ CPP_MIN_DEV_PACKAGES=(
   "zlib-devel" "sqlite-devel" "readline-devel" "libffi-devel"
 )
 
-is_installed_cpp_dev_bundle() {
+is_installed__lang__cpp__cpp_dev_bundle() {
   are_these_system_packages_installed "${CPP_MIN_DEV_PACKAGES[@]}"
 }
 
@@ -1528,28 +1310,156 @@ register_system_package "zlib-devel" \
                         "mac:zlib" \
                         "debian-ubuntu:zlib1g-dev"
 
-install_cpp_dev_bundle() {
+install__lang__cpp__cpp_dev_bundle() {
   log_info "Starting C++ Development environment setup..."
   install_system_packages "${CPP_MIN_DEV_PACKAGES[@]}"
 }
 
-uninstall_cpp_dev_bundle() {
+uninstall__lang__cpp__cpp_dev_bundle() {
   log_skip "C++ dev bundle" "The packages used for C++ development are system packages and will not be uninstalled automatically"
 }
 
-register_action "Install C++ dev tools" "cpp-dev-bundle" "C++"
+register_action "Lang / CPP / Install C++ dev tools" "-lang--cpp--cpp-dev-bundle" "cpp"
 
-IS_SDKMAN_INITIALIZED=false
+# Update PlantUML version as needed:
+PLANTUML_VERSION="1.2026.6"
+PLANTUML_DIR="$HOME/.emacs.d/plantuml"
 
-is_installed_sdkman() {
-  if [ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
-    return 0
+is_installed__lang__diagrams__plantuml() {
+  [ -f "$HOME/.emacs.d/plantuml/plantuml.jar" ]
+}
+
+install__lang__diagrams__plantuml() {
+  local PLANTUML_JAR="$PLANTUML_DIR/plantuml.jar"
+  local PLANTUML_URL="https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar"
+
+  if [ -f "$PLANTUML_JAR" ]; then
+    log_skip "PlantUML" "EXISTS"
+  else
+    run_task "Downloading PlantUML" "mkdir -p $PLANTUML_DIR && curl -L $PLANTUML_URL -o $PLANTUML_JAR"
   fi
+}
 
+uninstall__lang__diagrams__plantuml() {
+  run_task "Removing PlantUML" "rm -Rf $PLANTUML_DIR"
+}
+
+register_action "Lang / Diagrams / Install PlantUML" "-lang--diagrams--plantuml" "standalone"
+
+JDTLS_VERSION="1.60.0"
+JDTLS_DATE="202606262232"
+JDTLS_TARGET_DIR="$HOME/.emacs.d/lsp_language_servers/eclipse.jdt.ls"
+
+is_installed__lang__java__jdtls() {
+  [ -f "$JDTLS_TARGET_DIR/bin/jdtls" ]
+}
+
+install__lang__java__jdtls() {
+  if ! is_installed__lang__java__jdtls; then
+    local JDTLS_TMP_DIR
+    JDTLS_TMP_DIR=$(mktemp -d)
+    mkdir -p "$JDTLS_TARGET_DIR"
+    run_task "Downloading JDTLS" "curl -L -o $JDTLS_TMP_DIR/jdtls.tar.gz https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/jdt-language-server-${JDTLS_VERSION}-${JDTLS_DATE}.tar.gz"
+    run_task "Extracting JDTLS" "tar -xzf $JDTLS_TMP_DIR/jdtls.tar.gz -C $JDTLS_TARGET_DIR"
+    rm -rf "$JDTLS_TMP_DIR"
+  fi
+}
+
+uninstall__lang__java__jdtls() {
+  if is_installed__lang__java__jdtls; then
+    run_task "Removing existing JDTLS installation" "rm -Rf${VERBOSE:+v} $JDTLS_TARGET_DIR"
+  fi
+}
+
+GOOGLE_JAVA_FORMAT_VERSION="1.25.0"
+GOOGLE_JAVA_FORMAT_DIR="$HOME/.emacs.d/google-java-format"
+GOOGLE_JAVA_FORMAT_BIN="$GOOGLE_JAVA_FORMAT_DIR/google-java-format"
+
+is_installed__lang__java__google_java_format() {
+  [ -x "$GOOGLE_JAVA_FORMAT_BIN" ]
+}
+
+install__lang__java__google_java_format() {
+  if ! is_installed__lang__java__google_java_format; then
+    local arch os binary_name
+    arch="$(uname -m)"
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    case "${os}_${arch}" in
+      linux_x86_64)  binary_name="google-java-format_linux-x86-64" ;;
+      linux_aarch64) binary_name="google-java-format_linux-arm64" ;;
+      darwin_arm64)  binary_name="google-java-format_darwin-arm64" ;;
+      *)
+        log_error "No pre-built google-java-format binary for ${os}_${arch}."
+        return 1
+        ;;
+    esac
+    mkdir -p "$GOOGLE_JAVA_FORMAT_DIR"
+    local url="https://github.com/google/google-java-format/releases/download/v${GOOGLE_JAVA_FORMAT_VERSION}/${binary_name}"
+    run_task "Downloading google-java-format v${GOOGLE_JAVA_FORMAT_VERSION}" "curl -L -o '$GOOGLE_JAVA_FORMAT_BIN' '$url'"
+    chmod +x "$GOOGLE_JAVA_FORMAT_BIN"
+  fi
+}
+
+uninstall__lang__java__google_java_format() {
+  if is_installed__lang__java__google_java_format; then
+    run_task "Removing google-java-format" "rm -Rf${VERBOSE:+v} $GOOGLE_JAVA_FORMAT_DIR"
+  fi
+}
+
+register_action "Lang / Java / Install Google Java Format" "-lang--java--google-java-format" "jvm"
+
+is_installed__lang__java__java() {
   return 1
 }
 
-initialize_sdkman() {
+install__lang__java__java() {
+  install__lang__java__jdtls
+  install__lang__jvm__sdkman
+
+  JAVA_VERSIONS_TO_INSTALL=(
+    "8.0.482-tem"
+    "11.0.30-tem"
+    "17.0.18-tem"
+    "21.0.10-tem"
+    "25.0.2-tem"
+  )
+
+  for v in "${JAVA_VERSIONS_TO_INSTALL[@]}"; do
+    run_task "Java $v" "sdk install java $v > /dev/null 2>&1"
+  done
+}
+
+uninstall__lang__java__java() {
+  uninstall__lang__java__jdtls
+  log_skip "Java SDKs (SDKMAN!)."
+}
+
+register_action "Lang / Java / Install Java" "-lang--java--java" "jvm"
+
+is_installed__lang__javascript__vtsls_language_server() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/vtsls" ] || command -v vtsls >/dev/null 2>&1
+}
+
+install__lang__javascript__vtsls_language_server() {
+  install_nodejs_tools
+}
+
+uninstall__lang__javascript__vtsls_language_server() {
+  uninstall_nodejs_tools
+}
+
+register_action "Lang / JavaScript / Install vtsls Language Server" "-lang--javascript--vtsls-language-server" "node"
+
+IS_SDKMAN_INITIALIZED=false
+
+is_installed__lang__jvm__sdkman() {
+  if [ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
+    return 0
+  fi
+  return 1
+}
+
+initialize__lang__jvm__sdkman() {
   if [[ "$IS_SDKMAN_INITIALIZED" == "false" ]]; then
     if [ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]; then
       # shellcheck disable=SC1091
@@ -1565,149 +1475,45 @@ initialize_sdkman() {
   fi
 }
 
-install_sdkman() {
-  if ! is_installed_sdkman; then
+install__lang__jvm__sdkman() {
+  if ! is_installed__lang__jvm__sdkman; then
     run_task "Installing SDKMAN" "curl -s 'https://get.sdkman.io' | bash"
   fi
-
-  # Initialize will now be quiet
-  initialize_sdkman
+  initialize__lang__jvm__sdkman
 }
-
-# Download specific version of JDTLS. Update version/date as needed:
-JDTLS_VERSION="1.57.0"
-JDTLS_DATE="202602261110"
-JDTLS_TARGET_DIR="$HOME/.emacs.d/lsp_language_servers/eclipse.jdt.ls"
-
-is_installed_jdtls() {
-  [ -f "$JDTLS_TARGET_DIR/bin/jdtls" ]
-}
-
-install_jdtls() {
-  if ! is_installed_jdtls; then
-    local JDTLS_TMP_DIR
-    JDTLS_TMP_DIR=$(mktemp -d)
-    mkdir -p "$JDTLS_TARGET_DIR"
-    run_task "Downloading JDTLS" "curl -L -o $JDTLS_TMP_DIR/jdtls.tar.gz https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/jdt-language-server-${JDTLS_VERSION}-${JDTLS_DATE}.tar.gz"
-    run_task "Extracting JDTLS" "tar -xzf $JDTLS_TMP_DIR/jdtls.tar.gz -C $JDTLS_TARGET_DIR"
-
-    rm -rf "$JDTLS_TMP_DIR"
-  fi
-}
-
-uninstall_jdtls() {
-  if is_installed_jdtls; then
-    run_task "Removing existing JDTLS installation" "rm -Rf${VERBOSE:+v} $JDTLS_TARGET_DIR"
-  fi
-}
-
-is_installed_java() {
-  return 1 # SDKMAN! will skip already installed versions
-}
-
-install_java() {
-  install_jdtls
-  install_sdkman
-
-  JAVA_VERSIONS_TO_INSTALL=(
-    "8.0.482-tem"
-    "11.0.30-tem"
-    "17.0.18-tem"
-    "21.0.10-tem"
-    "25.0.2-tem"
-  )
-
-  for v in "${JAVA_VERSIONS_TO_INSTALL[@]}"; do
-    run_task "Java $v" "sdk install java $v > /dev/null 2>&1"
-  done
-}
-
-uninstall_java() {
-  uninstall_jdtls
-  log_skip "Java SDKs (SDKMAN!)."
-}
-
-register_action "Install Java" "java" "jvm"
-
-GOOGLE_JAVA_FORMAT_VERSION="1.25.0"
-GOOGLE_JAVA_FORMAT_DIR="$HOME/.emacs.d/google-java-format"
-GOOGLE_JAVA_FORMAT_BIN="$GOOGLE_JAVA_FORMAT_DIR/google-java-format"
-
-is_installed_google_java_format() {
-  [ -x "$GOOGLE_JAVA_FORMAT_BIN" ]
-}
-
-install_google_java_format() {
-  if ! is_installed_google_java_format; then
-    # Determine platform binary name.
-    local arch
-    arch="$(uname -m)"
-    local os
-    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-    local binary_name
-
-    case "${os}_${arch}" in
-      linux_x86_64)  binary_name="google-java-format_linux-x86-64" ;;
-      linux_aarch64) binary_name="google-java-format_linux-arm64" ;;
-      darwin_arm64)  binary_name="google-java-format_darwin-arm64" ;;
-      *)
-        log_error "No pre-built google-java-format binary for ${os}_${arch}."
-        log_error "Install manually: https://github.com/google/google-java-format/releases"
-        return 1
-        ;;
-    esac
-
-    mkdir -p "$GOOGLE_JAVA_FORMAT_DIR"
-
-    local url="https://github.com/google/google-java-format/releases/download/v${GOOGLE_JAVA_FORMAT_VERSION}/${binary_name}"
-    run_task "Downloading google-java-format v${GOOGLE_JAVA_FORMAT_VERSION}" \
-             "curl -L -o '$GOOGLE_JAVA_FORMAT_BIN' '$url'"
-    chmod +x "$GOOGLE_JAVA_FORMAT_BIN"
-  fi
-}
-
-uninstall_google_java_format() {
-  if is_installed_google_java_format; then
-    run_task "Removing google-java-format" "rm -Rf${VERBOSE:+v} $GOOGLE_JAVA_FORMAT_DIR"
-  fi
-}
-
-register_action "Install Google Java Format" "google-java-format" "jvm"
 
 KLS_VERSION="1.3.13"
 KLS_TARGET_DIR="$HOME/.emacs.d/lsp_language_servers/kotlin.ls"
 
-is_installed_kls() {
+is_installed__lang__kotlink__kls() {
   [ -f "$KLS_TARGET_DIR/bin/kotlin-language-server" ]
 }
 
-install_kls() {
-  if ! is_installed_kls; then
+install__lang__kotlink__kls() {
+  if ! is_installed__lang__kotlink__kls; then
     local KLS_TMP_DIR
     KLS_TMP_DIR=$(mktemp -d)
-
-    rm -Rf "$KLS_TARGET_DIR" # Clean previous install
+    rm -Rf "$KLS_TARGET_DIR"
     mkdir -p "$KLS_TARGET_DIR"
     run_task "Downloading KLS" "curl -L https://github.com/fwcd/kotlin-language-server/releases/download/$KLS_VERSION/server.zip -o $KLS_TMP_DIR/kotlin-language-server.zip"
     run_task "Extracting KLS" "unzip -q $KLS_TMP_DIR/kotlin-language-server.zip -d $KLS_TMP_DIR && mv $KLS_TMP_DIR/server/* $KLS_TARGET_DIR/"
-
     rm -Rf "$KLS_TMP_DIR"
   fi
 }
 
-uninstall_kls() {
-  if is_installed_kls; then
+uninstall__lang__kotlink__kls() {
+  if is_installed__lang__kotlink__kls; then
     run_task "Removing existing KLS installation" "rm -Rf${VERBOSE:+v} $KLS_TARGET_DIR"
   fi
 }
 
-is_installed_kotlin() {
-  return 1 # SDKMAN! will skip already installed versions
+is_installed__lang__kotlin__kotlin() {
+  return 1
 }
 
-install_kotlin() {
-  install_kls
-  install_sdkman
+install__lang__kotlin__kotlin() {
+  install__lang__kotlink__kls
+  install__lang__jvm__sdkman
 
   KOTLIN_VERSIONS_TO_INSTALL=(
     "2.3.10"
@@ -1718,62 +1524,34 @@ install_kotlin() {
   done
 }
 
-uninstall_kotlin() {
-  uninstall_kls
+uninstall__lang__kotlin__kotlin() {
+  uninstall__lang__kotlink__kls
   log_skip "Kotlin SDKs (SDKMAN!)"
 }
 
-register_action "Install Kotlin" "kotlin" "jvm"
-
-is_installed_vtsls_language_server() {
-  [ -f "$TOOLS_DIR/node_modules/.bin/vtsls" ] || command -v vtsls >/dev/null 2>&1
-}
-
-install_vtsls_language_server() {
-  install_nodejs_tools
-}
-
-uninstall_vtsls_language_server() {
-  uninstall_nodejs_tools
-}
-
-register_action "Install vtsls Language Server" "vtsls-language-server" "node"
-
-is_installed_tailwindcss_language_server() {
-  [ -f "$TOOLS_DIR/node_modules/.bin/tailwindcss-language-server" ]
-}
-
-install_tailwindcss_language_server() {
-  install_nodejs_tools
-}
-
-uninstall_tailwindcss_language_server() {
-  uninstall_nodejs_tools
-}
-
-register_action "Install Tailwind CSS Language Server" "tailwindcss-language-server" "node"
+register_action "Lang / Kotlin / Install Kotlin" "-lang--kotlin--kotlin" "jvm"
 
 LSP_BASH_LANGUAGE_SERVER_PATH="$HOME/.emacs.d/.cache/lsp/npm/bash-language-server"
 
-is_installed_bash_language_server() {
+is_installed__lang__shell__bash_language_server() {
   [ -f "$TOOLS_DIR/node_modules/.bin/bash-language-server" ] || command -v bash-language-server >/dev/null 2>&1
 }
 
-install_bash_language_server() {
+install__lang__shell__bash_language_server() {
   install_nodejs_tools
   # Small hack for bash-language-server to work with lsp-mode: setting `lsp-bash-bash-language-server-path`
   # did not work as expected for unknown reasons.
   run_task "Linking Bash LS" "rm -Rf $LSP_BASH_LANGUAGE_SERVER_PATH && mkdir -p $LSP_BASH_LANGUAGE_SERVER_PATH/bin/ && ln -s $TOOLS_DIR/node_modules/.bin/bash-language-server $LSP_BASH_LANGUAGE_SERVER_PATH/bin/bash-language-server"
 }
 
-uninstall_bash_language_server() {
+uninstall__lang__shell__bash_language_server() {
   uninstall_nodejs_tools
   run_task "Cleaning Bash LS cache" "rm -Rf $LSP_BASH_LANGUAGE_SERVER_PATH"
 }
 
-register_action "Install Bash Language Server" "bash-language-server" "node"
+register_action "Lang / Shell / Install Bash Language Server" "-lang--shell--bash-language-server" "node"
 
-is_installed_shellcheck() {
+is_installed__lang__shell__shellcheck() {
   command -v shellcheck >/dev/null 2>&1
 }
 
@@ -1784,54 +1562,387 @@ register_system_package "ShellCheck" \
                         "mac:shellcheck" \
                         "debian-ubuntu:shellcheck"
 
-install_shellcheck() {
+install__lang__shell__shellcheck() {
   install_system_packages "ShellCheck"
 }
 
-uninstall_shellcheck() {
+uninstall__lang__shell__shellcheck() {
   log_skip "ShellCheck" "ShellCheck is a system package and will not be uninstalled automatically"
 }
 
-register_action "Install ShellCheck" "shellcheck" "standalone"
+register_action "Lang / Shell / Install ShellCheck" "-lang--shell--shellcheck" "standalone"
 
-is_installed_autotools_language_server() {
-  command -v autotools-language-server >/dev/null 2>&1
+is_installed__lang__web__tailwindcss_language_server() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/tailwindcss-language-server" ]
 }
 
-install_autotools_language_server() {
-  install_via_pipx "Autotools Language Server" "autotools-language-server"
+install__lang__web__tailwindcss_language_server() {
+  install_nodejs_tools
 }
 
-uninstall_autotools_language_server() {
-  run_task "Uninstalling Autotools LS" "pipx uninstall autotools-language-server 2>/dev/null || true"
+uninstall__lang__web__tailwindcss_language_server() {
+  uninstall_nodejs_tools
 }
 
-register_action "Install Autotools Language Server" "autotools-language-server" "standalone"
+register_action "Lang / Web / Install Tailwind CSS Language Server" "-lang--web--tailwindcss-language-server" "node"
 
-# Update PlantUML version as needed:
-PLANTUML_VERSION="1.2026.2"
-PLANTUML_DIR="$HOME/.emacs.d/plantuml"
+DIRVISH_UTILITIES=(
+  "fd" "git"
+  "mediainfo" "imagemagick" "ffmpegthumbnailer" "vipsthumbnail"
+  "poppler" "unzip" "glow" "pandoc"
+)
 
-is_installed_plantuml() {
-  [ -f "$HOME/.emacs.d/plantuml/plantuml.jar" ]
+is_installed__navigation__dired__dirvish_utilities_bundle() {
+  are_these_system_packages_installed "${DIRVISH_UTILITIES[@]}"
 }
 
-install_plantuml() {
-  local PLANTUML_JAR="$PLANTUML_DIR/plantuml.jar"
-  local PLANTUML_URL="https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar"
+# --- Core Performance & Navigation ---
+register_system_package "fd" \
+                        "alpine:fd" \
+                        "fedora:fd-find" \
+                        "linuxbrew:fd" \
+                        "mac:fd" \
+                        "debian-ubuntu:fd-find"
 
-  if [ -f "$PLANTUML_JAR" ]; then
-    log_skip "PlantUML" "EXISTS"
+register_system_package "git" \
+                        "alpine:git" \
+                        "fedora:git" \
+                        "linuxbrew:git" \
+                        "mac:git" \
+                        "debian-ubuntu:git"
+
+# --- Media Metadata & Previews ---
+register_system_package "mediainfo" \
+                        "alpine:mediainfo" \
+                        "fedora:mediainfo" \
+                        "linuxbrew:mediainfo" \
+                        "mac:mediainfo" \
+                        "debian-ubuntu:mediainfo"
+
+register_system_package "imagemagick" \
+                        "alpine:imagemagick" \
+                        "fedora:ImageMagick" \
+                        "linuxbrew:imagemagick" \
+                        "mac:imagemagick" \
+                        "debian-ubuntu:imagemagick"
+
+register_system_package "ffmpegthumbnailer" \
+                        "alpine:ffmpegthumbnailer" \
+                        "fedora:ffmpegthumbnailer" \
+                        "linuxbrew:ffmpegthumbnailer" \
+                        "mac:ffmpegthumbnailer" \
+                        "debian-ubuntu:ffmpegthumbnailer"
+
+register_system_package "vipsthumbnail" \
+                        "alpine:vips-tools" \
+                        "fedora:vips-tools" \
+                        "linuxbrew:vips" \
+                        "mac:vips" \
+                        "debian-ubuntu:libvips-tools"
+
+# --- Document & Archive Parsing ---
+register_system_package "poppler" \
+                        "alpine:poppler-utils" \
+                        "fedora:poppler" \
+                        "linuxbrew:poppler" \
+                        "mac:poppler" \
+                        "debian-ubuntu:poppler-utils"
+
+register_system_package "unzip" \
+                        "alpine:unzip" \
+                        "fedora:unzip" \
+                        "linuxbrew:unzip" \
+                        "mac:unzip" \
+                        "debian-ubuntu:unzip"
+
+register_system_package "glow" \
+                        "alpine:glow" \
+                        "fedora:glow" \
+                        "linuxbrew:glow" \
+                        "mac:glow" \
+                        "debian-ubuntu:glow"
+
+register_system_package "pandoc" \
+                        "alpine:pandoc" \
+                        "fedora:pandoc" \
+                        "linuxbrew:pandoc" \
+                        "mac:pandoc" \
+                        "debian-ubuntu:pandoc"
+
+install__navigation__dired__dirvish_utilities_bundle() {
+  log_info "Starting Dirvish utilities setup..."
+
+  if [ -f /etc/debian_version ]; then
+    sudo mkdir -p /etc/apt/keyrings
+    if [ ! -f /etc/apt/keyrings/charm.gpg ]; then
+      curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+    fi
+    echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
+  fi
+
+  install_system_packages "${DIRVISH_UTILITIES[@]}"
+}
+
+uninstall__navigation__dired__dirvish_utilities_bundle() {
+  log_skip "Dirvish utilities" "The packages used with Dirvish are system packages and will not be uninstalled automatically"
+}
+
+register_action "Navigation / Dired / Install Dirvish utilities" "-navigation--dired--dirvish_utilities_bundle" "utils"
+
+# Copilot installation requirements
+is_installed__tools__ai__copilot() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/copilot-language-server" ] || command -v copilot-language-server >/dev/null 2>&1
+}
+
+install__tools__ai__copilot() {
+  install_nodejs_tools
+}
+
+uninstall__tools__ai__copilot() {
+  uninstall_nodejs_tools
+}
+
+register_action "Tools / AI / Install GitHub Copilot" "-tools--ai--copilot" "node"
+
+# RTK installation requirements
+register_system_package "jq" \
+                        "alpine:jq" \
+                        "fedora:jq" \
+                        "linuxbrew:jq" \
+                        "mac:jq" \
+                        "debian-ubuntu:jq"
+
+is_installed__tools__ai__jq() {
+  command -v jq >/dev/null 2>&1
+}
+
+is_installed__tools__ai__rtk() {
+  command -v rtk >/dev/null 2>&1
+}
+
+install__tools__ai__rtk() {
+  if ! is_installed__tools__ai__jq; then
+    install_system_packages "jq"
   else
-    run_task "Downloading PlantUML" "mkdir -p $PLANTUML_DIR && curl -L $PLANTUML_URL -o $PLANTUML_JAR"
+    log_skip "jq is already installed."
+  fi
+  if ! is_installed__tools__ai__rtk; then
+    if curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh; then
+      return 0
+    else
+      log_error "RTK installation failed."
+      return 1
+    fi
+  else
+    log_skip "RTK is already installed."
   fi
 }
 
-uninstall_plantuml() {
-  run_task "Removing PlantUML" "rm -Rf $PLANTUML_DIR"
+uninstall__tools__ai__rtk() {
+  log_skip "RTK" "RTK might be in use by another tool in the system. If required, please uninstall it manually."
 }
 
-register_action "Install PlantUML" "plantuml" "standalone"
+register_action "Tools / AI / Install Rust Token Killer (rtk)" "-tools--ai--rtk" "standalone"
+
+DIRVISH_UTILITIES=(
+  "fd" "git"
+  "mediainfo" "imagemagick" "ffmpegthumbnailer" "vipsthumbnail"
+  "poppler" "unzip" "glow" "pandoc"
+)
+
+is_installed__tools__dired__dirvish_utilities_bundle() {
+  are_these_system_packages_installed "${DIRVISH_UTILITIES[@]}"
+}
+
+# --- Core Performance & Navigation ---
+# Used for fast searching, jumping to files, and directory rendering.
+register_system_package "fd" \
+                        "alpine:fd" \
+                        "fedora:fd-find" \
+                        "linuxbrew:fd" \
+                        "mac:fd" \
+                        "debian-ubuntu:fd-find"
+
+register_system_package "git" \
+                        "alpine:git" \
+                        "fedora:git" \
+                        "linuxbrew:git" \
+                        "mac:git" \
+                        "debian-ubuntu:git"
+
+# --- Media Metadata & Previews ---
+# Used by dispatchers to show technical info and thumbnails for video/audio/images.
+register_system_package "mediainfo" \
+                        "alpine:mediainfo" \
+                        "fedora:mediainfo" \
+                        "linuxbrew:mediainfo" \
+                        "mac:mediainfo" \
+                        "debian-ubuntu:mediainfo"
+
+register_system_package "imagemagick" \
+                        "alpine:imagemagick" \
+                        "fedora:ImageMagick" \
+                        "linuxbrew:imagemagick" \
+                        "mac:imagemagick" \
+                        "debian-ubuntu:imagemagick"
+
+register_system_package "ffmpegthumbnailer" \
+                        "alpine:ffmpegthumbnailer" \
+                        "fedora:ffmpegthumbnailer" \
+                        "linuxbrew:ffmpegthumbnailer" \
+                        "mac:ffmpegthumbnailer" \
+                        "debian-ubuntu:ffmpegthumbnailer"
+
+register_system_package "vipsthumbnail" \
+                        "alpine:vips-tools" \
+                        "fedora:vips-tools" \
+                        "linuxbrew:vips" \
+                        "mac:vips" \
+                        "debian-ubuntu:libvips-tools"
+
+# --- Document & Archive Parsing ---
+# Used to peek inside PDFs, archives, and formatted text files.
+register_system_package "poppler" \
+                        "alpine:poppler-utils" \
+                        "fedora:poppler" \
+                        "linuxbrew:poppler" \
+                        "mac:poppler" \
+                        "debian-ubuntu:poppler-utils"
+
+register_system_package "unzip" \
+                        "alpine:unzip" \
+                        "fedora:unzip" \
+                        "linuxbrew:unzip" \
+                        "mac:unzip" \
+                        "debian-ubuntu:unzip"
+
+register_system_package "glow" \
+                        "alpine:glow" \
+                        "fedora:glow" \
+                        "linuxbrew:glow" \
+                        "mac:glow" \
+                        "debian-ubuntu:glow"
+
+register_system_package "pandoc" \
+                        "alpine:pandoc" \
+                        "fedora:pandoc" \
+                        "linuxbrew:pandoc" \
+                        "mac:pandoc" \
+                        "debian-ubuntu:pandoc"
+
+install__tools__dired__dirvish_utilities_bundle() {
+  log_info "Starting Dirvish utilities setup..."
+
+  if [ -f /etc/debian_version ]; then
+    # Debian/Ubuntu: There is no official Personal Package Archive (PPA) for Glow on Ubuntu.
+    # Instead, the developers provide a dedicated APT repository and other official installation methods.
+    sudo mkdir -p /etc/apt/keyrings
+    if [ ! -f /etc/apt/keyrings/charm.gpg ]; then
+      curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+    fi
+    echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
+  fi
+
+  install_system_packages "${DIRVISH_UTILITIES[@]}"
+}
+
+uninstall__tools__dired__dirvish_utilities_bundle() {
+  log_skip "Dirvish utilities" "The packages used with Dirvish are system packages and will not be uninstalled automatically"
+}
+
+register_action "Tools / Dired / Install Dirvish utilities" "-tools--dired--dirvish_utilities_bundle" "utils"
+
+is_installed__tools__docker__devcontainer_cli() {
+  command -v devcontainer >/dev/null 2>&1
+}
+
+install__tools__docker__devcontainer_cli() {
+  run_task "Installing Devcontainers CLI locally via npm" \
+    "mkdir -p $HOME/.emacs.d/nodejs_tools && cd $HOME/.emacs.d/nodejs_tools && npm install @devcontainers/cli --save-dev"
+}
+
+uninstall__tools__docker__devcontainer_cli() {
+  run_task "Removing Devcontainers CLI local installation" \
+    "cd $HOME/.emacs.d/nodejs_tools && npm uninstall @devcontainers/cli 2>/dev/null || true"
+}
+
+register_action "Tools / Docker / Install Devcontainers CLI" "-tools--docker--devcontainer_cli" "standalone"
+
+is_installed__tools__rg__ripgrep() {
+  is_system_package_installed "ripgrep"
+}
+
+register_system_package "ripgrep" \
+                        "alpine:ripgrep" \
+                        "fedora:ripgrep" \
+                        "linuxbrew:ripgrep" \
+                        "mac:ripgrep" \
+                        "debian-ubuntu:ripgrep"
+
+install__tools__rg__ripgrep() {
+  log_info "Starting Ripgrep setup..."
+  install_system_packages "ripgrep"
+}
+
+uninstall__tools__rg__ripgrep() {
+  log_skip "Ripgrep" "Ripgrep is system package and will not be uninstalled automatically"
+}
+
+register_action "Tools / RG / Install Ripgrep" "-tools--rg--ripgrep" "utils"
+
+is_installed__tools__semgrep__semgrep() {
+  command -v semgrep >/dev/null 2>&1
+}
+
+install__tools__semgrep__semgrep() {
+  install_via_pipx "Semgrep" "semgrep"
+}
+
+uninstall__tools__semgrep__semgrep() {
+  run_task "Uninstalling Semgrep" "pipx uninstall semgrep 2>/dev/null || true"
+}
+
+register_action "Tools / Semgrep / Install Semgrep" "-tools--semgrep--semgrep" "standalone"
+
+VTERM_BUILD_PACKAGES=(
+  "libvterm" "cmake" "build-essential"
+)
+
+is_installed__tools__vterm__vterm_build_bundle() {
+  are_these_system_packages_installed "${VTERM_BUILD_PACKAGES[@]}"
+}
+
+register_system_package "libvterm" \
+                        "alpine:libvterm-dev" \
+                        "fedora:libvterm-devel" \
+                        "linuxbrew:libvterm" \
+                        "mac:libvterm" \
+                        "debian-ubuntu:libvterm-dev"
+
+register_system_package "cmake" \
+                        "alpine:cmake" \
+                        "fedora:cmake" \
+                        "linuxbrew:cmake" \
+                        "mac:cmake" \
+                        "debian-ubuntu:cmake"
+
+register_system_package "build-essential" \
+                        "alpine:build-base" \
+                        "fedora:gcc-c++" \
+                        "linuxbrew:gcc" \
+                        "mac:xcode" \
+                        "debian-ubuntu:build-essential"
+
+install__tools__vterm__vterm_build_bundle() {
+  log_info "Starting C++ Development environment setup..."
+  install_system_packages "${VTERM_BUILD_PACKAGES[@]}"
+}
+
+uninstall__tools__vterm__vterm_build_bundle() {
+  log_skip "vterm build bundle" "The packages used for vterm builds are system packages and will not be uninstalled automatically"
+}
+
+register_action "Tools / VTerm / Install vterm build bundle" "-tools--vterm--vterm_build_bundle" "utils"
 
 # --- Runtime Logic ---
 sort_tools_by_group

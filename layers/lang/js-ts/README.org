@@ -1,0 +1,18 @@
+#+TITLE: Js Ts Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provide a concise overview of the features, modes, and utilities configured within this layer.
+
+* Emacs Configuration
+** Package Setup
+#+begin_src emacs-lisp
+;; Configuration code here
+#+end_src
+
+* Keybindings
+No keybindings required.
+
+* System Setup
+No system setup required.

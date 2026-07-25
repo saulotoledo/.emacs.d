@@ -1,0 +1,20 @@
+#+TITLE: Markdown Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Configure markdown-mode for Emacs.
+
+* Emacs Configuration
+** Markdown mode
+#+begin_src emacs-lisp
+(use-package markdown-mode
+  :defer t
+  :hook (markdown-mode . (lambda () (setq fill-column 72))))
+#+end_src
+
+* Keybindings
+No keybindings required.
+
+* System Setup
+No system setup required.

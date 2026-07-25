@@ -1,0 +1,124 @@
+#+TITLE: Make Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides editing support, LSP registration, target execution, and smart
+compilation for standard GNU Makefiles.
+
+Makefiles have specific requirements: all recipe lines must be indented with a
+tab character by default for =make= to work correctly.
+
+*IMPORTANT:* EditorConfig might override this setting! If your =.editorconfig=
+file explicitly sets ~indent_style = space~ for Makefiles, it will force spaces
+even if Emacs is configured to use tabs. Ensure your =.editorconfig= uses
+~indent_style = tab~ for ~[Makefile]~.
+
+* Emacs Configuration
+** Basic Configuration
+#+begin_src emacs-lisp
+(defun cfg-lang/makefile-mode-setup ()
+  "Ensure tabs are used for indentation in Makefiles."
+  (setq-local indent-tabs-mode t))
+
+(add-hook 'makefile-mode-hook #'cfg-lang/makefile-mode-setup)
+
+(with-eval-after-load 'lsp-mode
+  (add-to-list 'lsp-language-id-configuration '(makefile-gmake-mode . "makefile")))
+#+end_src
+
+** Smart Compilation Helper
+#+begin_src emacs-lisp
+(defun cfg-lang/smart-compile (&optional debug-p)
+  "Build the project using a Makefile if found, otherwise prompt for a command.
+If DEBUG-P is non-nil (e.g., via `\\[universal-argument]'), validate that
+the Makefile contains the `DEBUG' variable, as well as `clean' and `build'
+targets before attempting a debug build. If any are missing, alert the user
+and fall back to a manual prompt. Standard builds (non-debug) proceed with
+`make -k' if a Makefile exists."
+  (interactive "P")
+  (let* ((m-file-dir (locate-dominating-file default-directory "Makefile"))
+         (m-file (when m-file-dir (expand-file-name "Makefile" m-file-dir)))
+         (has-makefile (and m-file (file-exists-p m-file))))
+    (cond
+     ;; Debug requested. Perform the triple-check (Variable + Targets):
+     ((and debug-p has-makefile)
+      (let ((requirements-met
+             (with-temp-buffer
+               (insert-file-contents m-file)
+               (let ((has-var (re-search-forward "^[ \t]*DEBUG[ \t]*[?:]?=" nil t))
+                     (has-clean (progn (goto-char (point-min))
+                                       (re-search-forward "^clean[ \t]*:" nil t)))
+                     (has-build (progn (goto-char (point-min))
+                                       (re-search-forward "^build[ \t]*:" nil t))))
+                 (and has-var has-clean has-build)))))
+        (if requirements-met
+            (let ((default-directory m-file-dir))
+              (compile "make -k clean build DEBUG=1"))
+          (message "One or more missing in Makefile: DEBUG variable, clean target, or build target. Falling back...")
+          (sit-for 1.5)
+          (call-interactively 'compile))))
+     ;; Standard build (No prefix arg) with a Makefile:
+     ((and (not debug-p) has-makefile)
+      (let ((default-directory m-file-dir))
+        (compile "make -k")))
+     ;; Fallback (No Makefile found or other cases):
+     (t (call-interactively 'compile)))))
+
+(defun cfg-lang/smart-compile-debug ()
+  "Interactive command to run smart compile with debug active."
+  (interactive)
+  (cfg-lang/smart-compile t))
+#+end_src
+
+** Makefile Executor
+#+begin_src emacs-lisp
+;; Projectile 3.x stubs `projectile-dispatch' with
+;; (put 'projectile-dispatch 'transient--prefix t) until first use.
+;; makefile-executor mistakes that marker for a real transient prefix and
+;; errors on load. Materialize the real prefix first.
+(defun cfg-lang/ensure-projectile-dispatch ()
+  "Define lazy `projectile-dispatch' before makefile-executor hooks into it."
+  (when (and (fboundp 'projectile--dispatch-define)
+             (eq (get 'projectile-dispatch 'transient--prefix) t))
+    (require 'transient)
+    (projectile--dispatch-define)))
+
+(with-eval-after-load 'projectile
+  (cfg-lang/ensure-projectile-dispatch))
+(when (featurep 'projectile)
+  (cfg-lang/ensure-projectile-dispatch))
+
+(use-package makefile-executor
+  :commands (makefile-executor-execute-project-target))
+
+(defun cfg-lang/makefile-executor-smart-run ()
+  "Find the closest Makefile and run an executor command."
+  (interactive)
+  (let ((makefile-dir (locate-dominating-file default-directory "Makefile")))
+    (if makefile-dir
+        (let ((default-directory makefile-dir))
+          (condition-case err
+              (makefile-executor-execute-project-target)
+            (error (message "Makefile executor error: %s" (error-message-string err)))))
+      (message "No Makefile found in the current hierarchy."))))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Global build shortcuts
+(define-key cfg-keys-map (kbd "<f4>") #'cfg-lang/smart-compile)
+(define-key cfg-keys-map (kbd "C-<f4>") #'cfg-lang/smart-compile-debug)
+(define-key cfg-keys-map (kbd "M-<f4>") #'compile)
+
+;; Leader bindings under Major Mode / Build
+(cfg-keys/leader-def
+  "m"     '(:ignore t :which-key "+major-mode")
+  "m m"   '(:ignore t :which-key "+make")
+  "m m e" '(cfg-lang/makefile-executor-smart-run :which-key "Run Target (Executor)")
+  "m m c" '(cfg-lang/smart-compile :which-key "Smart Compile")
+  "m m d" '(cfg-lang/smart-compile-debug :which-key "Smart Compile (Debug)"))
+#+end_src
+
+* System Setup
+No system setup required.

@@ -1,0 +1,38 @@
+#+TITLE: Buffers Layer
+#+CATEGORY: editor
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides utilities for buffer manipulation, cleanups, and window management.
+
+* Emacs Configuration
+** Buffer Utilities
+#+begin_src emacs-lisp
+(defun cfg-editor/clear-buffer ()
+  "Clear the buffer even if it is read-only."
+  (interactive)
+  (when (y-or-n-p "Are you sure you want to erase all content in this buffer? ")
+    (let ((was-readonly buffer-read-only))
+      (condition-case err
+          (progn
+            (when was-readonly
+              (read-only-mode -1))
+            (erase-buffer)
+            (message "Buffer cleared successfully!"))
+        (error
+         (display-warning 'cfg-editor/clear-buffer
+                          (format "Failed to erase buffer: %s" (error-message-string err))
+                          :warning)))
+      (when was-readonly
+        (read-only-mode 1)))))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "b"   '(:ignore t :which-key "+buffers")
+  "b K" '(cfg-editor/clear-buffer :whichkey "Erase Buffer Content"))
+#+end_src
+
+* System Setup
+No system setup required.

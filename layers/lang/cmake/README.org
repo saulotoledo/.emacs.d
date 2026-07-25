@@ -1,0 +1,21 @@
+#+TITLE: Cmake Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provide cmake-ts-mode for CMakeLists.txt files.
+
+* Emacs Configuration
+** cmake-ts-mode
+#+begin_src emacs-lisp
+(use-package cmake-ts-mode
+  :mode ("CMakeLists\\.txt\\'" "\\.cmake\\'")
+  :config
+  (setq cmake-ts-mode-indent-offset 2))
+#+end_src
+
+* Keybindings
+No keybindings required.
+
+* System Setup
+No system setup required.

@@ -1,0 +1,2 @@
+# Load before lang so cfg-lsp/server-file-extensions exists for language layers
+50

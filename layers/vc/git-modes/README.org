@@ -1,0 +1,28 @@
+#+TITLE: Git Modes Layer
+#+CATEGORY: vc
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides major modes for editing Git configuration files including gitconfig,
+gitignore, gitattributes, and dockerignore.
+
+* Emacs Configuration
+** Git Modes Configuration
+#+begin_src emacs-lisp
+(use-package git-modes
+  :mode (("/\\.gitattributes\\'"  . gitattributes-mode)
+         ("/\\.gitconfig\\'"      . gitconfig-mode)
+         ("/\\.git/config\\'"     . gitconfig-mode)
+         ("/\\.dockerignore\\'"   . gitignore-mode)
+         ("/\\.gitignore\\'"      . gitignore-mode)
+         ("/\\.npmignore\\'"      . gitignore-mode)
+         ("/\\.prettierignore\\'" . gitignore-mode)))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; No keybindings required
+#+end_src
+
+* System Setup
+No system setup required.

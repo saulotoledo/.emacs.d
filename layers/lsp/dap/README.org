@@ -1,0 +1,471 @@
+#+TITLE: DAP Layer
+#+CATEGORY: lsp
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides debugging support via the Debug Adapter Protocol using dap-mode. Includes
+smart F-key dispatch, force-quit utilities, a custom Stop button, fringe-click
+breakpoints, and UI freeze protection for large debug sessions.
+
+* Emacs Configuration
+** DAP Mode
+#+begin_src emacs-lisp
+(defvar-local cfg-lsp/dap-check-requirements #'always
+  "Buffer-local predicate called before starting a new DAP session.
+Must be a function of no arguments. Override in a mode hook with
+`setq-local' to session to start. Override in a mode hook with
+`setq-local' to add language-specific pre-flight checks (e.g.
+verifying that the language server is running). Defaults to `always',
+which always returns t.")
+
+(defvar-local cfg-lsp/dap-start-debug
+    (lambda ()
+      (message
+       (concat "No debug launcher defined for this buffer. "
+               "Add (setq-local cfg-lsp/dap-start-debug <fn>) "
+               "in the appropriate mode hook.")))
+  "Buffer-local function called to start a new DAP debug session.
+Must be a function of no arguments. Override in a mode hook with
+`setq-local' to provide a language-specific launcher (e.g. calling
+`dap-debug' with a launch.json configuration or a built-in template).
+The default implementation logs an actionable hint.")
+
+(defvar-local cfg-lsp/dap-force-stop #'cfg-lsp/dap-force-quit
+  "Buffer-local function called by the Force Stop button.
+Must be a function of no arguments. The default calls `cfg-lsp/dap-force-quit'
+which disconnects the DAP session. Override in a mode hook with
+`setq-local' when termination needs language-specific cleanup (e.g.
+killing a suspended JVM process group for Java compile_attach sessions).")
+
+(use-package dap-mode
+  :after lsp-mode
+  :init
+  (dap-auto-configure-mode 1)
+  :bind
+  (("<f5>" . cfg-lsp/dap-run-continue-dispatch)
+   ("<f6>" . cfg-lsp/dap-next-dispatch)
+   ("<f7>" . cfg-lsp/dap-step-in-dispatch)
+   ("<f8>" . cfg-lsp/dap-step-out-dispatch)
+   ("<f9>" . dap-breakpoint-toggle))
+  :config
+  ;; Fix for newline translation issues on Linux/WSL file-watching.
+  ;; See https://github.com/emacs-lsp/dap-mode/issues/214
+  (setq inhibit-eol-conversion t)
+
+  (setq dap-auto-configure-features
+        '(sessions locals breakpoints expressions controls tooltip repl))
+
+  ;; Force the output terminal to pop up on debug launch.
+  (setq dap-auto-show-output t)
+
+  ;; Log DAP protocol JSON to *Messages* to debug communication issues.
+  (setq dap-print-io t)
+
+  (declare-function dap--cur-session "dap-mode")
+  (declare-function dap--session-running "dap-mode")
+  (declare-function dap--debug-session-thread-id "dap-mode")
+
+  (defun cfg-lsp/dap--thread-stopped-p (session)
+    "Return non-nil if SESSION has a currently stopped thread."
+    (and session
+         (dap--session-running session)
+         (dap--debug-session-thread-id session)))
+
+  (defun cfg-lsp/dap-run-continue-dispatch ()
+    "Smart F5: continue a stopped thread, or start a new debug session.
+- If a thread is stopped (breakpoint/exception): calls `dap-continue'.
+- If session is running but no thread is stopped: shows a hint.
+- Otherwise: starts a new session via `cfg-lsp/dap-start-debug'."
+    (interactive)
+    (let ((session (and (fboundp 'dap--cur-session) (dap--cur-session))))
+      (cond
+       ((cfg-lsp/dap--thread-stopped-p session)
+        (call-interactively 'dap-continue))
+       ((and session (dap--session-running session))
+        (message "Debug session is running. Set a breakpoint (<f9>) and trigger it to pause."))
+       (t
+        (if (funcall cfg-lsp/dap-check-requirements)
+            (funcall cfg-lsp/dap-start-debug)
+          (message "DAP pre-flight check failed; not starting debug session."))))))
+
+  (defun cfg-lsp/dap-step-dispatch (step-fn)
+    "Call STEP-FN if a thread is stopped, otherwise show a hint."
+    (let ((session (and (fboundp 'dap--cur-session) (dap--cur-session))))
+      (if (cfg-lsp/dap--thread-stopped-p session)
+          (call-interactively step-fn)
+        (message "No stopped thread. Set a breakpoint (<f9>) and trigger it first."))))
+
+  (defun cfg-lsp/dap-next-dispatch ()
+    "F6: step over -- only when a thread is stopped."
+    (interactive) (cfg-lsp/dap-step-dispatch 'dap-next))
+
+  (defun cfg-lsp/dap-step-in-dispatch ()
+    "F7: step in -- only when a thread is stopped."
+    (interactive) (cfg-lsp/dap-step-dispatch 'dap-step-in))
+
+  (defun cfg-lsp/dap-step-out-dispatch ()
+    "F8: step out -- only when a thread is stopped."
+    (interactive) (cfg-lsp/dap-step-dispatch 'dap-step-out))
+
+  ;; ansi-color-compilation-filter (Emacs 28+) correctly uses the
+  ;; compilation-filter-start marker to apply colors only to new output.
+  (add-hook 'dap-server-log-mode-hook
+            (lambda ()
+              (add-hook 'compilation-filter-hook
+                        #'ansi-color-compilation-filter nil t)))
+
+  (declare-function lsp-treemacs-render "lsp-treemacs")
+  (declare-function dap-ui-locals-get-data "dap-ui-locals")
+  (declare-function cfg-lsp/dap-ui-repl-smart-context "init")
+  (declare-function cfg-lsp/dap-ui-locals--refresh-stable "init")
+  (declare-function cfg-lsp/dap-ui-no-treemacs-refresh "init")
+  (defvar dap-ui--locals-buffer nil)
+  (defvar dap-ui--locals-timer nil)
+  (defvar dap-ui-locals-expand-depth nil)
+
+  ;; REPL optimization: Smart Context Evaluation Loop
+  ;;
+  ;; WHY THIS IS NEEDED: By default, the DAP REPL sends all input with "context: repl".
+  ;; For C++, many GDB adapters interpret this as an Instruction to run a raw GDB/MI
+  ;; command, which returns ugly JSON and can't handle simple math like "a + 1".
+  ;;
+  ;; THE FIX: This advice detects if your input is a command (starts with "-") or
+  ;; an expression. For expressions, it uses "context: hover".
+  ;;
+  ;; BENEFITS:
+  ;; 1. Complex Objects: You can inspect structs, classes, and nested data easily.
+  ;; 2. Dot/Arrow Syntax: Typing "my_obj.field" or "ptr->val" will just work.
+  ;; 3. Clean Output: Instead of JSON tokens, you get the literal value (e.g., "42").
+  (defun cfg-lsp/dap-ui-repl-smart-context (orig-fun session input)
+    "Make the DAP REPL use `hover' context for expressions, and `repl' for commands."
+    (let ((context (if (string-prefix-p "-" (string-trim input)) "repl" "hover")))
+      (cl-letf* ((old-dap-make-request (symbol-function 'dap--make-request))
+                 ((symbol-function 'dap--make-request)
+                  (lambda (command arguments)
+                    (if (string= command "evaluate")
+                        (funcall old-dap-make-request command (plist-put arguments :context context))
+                      (funcall old-dap-make-request command arguments)))))
+        (funcall orig-fun session input))))
+
+  (advice-add 'dap-ui-input-sender :around #'cfg-lsp/dap-ui-repl-smart-context)
+
+  ;; UI Stability and Freeze Protection
+  ;;
+  ;; THE PROBLEM: By default, `dap-ui` schedules a refresh every 0.2s using a
+  ;; "Smart Sync" (lsp-treemacs-generic-update). This sync logic tries to diff
+  ;; the old and new variable trees, which is extremely CPU-heavy and freezes
+  ;; the Emacs UI for seconds or more.
+  ;;
+  ;; THE FIX: This override changes the refresh strategy:
+  ;; 1. Stability: Increases the idle timer from 0.2s to 0.5s.
+  ;; 2. Speed: Uses 'render' (Full Redraw) instead of 'generic-update' (Smart Sync).
+  ;;    A full redraw is much faster because it avoids the tree-diffing logic.
+  (declare-function lsp-treemacs-wcb-unless-killed "lsp-treemacs")
+  (declare-function lsp-treemacs-render "lsp-treemacs")
+  (declare-function dap-ui-locals-get-data "dap-ui")
+  (declare-function ht-values "ht")
+  (declare-function dap--get-breakpoints "dap-mode")
+  (declare-function cfg-lsp/dap--buffers-w-breakpoints-safe nil)
+
+  (defun cfg-lsp/dap-ui-locals--refresh-stable (&rest _)
+    "Locals refresh with 0.5s idle timer and FAST rendering.
+Avoids the expensive tree-diffing of lsp-treemacs-generic-update."
+    (lsp-treemacs-wcb-unless-killed dap-ui--locals-buffer
+      (when (and (fboundp 'dap-ui--locals-timer) dap-ui--locals-timer)
+        (cancel-timer dap-ui--locals-timer))
+      ;; We use the fast 'render' instead of the slow 'generic-update'
+      (setq-local dap-ui--locals-timer
+                  (run-with-idle-timer 0.5 nil
+                                       (lambda ()
+                                         (lsp-treemacs-render (dap-ui-locals-get-data)
+                                                              " Locals "
+                                                              dap-ui-locals-expand-depth
+                                                              dap-ui--locals-buffer))))))
+
+  (advice-add 'dap-ui-locals--refresh-schedule :override #'cfg-lsp/dap-ui-locals--refresh-stable)
+
+  ;; The following set of configs are needed to prevent Emacs UI freezes
+  ;; or running expensive operations when dap-mode is actively debugging.
+
+  ;; Below we skip Treemacs-based UI for DAP to prevent freezes.
+  ;;
+  ;; SCENARIO: Even in Graphical Emacs, "Terminal" issues can occur because
+  ;; Emacs communicates with GDB/DAP via hidden pseudo-terminals (ptys).
+  ;; DAP-UI's aggressive 0.2s idle timers trigger `lsp-treemacs-generic-update`,
+  ;; creating a "Redraw Storm."
+  ;;
+  ;; THE PROBLEM: Emacs is single-threaded. It spends so much CPU calculating
+  ;; complex Treemacs tree nodes (the "UI logic") that it becomes "deaf" to
+  ;; your keyboard/mouse input, effectively freezing the entire Frame.
+  ;;
+  ;; INVESTIGATION: If Emacs locks up, use `M-x toggle-debug-on-quit`.
+  ;; Pressing `C-g` during the freeze will interrupt the loop and show the
+  ;; "Timer Thief" (usually `dap-ui-locals--refresh` or `treemacs-update-node`).
+  ;;
+  ;; THE FIX: We advise the refresh functions to "mute" the Treemacs-specific
+  ;; update logic. This ensures the UI stays responsive during debug sessions.
+  (defun cfg-lsp/dap-ui-no-treemacs-refresh (orig-fun &rest args)
+    "Inhibit the slow tree-sync logic and just do nothing (for secondary windows)."
+    (cl-letf (((symbol-function 'lsp-treemacs-generic-update) (lambda (&rest _) nil)))
+      (apply orig-fun args)))
+
+  (advice-add 'dap-ui-breakpoints--refresh :around #'cfg-lsp/dap-ui-no-treemacs-refresh)
+
+  ;; Fix for: dap--buffers-w-breakpoints: Wrong type argument: markerp, nil
+  ;;
+  ;; dap--buffers-w-breakpoints crashes when a persisted breakpoint has a nil
+  ;; :marker (e.g., the breakpoint was saved to disk but its file buffer hasn't
+  ;; been visited yet in this session). The original code unconditionally calls
+  ;; (marker-buffer (plist-get ... :marker)) which fails on nil.
+  (defun cfg-lsp/dap--buffers-w-breakpoints-safe ()
+    "Safe version of `dap--buffers-w-breakpoints' that skips nil markers."
+    (delq nil
+          (--map (-some-> (plist-get (car it) :marker) marker-buffer)
+                 (ht-values (dap--get-breakpoints)))))
+
+  (advice-add 'dap--buffers-w-breakpoints :override #'cfg-lsp/dap--buffers-w-breakpoints-safe)
+
+  ;; A few other improvements that might be useful in the future. For now I've
+  ;; disabled them because they are not freezing Emacs, but they seem to work.
+  ;;
+  ;; (with-eval-after-load 'lsp-mode
+  ;;     (defun cfg-lsp/lsp-deferred-guard (orig-fun &rest args)
+  ;;       "Skip `lsp-deferred' if a DAP session is currently active.
+  ;; This prevents the 'startup storm' of timers when DAP opens multiple windows."
+  ;;       (if (and (fboundp 'dap--cur-session) (dap--cur-session))
+  ;;           (message "[DEBUG] Skipping lsp-deferred: DAP session is active.")
+  ;;         (apply orig-fun args)))
+  ;;
+  ;;     (advice-add 'lsp-deferred :around #'cfg-lsp/lsp-deferred-guard))
+  ;;
+  ;;   (defun cfg-lsp/dap-debug-quiet (orig-fun &rest args)
+  ;;     "Run `dap-debug' with lsp-autoconfigure and window hooks inhibited.
+  ;; It inhibit expensive hooks while DAP is spinning up windows."
+  ;;     (let ((lsp-auto-configure nil)
+  ;;           ;; Prevent lsp-mode from reacting to each new debugger window
+  ;;           (window-configuration-change-hook nil))
+  ;;       (apply orig-fun args)))
+  ;;
+  ;;   (advice-add 'dap-debug :around #'cfg-lsp/dap-debug-quiet)
+  ;; (defun cfg-lsp/lsp-ui-mode-guard (orig-fun &rest args)
+  ;;   "Inhibit `lsp-ui-mode' and its components if a DAP session is active."
+  ;;   (if (and (fboundp 'dap--cur-session) (dap--cur-session))
+  ;;       (message "[DEBUG] Inhibiting lsp-ui-mode: DAP session is active.")
+  ;;     (apply orig-fun args)))
+  ;;
+  ;; (advice-add 'lsp-ui-mode :around #'cfg-lsp/lsp-ui-mode-guard)
+  ;; (advice-add 'lsp-ui-doc-mode :around #'cfg-lsp/lsp-ui-mode-guard)
+  )
+#+end_src
+
+** DAP Force Quit and Extended Controls
+The default DAP controls posframe has no dedicated "Force Stop" button --
+~dap-disconnect~ uses the graceful DAP ~Disconnect~ request which the debug
+adapter may ignore, and leaves the Spring Boot JVM running. We override
+~dap-ui--update-controls~ to inject our own stop button that calls
+~cfg-lsp/dap-force-quit~, which sends =SIGKILL= to the adapter process and the
+JVM process group. The icon already ships with ~dap-mode~
+(=icons/vscode/stop.png=).
+
+#+begin_src emacs-lisp
+(defun cfg-lsp/dap--kill-dap-connection (process)
+  "Kill a DAP connection PROCESS and its hidden process buffer."
+  (when process
+    (let ((buffer (process-buffer process)))
+      (ignore-errors (delete-process process))
+      ;; `open-network-stream' creates buffers such as " *localhost (12345)*"
+      ;; when no buffer is supplied. They are not session output and dap-mode
+      ;; does not remove them when a session is cleared.
+      (when (buffer-live-p buffer)
+        (ignore-errors (kill-buffer buffer))))))
+
+(defun cfg-lsp/dap-force-quit ()
+  "Forcefully terminate all DAP sessions and clean up.
+Kills the DAP adapter process, the terminal process (and its children)
+started via runInTerminal, then clears all dap-mode state.
+Safe to call even when the session is completely unresponsive."
+  (interactive)
+  (ignore-errors
+    (dolist (session (dap--get-sessions))
+      ;; Give the adapter a brief chance to release its JDWP attachment.
+      (ignore-errors
+        (with-timeout (1 nil)
+          (dap-request session "disconnect"
+                       :restart :json-false
+                       :terminateDebuggee t)))
+      ;; Kill the DAP connection and its hidden ` *localhost (PID)*' buffer.
+      (cfg-lsp/dap--kill-dap-connection (dap--debug-session-proc session))
+      ;; Kill the compile_attach program proc (Java / C++ / Node.js adapter).
+      ;; compilation-start wraps the command as `sh -c "..."', so we need
+      ;; pkill -P to reach the JVM child.
+      (let* ((prog-proc (dap--debug-session-program-proc session))
+             (prog-pid  (and prog-proc (process-id prog-proc)))
+             (prog-buf  (and prog-proc (process-buffer prog-proc))))
+        (when prog-pid
+          (ignore-errors
+            (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string prog-pid)))
+          (ignore-errors
+            (call-process "kill" nil nil nil "-9" (number-to-string prog-pid))))
+        (ignore-errors (when prog-proc (delete-process prog-proc)))
+        (ignore-errors (when (buffer-live-p prog-buf) (kill-buffer prog-buf))))
+      ;; Kill the runInTerminal process (Node.js / pwa-node sessions).
+      ;; start-process-shell-command also wraps in sh, so kill children too.
+      (let* ((name (dap--debug-session-name session))
+             (term-buf (get-buffer (format "*%s - *" name)))
+             (term-buf (or term-buf
+                           (cl-find-if (lambda (b)
+                                         (string-prefix-p (format "*%s" name)
+                                                          (buffer-name b)))
+                                       (buffer-list))))
+             (term-proc (and term-buf (get-buffer-process term-buf)))
+             (term-pid  (and term-proc (process-id term-proc))))
+        (message "cfg-lsp/dap-force-quit: term-buf=%s term-proc=%s pid=%s"
+                 (and term-buf (buffer-name term-buf))
+                 term-proc term-pid)
+        (when term-pid
+          (ignore-errors
+            (call-process "pkill" nil nil nil "-KILL" "-P" (number-to-string term-pid)))
+          (ignore-errors
+            (call-process "kill" nil nil nil "-9" (number-to-string term-pid))))
+        (ignore-errors (when term-proc (kill-process term-proc)))))
+  ;; Fallback: kill any surviving dapDebugServer.js by PID (port argument uniquely
+  ;; identifies this Emacs instance's adapter when program-proc tracking fails,
+  ;; e.g. when stopped at a breakpoint and the process object is no longer live).
+  ;; NOTE: pkill -f matches the full command line, so it only kills processes
+  ;; running dapDebugServer.js -- safe as long as you don't run multiple Emacs
+  ;; debug sessions concurrently.
+  (ignore-errors
+    (call-process "pkill" nil nil nil "-KILL" "-f" "dapDebugServer.js")))
+  ;; Kill the lsp-treemacs-backed dap-ui buffers BEFORE firing session hooks.
+  ;; `lsp-treemacs-wcb-unless-killed' guards every refresh with (buffer-live-p),
+  ;; so killing the buffers here prevents `lsp-treemacs-generic-refresh' /
+  ;; `treemacs-update-node' from being called when dap--set-sessions nil
+  ;; fires dap-session-changed-hook. Without this, Treemacs refresh runs
+  ;; unconditionally even when Treemacs is not open, causing background noise.
+  (dolist (buf '("*dap-ui-sessions*" "*dap-ui-locals*" "*dap-ui-expressions*"))
+    (when-let (b (get-buffer buf))
+      (ignore-errors (kill-buffer b))))
+  ;; Now it is safe to clear sessions; the hooks will find the buffers dead.
+  (ignore-errors (dap--set-sessions nil))
+  (ignore-errors (lsp-workspace-set-metadata "default-session" nil))
+  ;; Remove orphan network buffers left after their DAP process is deleted.
+  (dolist (buffer (buffer-list))
+    (when (and (null (get-buffer-process buffer))
+               (string-match-p "\\` \\*localhost ([0-9]+)\\*\\'"
+                               (buffer-name buffer)))
+      (ignore-errors (kill-buffer buffer))))
+  (ignore-errors (dap-ui-hide-many-windows))
+  (defvar dap-ui--control-buffer)
+  (ignore-errors (posframe-hide dap-ui--control-buffer))
+  (message "DAP session and processes nuked."))
+
+(defun cfg-lsp/dap-force-stop-current-session ()
+  "Force-stop the session shown by the DAP controls.
+DAP controls live in their own buffer, so a buffer-local handler inherited
+from a Java source buffer is not visible from a mouse click. Resolve the
+session from dap-mode's global session state instead."
+  (interactive)
+  (if (and (fboundp 'dap--cur-session) (dap--cur-session))
+      (cfg-lsp/dap-force-quit)
+    (message "No active DAP session to stop.")))
+
+;; Replace the non-functional Restart button with a Force Stop button.
+;; Resolves the active session from dap-mode state instead of using a
+;; buffer-local handler: this code runs in the DAP controls buffer, not the
+;; Java source buffer where that handler was installed.
+(defun cfg-lsp--dap-ui-inject-stop-button (orig-fun &rest args)
+  "Around advice for `dap-ui--update-controls'.
+ORIG-FUN is the advised function. ARGS are its arguments.
+Replaces the Restart button with a Force Stop button that reliably tears down
+the active session and its process buffers."
+  (cl-letf* ((orig-create (symbol-function 'dap-ui--create-command))
+              ((symbol-function 'dap-ui--create-command)
+               (lambda (image command hover-text)
+                 (if (string= image "restart.png")
+                     (funcall orig-create "stop.png"
+                              #'cfg-lsp/dap-force-stop-current-session
+                              "Force Stop")
+                   (funcall orig-create image command hover-text)))))
+    (apply orig-fun args)))
+
+(with-eval-after-load 'dap-ui
+  (advice-add 'dap-ui--update-controls :around #'cfg-lsp--dap-ui-inject-stop-button))
+#+end_src
+
+** DAP Fringe Breakpoints
+We also add a convenient way to toggle breakpoints by clicking the left fringe.
+This works in any buffer where ~dap-mode~ is active, allowing you to quickly set
+or remove breakpoints without needing to use keyboard shortcuts or commands.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'dap-mode
+  (defun cfg-lsp/dap-fringe-click-toggle-breakpoint (event)
+    "Toggle a DAP breakpoint at the line clicked in the left fringe.
+EVENT is the mouse click event."
+    (interactive "e")
+    (when (and (bound-and-true-p dap-mode)
+               (derived-mode-p 'prog-mode))
+      (let ((pos (posn-point (event-start event))))
+        (when pos
+          (save-excursion
+            (goto-char pos)
+            (dap-breakpoint-toggle))))))
+
+  (add-hook 'prog-mode-hook
+            (lambda ()
+              (local-set-key [left-fringe mouse-1] #'cfg-lsp/dap-fringe-click-toggle-breakpoint)))
+
+  (with-eval-after-load 'treesit-fold-indicators
+    (defun cfg-lsp/dap-treesit-fold-fringe-click-advice (orig-fn event)
+      "Handle [left-fringe mouse-1] in *-ts-mode for breakpoints and folds.
+By default, clicking the fringe with no fold indicator does nothing (event is
+swallowed). This advice ensures the click toggles a DAP breakpoint if no fold
+indicator is present, so fringe clicks are always useful. Call ORIG-FN if a
+fold indicator is present at the clicked line; otherwise, toggle a DAP
+breakpoint if `dap-mode' is active in the current buffer."
+      (let* ((pos (posn-point (event-start event)))
+             (cur-ln (when pos (line-number-at-pos pos)))
+             (ovs (when pos
+                    (append (treesit-fold--overlays-in
+                             'type 'treesit-fold-indicators-fr-plus)
+                            (treesit-fold--overlays-in
+                             'type 'treesit-fold-indicators-fr-minus-tail))))
+             (has-indicator
+              (and ovs cur-ln
+                   (cl-some
+                    (lambda (ov)
+                      (= cur-ln (line-number-at-pos (overlay-start ov))))
+                    ovs))))
+        (if has-indicator
+            ;; Fold-indicator line: if a DAP breakpoint is already there,
+            ;; remove it (otherwise it would not be possible to remove
+            ;; an orphaned breakpoint stuck on a fold-indicator line by
+            ;; clicking on the fringe).
+            (let ((bp-on-line
+                   (and (bound-and-true-p dap-mode)
+                        pos
+                        (save-excursion
+                          (goto-char pos)
+                          (dap--get-breakpoint-at-point)))))
+              (if bp-on-line
+                  (cfg-lsp/dap-fringe-click-toggle-breakpoint event)
+                (funcall orig-fn event)))
+          (when (and (bound-and-true-p dap-mode)
+                     (derived-mode-p 'prog-mode))
+            (cfg-lsp/dap-fringe-click-toggle-breakpoint event)))))
+    (advice-add 'treesit-fold-indicators-click-fringe
+                :around #'cfg-lsp/dap-treesit-fold-fringe-click-advice)))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "d"   '(:ignore t :which-key "+debug")
+  "d d" #'cfg-lsp/dap-run-continue-dispatch
+  "d b" #'dap-breakpoint-toggle
+  "d q" #'cfg-lsp/dap-force-quit
+  "d s" #'dap-switch-session)
+#+end_src
+
+* System Setup
+No system setup required.

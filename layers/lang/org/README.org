@@ -1,0 +1,147 @@
+#+TITLE: Org Mode Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides a modern, visually clean Org-mode environment equipped with
+automated table-of-contents generation (~toc-org~), structured visual
+indentation (~org-modern~), template expansion (~org-tempo~), and code
+block evaluation capabilities (~ob~).
+
+* Emacs Configuration
+** Table of Contents
+The ~toc-org~ package automatically generates and maintains a table of
+contents for Org files. Simply add a heading with the =:TOC:= tag and
+~toc-org~ will populate it with links to all other headings when you
+save the file.
+
+#+begin_src emacs-lisp
+(use-package toc-org
+  :hook (org-mode . toc-org-mode)
+  :config
+  ;; Add blank line between TOC heading and first entry
+  (setq toc-org-hrefify-default "gh")
+  (setq toc-org-max-depth 3))
+#+end_src
+
+** Nice Bullets
+#+begin_src emacs-lisp
+;; (use-package org-bullets
+;;   :config (add-hook 'org-mode-hook (lambda () (org-bullets-mode 1))))
+#+end_src
+
+** Org Source Block Editing
+Enable native TAB behavior in Org source blocks so that TAB indents according to
+the source block's language mode, not Org mode.
+
+#+begin_src emacs-lisp
+;; Enable native tab behavior in source blocks
+(setq org-src-tab-acts-natively t)
+#+end_src
+
+** Org Babel
+Add a few languages for Org babel. In addition, don't evaluate code on
+export by default.
+
+#+begin_src emacs-lisp
+;; Working with Code Blocks in Org
+(use-package ob
+  :ensure nil
+  :after org
+  :config
+  (setq org-export-use-babel nil
+        org-confirm-babel-evaluate nil)
+  (org-babel-do-load-languages
+   'org-babel-load-languages
+   '((emacs-lisp . t)
+     (python . t)
+     (clojure . t))))
+#+end_src
+
+Default to use whatever interpreter is set by ~python-shell-interpreter~.
+
+#+begin_src emacs-lisp
+;; Babel Functions for Python
+(use-package ob-python
+  :ensure nil
+  :after (ob python)
+  :config
+  (setq org-babel-python-command python-shell-interpreter))
+#+end_src
+
+** Tempo
+Starting at version 9.2 of Org mode, typing =<s= to get a source block
+(and similar) has been moved to the Org Tempo library. The idea is
+that users start to use =C-c C-,= instead. I added it below anyways.
+
+Note: ~org-tempo~ is built into Org mode (not a separate package), so
+we use ~:ensure nil~ to prevent ~use-package~ from trying to install
+it.
+
+#+begin_src emacs-lisp
+(use-package org-tempo
+  :ensure nil
+  :after org)
+#+end_src
+
+** Org Modern
+Touch up the appearance of org mode files with some fancy UTF-8
+characters. I disable ~org-modern-block-fringe~ due to ~org-modern~
+conflicting with ~org-adapt-indentation~.
+
+#+begin_src emacs-lisp
+;; Modern looks for Org
+(use-package org-modern
+  :after org
+  :hook (org-mode . org-modern-mode)
+  :config
+  (setq org-modern-block-fringe nil
+        org-modern-star 'replace
+        org-auto-align-tags nil
+        org-tags-column 0
+        org-fold-catch-invisible-edits 'show-and-error
+        org-adapt-indentation nil
+        org-list-indent-offset 2
+        org-special-ctrl-a/e t
+        org-insert-heading-respect-content t
+        org-edit-src-content-indentation 0
+        org-src-preserve-indentation nil))
+
+;; Use org-indent to visually indent content under headings and lists
+(declare-function org-indent-mode "org-indent")
+(add-hook 'org-mode-hook #'org-indent-mode)
+#+end_src
+
+** Buffer Face Tweaks
+#+begin_src emacs-lisp
+;; Custom helper to remap comment background faces to match org-block
+(defun cfg-lang/org-apply-comment-face-remap ()
+  "Remap comment faces to match `org-block` background inside Org buffers."
+  (let ((bg (face-attribute 'org-block :background nil)))
+    (when (and bg (not (eq bg 'unspecified)))
+      (face-remap-add-relative 'font-lock-comment-face `(:background ,bg :extend t))
+      (face-remap-add-relative 'font-lock-comment-delimiter-face `(:background ,bg :extend t))
+      (font-lock-flush)
+      (font-lock-ensure)
+      (redisplay))))
+
+;; Minimal remap: make comment faces use the `org-block` background inside
+;; Org buffers so inline face plists don't hide the block background.
+;; This is intentionally tiny and has no undo cookie stored.
+(add-hook 'org-mode-hook #'cfg-lang/org-apply-comment-face-remap)
+#+end_src
+
+* Keybindings
+Registers keybindings for table of contents and structure editing in
+Org buffers.
+
+#+begin_src emacs-lisp
+;; Leader keybindings under +code/lang -> +org
+(cfg-keys/leader-def
+  "l"     '(:ignore t :which-key "+code/lang")
+  "l o"   '(:ignore t :which-key "+org")
+  "l o t" #'toc-org-insert-toc)
+#+end_src
+
+* System Setup
+No system setup required.

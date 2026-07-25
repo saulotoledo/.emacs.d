@@ -1,0 +1,29 @@
+#+TITLE: Windows Layer
+#+CATEGORY: ui
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides directional window navigation and state swapping using built-in
+windmove.
+
+* Emacs Configuration
+** Windmove Configuration
+#+begin_src emacs-lisp
+(use-package windmove
+  :ensure nil)
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(define-key cfg-keys-map (kbd "M-<left>") #'windmove-left)
+(define-key cfg-keys-map (kbd "M-<down>") #'windmove-down)
+(define-key cfg-keys-map (kbd "M-<up>") #'windmove-up)
+(define-key cfg-keys-map (kbd "M-<right>") #'windmove-right)
+(define-key cfg-keys-map (kbd "M-S-<left>") #'windmove-swap-states-left)
+(define-key cfg-keys-map (kbd "M-S-<down>") #'windmove-swap-states-down)
+(define-key cfg-keys-map (kbd "M-S-<up>") #'windmove-swap-states-up)
+(define-key cfg-keys-map (kbd "M-S-<right>") #'windmove-swap-states-right)
+#+end_src
+
+* System Setup
+No system setup required.

@@ -1,0 +1,102 @@
+#+TITLE: Tags Layer
+#+CATEGORY: editor
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides HTML/XML tag editing utilities including auto-rename-tag for matching tags,
+emmet-mode for rapid markup expansion, and smart RET expansion inside attributes and tags.
+
+* Emacs Configuration
+** Auto Rename Tag
+This package provides automatic renaming of corresponding closing tags. This is
+essential for maintaining tag consistency in web templates and UI components.
+
+#+begin_src emacs-lisp
+(use-package auto-rename-tag
+  :config
+  (dolist (hook '(html-mode-hook
+                  html-ts-mode-hook
+                  web-mode-hook
+                  mhtml-mode-hook
+                  tsx-ts-mode-hook
+                  typescript-ts-mode-hook
+                  xml-mode-hook
+                  nxml-mode-hook))
+    (add-hook hook #'auto-rename-tag-mode)))
+#+end_src
+
+** Emmet Mode
+Emmet is a high-speed workflow tool for web developers that transforms short,
+CSS-like abbreviations into full blocks of HTML or CSS code. By using a
+specialized syntax for nesting, attributes, and text, it allows you to generate
+complex structures with just a few keystrokes.
+
+#+begin_src emacs-lisp
+(use-package emmet-mode
+  :hook ((css-mode . emmet-mode)
+         (css-ts-mode . emmet-mode)
+         (html-mode . emmet-mode)
+         (html-ts-mode . emmet-mode)
+         (mhtml-mode . emmet-mode)
+         (nxml-mode . emmet-mode)
+         (sgml-mode . emmet-mode)
+         (tsx-ts-mode . emmet-mode)
+         (web-mode . emmet-mode))
+  :config
+  (setq emmet-indentation 2))
+#+end_src
+
+** Smart RET for XML / HTML / JSX / TSX tags
+Two tag-aware RET behaviors:
+
+1. *Between tags* (~<h1>|</h1>~ -> indented block, closing tag on its own line).
+   ~web-mode~ provides this natively. ~nxml-mode~ does not, so we add it there.
+
+2. *Inside a tag's attribute zone* (~<h1 class="foo"|>~ -> break to a new indented line
+   inside the tag, keeping ~>~ in place).
+   Neither ~nxml-mode~ nor ~tsx-ts-mode~ provide this, so we add it for both.
+
+#+begin_src emacs-lisp
+(defun cfg-editor/tag-point-in-attribute-zone-p ()
+  "Return non-nil when point is inside an open tag's attribute zone."
+  (save-excursion
+    (let ((pos (point)))
+      (and (re-search-backward "<[a-zA-Z]" nil t)
+           (not (re-search-forward ">" pos t))))))
+
+(defun cfg-editor/tag-smart-ret ()
+  "Smart RET for tag-based modes."
+  (interactive)
+  (if (and (memq (char-before) '(?{ ?\( ?\[))
+           (memq (char-after)  '(?} ?\) ?\])))
+      (call-interactively #'cfg-editor/prog-smart-ret)
+    (let ((base (current-indentation)))
+      (cond
+       ((and (eq (char-before) ?>) (looking-at "</"))
+        (newline)
+        (indent-to (+ base tab-width))
+        (save-excursion
+          (newline)
+          (indent-to base)))
+       ((cfg-editor/tag-point-in-attribute-zone-p)
+        (newline)
+        (indent-to (+ base tab-width)))
+       (t
+        (newline-and-indent))))))
+
+;; nxml-mode (XML): needs both behaviors.
+;; tsx-ts-mode / web-mode: content-block (case 1) is built-in; we only add the
+;; attribute-break (case 2) by binding the same function -- it safely falls
+;; through to newline-and-indent when not in an attribute zone.
+(dolist (hook '(nxml-mode-hook
+                tsx-ts-mode-hook
+                web-mode-hook))
+  (add-hook hook (lambda ()
+                   (local-set-key (kbd "RET") #'cfg-editor/tag-smart-ret))))
+#+end_src
+
+* Keybindings
+No keybindings required.
+
+* System Setup
+No system setup required.

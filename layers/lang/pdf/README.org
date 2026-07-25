@@ -1,0 +1,65 @@
+#+TITLE: PDF Tools Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides high-performance, clear PDF viewing and annotation support
+inside Emacs via ~pdf-tools~, replacing the default doc-view mode. [[https://github.com/vedang/pdf-tools][PDF
+Tools]] makes a huge improvement on the built-in [[http://www.gnu.org/software/emacs/manual/html_node/emacs/Document-View.html][doc-view-mode]]!
+
+* Emacs Configuration
+** PDF Tools Setup
+#+begin_src emacs-lisp
+;; Preventing compile-time warning
+(declare-function pdf-loader-install "pdf-tools" nil)
+(declare-function pdf-view-desired-image-size "pdf-view")
+(declare-function pdf-view-create-page "pdf-view")
+(declare-function pdf-util-frame-scale-factor "pdf-util")
+(declare-function pdf-util-hexcolor "pdf-util")
+(declare-function pdf-view-buffer-file-name "pdf-view")
+(declare-function pdf-util-munch-file "pdf-util")
+(declare-function pdf-util-highlight-regexp-in-string "pdf-util")
+(declare-function image-mode-window-get "image-mode")
+(declare-function image-set-window-hscroll "image-mode")
+(declare-function image-set-window-vscroll "image-mode")
+
+;; Custom command to toggle header line in PDF buffers
+(defun cfg-lang/pdf-view-toggle-header-line ()
+  "Toggle display of the header-line-format in pdf-view mode."
+  (interactive)
+  (if header-line-format
+      (setq header-line-format nil)
+    (setq header-line-format (default-value 'header-line-format))))
+
+;; Emacs support library for PDF files
+(use-package pdf-tools
+  :defer t
+  :mode "\\.pdf\\'"
+  :config
+  (unless (daemonp)
+    (pdf-loader-install))
+  (add-to-list 'revert-without-query ".pdf"))
+#+end_src
+
+* Keybindings
+Registers navigation and header toggling shortcuts for PDF buffers.
+
+#+begin_src emacs-lisp
+;; Direct mode-map bindings inside pdf-view-mode
+(with-eval-after-load 'pdf-view
+  (define-key pdf-view-mode-map (kbd "c") #'cfg-lang/pdf-view-toggle-header-line)
+  (define-key pdf-view-mode-map (kbd "j") #'pdf-view-next-line-or-next-page)
+  (define-key pdf-view-mode-map (kbd "k") #'pdf-view-previous-line-or-previous-page))
+
+;; Leader keybindings under +code/lang -> +pdf
+(cfg-keys/leader-def
+  "l"     '(:ignore t :which-key "+code/lang")
+  "l p"   '(:ignore t :which-key "+pdf")
+  "l p c" #'cfg-lang/pdf-view-toggle-header-line
+  "l p j" #'pdf-view-next-line-or-next-page
+  "l p k" #'pdf-view-previous-line-or-previous-page)
+#+end_src
+
+* System Setup
+No system setup required. (Note: pdf-tools will build its native
+epdfinfo binary on first run if build tools are present).

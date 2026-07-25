@@ -1,0 +1,488 @@
+#+TITLE: Dired Layer
+#+CATEGORY: navigation
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+This layer provides enhanced file management capabilities within Emacs by
+configuring built-in Dired, Dirvish, and diredfl. It enables modern directory
+navigation with subtree previews, theme-adaptive file attribute highlighting,
+and integrated searching via ripgrep.
+
+* Emacs Configuration
+** Dired Basic Configuration
+#+begin_src emacs-lisp
+(use-package dired
+  :ensure nil ; Built-in
+  :custom
+  ;; IMPORTANT: We need to add "-l" below or it will fail in WSL2 due to
+  ;; missing //DIRED// in the output of ls, required by dired to parse the
+  ;; output correctly.
+  ;; NOTE FOR MAC USERS: If you are on Mac, make sure to use GNU ls (e.g.,
+  ;; via coreutils) and not the BSD ls that comes with macOS, as the latter
+  ;; may not support the required options for dired to work properly.
+  (dired-listing-switches "-ahl --group-directories-first")
+  :config
+  (defun cfg-navigation/refresh-dired-and-children (&rest _)
+    "Force-refresh the current Dired buffer and any related child buffers.
+It should be used after wdired to make sure the changes done will
+propagate to the other buffers when renaming a subtree in the main buffer."
+    (let ((parent-dir (expand-file-name default-directory)))
+      (dolist (buf (buffer-list))
+        (with-current-buffer buf
+          (when (and (derived-mode-p 'dired-mode)
+                     (string-prefix-p parent-dir (expand-file-name default-directory)))
+            (revert-buffer t t))))))
+
+  (advice-add 'wdired-finish-edit :after #'cfg-navigation/refresh-dired-and-children)
+
+  ;; After creating a file/dir inside a Dirvish subtree, the cursor jumps to
+  ;; the tree root instead of the new entry. Root cause: Dirvish's own
+  ;; :after advice on `dired-create-directory' calls `revert-buffer', which
+  ;; invokes `dirvish-revert'. That function snapshots the *current* cursor
+  ;; position as :old-index (which is wrong because `dired-add-file' silently
+  ;; failed for the empty-subtree case), reverts the buffer, then
+  ;; `dirvish-subtree--revert' re-expands all subtrees and navigates back to
+  ;; that wrong :old-index.
+  ;;
+  ;; Fix: record the intended target *before* any of that happens, then use
+  ;; `dirvish-after-revert-hook' (appended so it runs *after*
+  ;; `dirvish-subtree--revert' has already re-inserted the listing) to jump
+  ;; to the new entry.
+  ;;
+  ;; Navigation note: Emacs 30's `dired-goto-file' uses a text search against
+  ;; `dired-subdir-alist', which Dirvish subtrees never populate (they use
+  ;; overlays instead). So we fall back to `dirvish-subtree-expand-to'
+  ;; which navigates via the overlay structure and correctly finds entries
+  ;; inside subtrees.
+  (defvar cfg-navigation/dired-last-created nil
+    "Cons of (buffer . path) recorded before file/dir creation.
+Consumed by `cfg-navigation/dired-goto-last-created' via `dirvish-after-revert-hook'.")
+
+  (defun cfg-navigation/dired-record-created (path &rest _)
+    "Before creating PATH, save it for post-revert cursor repositioning."
+    (setq cfg-navigation/dired-last-created
+          (cons (current-buffer)
+                (expand-file-name (directory-file-name path)))))
+
+  (defun cfg-navigation/dired-goto-last-created ()
+    "Jump to the last-created dired entry after Dirvish reverts.
+Appended to `dirvish-after-revert-hook' so it runs after
+`dirvish-subtree--revert' has already re-expanded all subtrees.
+
+`dired-goto-file' (Emacs 30) searches text via `dired-subdir-alist', which
+Dirvish subtrees do not populate. We therefore fall back to
+`dirvish-subtree-expand-to', which navigates the overlay tree correctly."
+    (when (and cfg-navigation/dired-last-created
+               (eq (current-buffer) (car cfg-navigation/dired-last-created)))
+      (let ((target (cdr cfg-navigation/dired-last-created)))
+        (setq cfg-navigation/dired-last-created nil)
+        (or (dired-goto-file target)
+            (when (fboundp 'dirvish-subtree-expand-to)
+              (condition-case nil
+                  (dirvish-subtree-expand-to target)
+                (user-error nil)))))))
+
+  (advice-add 'dired-create-directory  :before #'cfg-navigation/dired-record-created)
+  (advice-add 'dired-create-empty-file :before #'cfg-navigation/dired-record-created)
+  ;; t = append, so we run after dirvish-subtree--revert (which is prepended)
+  (add-hook 'dirvish-after-revert-hook #'cfg-navigation/dired-goto-last-created t)
+
+  (define-key dired-mode-map (kbd "C-<up>") #'dired-up-directory)
+  (define-key dired-mode-map (kbd "M-n") #'dired-create-empty-file)
+  (add-hook 'dired-mode-hook (lambda () (setq-local line-spacing 0.1)))
+  (global-auto-revert-mode 1)
+  ;; Do NOT set auto-revert-check-vc-info to t: the auto-revert timer fires
+  ;; periodically even during normal editing (no external file changes) and
+  ;; with that flag set it calls vc-refresh-state -> vc-registered -> heavy
+  ;; filesystem checks on every tick. diff-hl and magit already keep VC state
+  ;; current, so this polling is redundant and wastes ~4% of CPU.
+  (setq auto-revert-check-vc-info nil)
+  (setq dired-auto-revert-buffer t))
+#+end_src
+
+** Dirvish Configuration
+#+begin_src emacs-lisp
+(use-package dirvish
+  :pin "MELPA Unstable"
+  :bind (:map dirvish-mode-map
+              ("TAB"       . dirvish-subtree-toggle)
+              ("<right>"   . cfg-navigation/dirvish-subtree-right)
+              ("C-<right>" . cfg-navigation/dirvish-subtree-expand-chain)
+              ("<left>"    . cfg-navigation/dirvish-subtree-left)
+              ("C-<left>"  . cfg-navigation/dirvish-subtree-up-to-branch)
+              ("|"         . dirvish-layout-toggle)
+              ("@"         . cfg-navigation/dirvish-toggle-git-msg))
+  :init
+  (dirvish-override-dired-mode)
+  :config
+  (defun cfg-navigation/dirvish-toggle-git-msg ()
+    "Toggle 'vc-state' and 'git-msg' attributes for Dirvish."
+    (interactive)
+    (let ((has-git (or (memq 'git-msg dirvish-attributes)
+                       (memq 'vc-state dirvish-attributes))))
+      ;; Toggle the global attributes
+      (if has-git
+          (setq dirvish-attributes (remq 'vc-state (remq 'git-msg dirvish-attributes)))
+        (setq dirvish-attributes (append dirvish-attributes '(vc-state git-msg))))
+
+      ;; Re-initialize the active dirvish session so git background processes correctly start/stop
+      (when (and (derived-mode-p 'dired-mode) (dirvish-curr))
+        (let ((dir default-directory)
+              (layout-p (dv-curr-layout (dirvish-curr))))
+          (kill-buffer (current-buffer))
+          (if layout-p
+              (dirvish dir)
+            (dired dir))))
+
+      (message "Dirvish: git info %s" (if has-git "Disabled" "Enabled"))))
+
+  (defun cfg-navigation/dirvish-last-in-subtree-p ()
+    "Return t if point is on the last entry of its subtree."
+    (let ((current-depth (dirvish-subtree--depth)))
+      (and (> current-depth 0)
+           (save-excursion
+             (< (progn (forward-line 1) (dirvish-subtree--depth))
+                current-depth)))))
+
+  (defun cfg-navigation/dirvish-empty-subtree-p ()
+    "Return t if on an expanded dir whose subtree has no entries."
+    (and (dirvish-subtree--expanded-p)
+         (save-excursion
+           (forward-line 1)
+           (let ((child-depth (dirvish-subtree--depth)))
+             (forward-line 1)
+             (< (dirvish-subtree--depth) child-depth)))))
+
+  (defun cfg-navigation/dirvish-subtree-left ()
+    "Collapse the subtree when open or move to the parent."
+    (interactive)
+    (if (dirvish-subtree--expanded-p)
+        (dirvish-subtree-toggle)
+      (dirvish-subtree-up)))
+
+  (defun cfg-navigation/dirvish-subtree-direct-children ()
+    "Return the direct children of the expanded subtree at point.
+Each result is a cons of the child's buffer position and its file name."
+    (let ((parent-depth (dirvish-subtree--depth))
+          children)
+      (save-excursion
+        (forward-line 1)
+        (while (and (not (eobp))
+                    (> (dirvish-subtree--depth) parent-depth))
+          (when (= (dirvish-subtree--depth) (1+ parent-depth))
+            (push (cons (point) (dired-get-filename nil t)) children))
+          (forward-line 1)))
+      (nreverse children)))
+
+  (defun cfg-navigation/dirvish-subtree-only-child-directory ()
+    "Return the sole direct directory child of the subtree at point.
+Return its buffer position, or nil unless the expanded subtree has
+exactly one direct child and that child is a directory."
+    (let ((children (cfg-navigation/dirvish-subtree-direct-children)))
+      (when (and (= (length children) 1)
+                 (file-directory-p (cdar children)))
+        (caar children))))
+
+  (defun cfg-navigation/dirvish-subtree-up-to-branch ()
+    "Move up a single-child chain and collapse it below its first branch."
+    (interactive)
+    (let ((selected-item (dired-get-filename nil t)))
+      (if (and selected-item (file-directory-p selected-item))
+          (let ((origin (point))
+                (child-position (point))
+                continue
+                traversed-chain
+                collapsed)
+            (setq continue t)
+            (while continue
+              (let ((origin (point)))
+                (condition-case nil
+                    (dirvish-subtree-up)
+                  (user-error nil))
+                (if (= origin (point))
+                    (setq continue nil)
+                  (if (> (length (cfg-navigation/dirvish-subtree-direct-children)) 1)
+                      (progn
+                        (goto-char child-position)
+                        (when (and traversed-chain
+                                   (dirvish-subtree--expanded-p))
+                          (dirvish-subtree-toggle)
+                          (setq collapsed t))
+                        (setq continue nil))
+                    (setq child-position (point)
+                          traversed-chain t)))))
+            (unless collapsed
+              (goto-char origin)
+              (cfg-navigation/dirvish-subtree-left)))
+        (cfg-navigation/dirvish-subtree-left))))
+
+  (defun cfg-navigation/dirvish-subtree-right ()
+    "Expand the subtree or move to its first item when already open."
+    (interactive)
+    (when-let ((selected-item (dired-get-filename nil t))
+               ((file-directory-p selected-item)))
+      (if (dirvish-subtree--expanded-p)
+          (forward-line 1)
+        (dirvish-subtree-toggle))))
+
+  (defun cfg-navigation/dirvish-subtree-expand-chain ()
+    "Expand the single-directory chain rooted at the entry at point."
+    (interactive)
+    (when-let ((selected-item (dired-get-filename nil t))
+               ((file-directory-p selected-item)))
+      (let ((was-expanded (dirvish-subtree--expanded-p))
+            child-position)
+        (unless was-expanded
+          (dirvish-subtree-toggle))
+        (setq child-position (cfg-navigation/dirvish-subtree-only-child-directory))
+        (if child-position
+            (progn
+              (while child-position
+                (goto-char child-position)
+                (unless (dirvish-subtree--expanded-p)
+                  (dirvish-subtree-toggle))
+                (setq child-position
+                      (cfg-navigation/dirvish-subtree-only-child-directory)))
+              (cfg-navigation/dirvish-subtree-right))
+          (when was-expanded
+            (cfg-navigation/dirvish-subtree-right))))))
+
+  (defun cfg-navigation/dirvish-refresh-preview-cache ()
+    "Clear text preview cache + buffers; force re-read from disk.
+Runs on `dirvish-after-revert-hook' so `g' reloads externally changed files."
+    (when-let* ((dv (dirvish-curr)))
+      (clrhash (dv-preview-hash dv))
+      (clrhash (dv-parent-hash dv))
+      ;; fallback reuses buffers named "PREVIEW :: TIMESTAMP :: file"; kill those
+      ;; even if they were never recorded in dv-preview-buffers.
+      (let ((prefix (format "PREVIEW :: %s ::" (dv-timestamp dv))))
+        (dolist (buf (buffer-list))
+          (when (string-prefix-p prefix (buffer-name buf))
+            (dirvish--kill-buffer buf))))
+      (mapc #'dirvish--kill-buffer (dv-preview-buffers dv))
+      ;; Same file still selected -> debounce would skip preview update otherwise
+      (dirvish--run-with-delay 'reset)
+      (when-let* ((idx (dired-get-filename nil t))
+                  ((dv-curr-layout dv))
+                  (pwin (dv-preview-window dv))
+                  ((window-live-p pwin)))
+        (dirvish--preview-update dv (file-local-name idx)))))
+
+  (defun cfg-navigation/dirvish-invalidate-saved-preview ()
+    "Drop saved file from Dirvish text preview hashes so previews are not stale."
+    (when buffer-file-name
+      (let ((file (file-local-name (expand-file-name buffer-file-name))))
+        (maphash (lambda (_id dv)
+                   (remhash file (dv-preview-hash dv))
+                   (remhash buffer-file-name (dv-preview-hash dv)))
+                 dirvish--sessions))))
+
+  (add-hook 'dirvish-after-revert-hook #'cfg-navigation/dirvish-refresh-preview-cache)
+  (add-hook 'after-save-hook #'cfg-navigation/dirvish-invalidate-saved-preview)
+
+  (setq dirvish-mode-line-format '(:left (path) :right (file-size)))
+  (setq dirvish-attributes '(subtree-state nerd-icons file-size))
+  (setq dirvish-preview-dispatchers '(dired image gif audio epub archive font pdf video))
+  (setq dirvish-cache-dir
+        (expand-file-name "dirvish/" user-emacs-directory))
+  ;; "-l" is required for showing icons in subtrees. See note on `dired-listing-switches`:
+  (setq dirvish-subtree-listing-switches "-Ahl --group-directories-first")
+
+  ;; Configuring Auto Revert mode for Dirvish/Dired buffers
+  (setq global-auto-revert-non-file-buffers t) ; Allow Auto Revert monitor Dired/Dirvish buffers
+  (setq auto-revert-verbose nil) ; Stop Emacs from printing "Reverting buffer..." in the echo area every time it updates
+  (add-hook 'dired-mode-hook #'auto-revert-mode)) ; Automatically turn on Auto Revert mode on Dirvish/Dired buffers
+#+end_src
+
+** Dired Faces
+This package adds extra highlighting to file permissions, sizes, and dates,
+making the buffer much easier to read.
+
+#+begin_src emacs-lisp
+(defun cfg-navigation/apply-diredfl-faces ()
+  "Apply diredfl faces based on the current theme."
+  (let ((theme-name (format "%s" (car custom-enabled-themes))))
+    (cond
+     ;; CASE: Nord Themes
+     ((string-match-p "doom-nord" theme-name)
+      (custom-set-faces
+       '(diredfl-date-time   ((t (:foreground "#b8a98f"))))
+       '(diredfl-dir-name    ((t (:foreground "#81a1c1" :weight bold))))
+       '(diredfl-dir-priv    ((t (:foreground "#88c0d0" :weight bold))))
+       '(diredfl-exec-priv   ((t (:foreground "#9683a3"))))
+       '(diredfl-file-name   ((t (:foreground "#eceff4"))))
+       '(diredfl-group       ((t (:foreground "#434c5e" :inherit nil))))
+       '(diredfl-no-priv     ((t (:foreground "#434c5e"))))
+       '(diredfl-number      ((t (:foreground "#616e88"))))
+       '(diredfl-owner       ((t (:foreground "#4c566a" :inherit nil))))
+       '(diredfl-read-priv   ((t (:foreground "#70788d"))))
+       '(diredfl-write-priv  ((t (:foreground "#a3adcb"))))))
+
+     ;; CASE: Doom-One / Default (The Steel Blue setup)
+     (t
+      (custom-set-faces
+       '(diredfl-date-time   ((t (:foreground "#c6c9cd"))))
+       '(diredfl-dir-name    ((t (:foreground "#51afef"))))
+       '(diredfl-dir-priv    ((t (:foreground "#3579a8" :weight bold))))
+       '(diredfl-exec-priv   ((t (:foreground "#a9a1e1"))))
+       '(diredfl-file-name   ((t (:foreground "#bbc2cf"))))
+       '(diredfl-group       ((t (:foreground "#282c34" :inherit nil))))
+       '(diredfl-no-priv     ((t (:foreground "#3f444a"))))
+       '(diredfl-number      ((t (:foreground "#4c566a"))))
+       '(diredfl-owner       ((t (:foreground "#3f444a" :inherit nil))))
+       '(diredfl-read-priv   ((t (:foreground "#5b6268"))))
+       '(diredfl-write-priv  ((t (:foreground "#9ca0a4"))))))))
+
+  (when (and after-init-time (derived-mode-p 'dired-mode))
+    (revert-buffer)))
+
+;; Hook it so it runs whenever you switch themes
+(add-hook 'after-load-theme-hook #'cfg-navigation/apply-diredfl-faces)
+
+(use-package diredfl
+  :hook ((dired-mode . diredfl-mode)
+         (dirvish-directory-view-mode . diredfl-mode))
+  :init
+  (cfg-navigation/apply-diredfl-faces))
+#+end_src
+
+** Subtree Searching with Ripgrep
+#+begin_src emacs-lisp
+(defun cfg-navigation/rg-search-in-subtree ()
+  "Prompt for a search string and run rg in the folder at point."
+  (interactive)
+  (require 'rg) ; Ensure the package and its variables are loaded
+  (defvar rg-custom-flags)
+  (let ((target-dir (dired-get-filename nil t))
+        (flags (if (boundp 'rg-custom-flags)
+                   (cons "--hidden" rg-custom-flags)
+                 '("--hidden"))))
+
+    (unless (and target-dir (file-directory-p target-dir))
+      (setq target-dir (file-name-directory (dired-get-filename))))
+
+    (let ((default-directory target-dir)
+          (rg-custom-flags flags))
+      (call-interactively #'rg)))))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(with-eval-after-load 'dired
+  (define-key dired-mode-map (kbd "C-c s") #'cfg-navigation/rg-search-in-subtree))
+
+(cfg-keys/leader-def
+  "f d" '(dired :whichkey "Open Dired"))
+#+end_src
+
+* System Setup
+#+begin_src sh
+DIRVISH_UTILITIES=(
+  "fd" "git"
+  "mediainfo" "imagemagick" "ffmpegthumbnailer" "vipsthumbnail"
+  "poppler" "unzip" "glow" "pandoc"
+)
+
+is_installed__tools__dired__dirvish_utilities_bundle() {
+  are_these_system_packages_installed "${DIRVISH_UTILITIES[@]}"
+}
+
+# --- Core Performance & Navigation ---
+# Used for fast searching, jumping to files, and directory rendering.
+register_system_package "fd" \
+                        "alpine:fd" \
+                        "fedora:fd-find" \
+                        "linuxbrew:fd" \
+                        "mac:fd" \
+                        "debian-ubuntu:fd-find"
+
+register_system_package "git" \
+                        "alpine:git" \
+                        "fedora:git" \
+                        "linuxbrew:git" \
+                        "mac:git" \
+                        "debian-ubuntu:git"
+
+# --- Media Metadata & Previews ---
+# Used by dispatchers to show technical info and thumbnails for video/audio/images.
+register_system_package "mediainfo" \
+                        "alpine:mediainfo" \
+                        "fedora:mediainfo" \
+                        "linuxbrew:mediainfo" \
+                        "mac:mediainfo" \
+                        "debian-ubuntu:mediainfo"
+
+register_system_package "imagemagick" \
+                        "alpine:imagemagick" \
+                        "fedora:ImageMagick" \
+                        "linuxbrew:imagemagick" \
+                        "mac:imagemagick" \
+                        "debian-ubuntu:imagemagick"
+
+register_system_package "ffmpegthumbnailer" \
+                        "alpine:ffmpegthumbnailer" \
+                        "fedora:ffmpegthumbnailer" \
+                        "linuxbrew:ffmpegthumbnailer" \
+                        "mac:ffmpegthumbnailer" \
+                        "debian-ubuntu:ffmpegthumbnailer"
+
+register_system_package "vipsthumbnail" \
+                        "alpine:vips-tools" \
+                        "fedora:vips-tools" \
+                        "linuxbrew:vips" \
+                        "mac:vips" \
+                        "debian-ubuntu:libvips-tools"
+
+# --- Document & Archive Parsing ---
+# Used to peek inside PDFs, archives, and formatted text files.
+register_system_package "poppler" \
+                        "alpine:poppler-utils" \
+                        "fedora:poppler" \
+                        "linuxbrew:poppler" \
+                        "mac:poppler" \
+                        "debian-ubuntu:poppler-utils"
+
+register_system_package "unzip" \
+                        "alpine:unzip" \
+                        "fedora:unzip" \
+                        "linuxbrew:unzip" \
+                        "mac:unzip" \
+                        "debian-ubuntu:unzip"
+
+register_system_package "glow" \
+                        "alpine:glow" \
+                        "fedora:glow" \
+                        "linuxbrew:glow" \
+                        "mac:glow" \
+                        "debian-ubuntu:glow"
+
+register_system_package "pandoc" \
+                        "alpine:pandoc" \
+                        "fedora:pandoc" \
+                        "linuxbrew:pandoc" \
+                        "mac:pandoc" \
+                        "debian-ubuntu:pandoc"
+
+install__tools__dired__dirvish_utilities_bundle() {
+  log_info "Starting Dirvish utilities setup..."
+
+  if [ -f /etc/debian_version ]; then
+    # Debian/Ubuntu: There is no official Personal Package Archive (PPA) for Glow on Ubuntu.
+    # Instead, the developers provide a dedicated APT repository and other official installation methods.
+    sudo mkdir -p /etc/apt/keyrings
+    if [ ! -f /etc/apt/keyrings/charm.gpg ]; then
+      curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+    fi
+    echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
+  fi
+
+  install_system_packages "${DIRVISH_UTILITIES[@]}"
+}
+
+uninstall__tools__dired__dirvish_utilities_bundle() {
+  log_skip "Dirvish utilities" "The packages used with Dirvish are system packages and will not be uninstalled automatically"
+}
+
+register_action "Tools / Dired / Install Dirvish utilities" "-tools--dired--dirvish_utilities_bundle" "utils"
+#+end_src

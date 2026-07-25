@@ -1,0 +1,108 @@
+#+TITLE: Yaml Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Configure YAML support.
+
+* Emacs Configuration
+** yaml-ts-mode
+#+begin_src emacs-lisp
+(use-package yaml-ts-mode
+  :mode "\\.ya?ml\\'"
+  :config
+  (setq treesit-font-lock-level 4)
+  (unless (treesit-language-available-p 'yaml)
+    (treesit-install-language-grammar 'yaml)))
+
+(with-eval-after-load 'lsp-mode
+  (add-to-list 'lsp-language-id-configuration '(yaml-ts-mode . "yaml"))
+  ;; Enable LSP support for YAML gives real-time schema validation, smart
+  ;; completion, hover help, and automatic formatting:
+  (add-hook 'yaml-ts-mode-hook #'lsp-deferred))
+
+(with-eval-after-load 'lsp-yaml
+  (defvar lsp-yaml-schemas)
+  (setq lsp-yaml-schemas
+        '(:https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json
+          ["**/docker-compose*.ya*ml"]
+
+          :https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v1.30.3-standalone-strict/all.json
+          ["*-k8s.yaml" "*-k8s.yml" "**/k8s/*.ya*ml"])))
+#+end_src
+
+** yaml-pro
+~yaml-pro~ provides a specialized toolkit for structural refactoring
+and advanced visibility. It allows you to treat YAML nodes as physical
+objects, enabling you to swap entire nested blocks up or down without
+breaking indentation. Beyond movement, it offers "tree convolution"
+for restructuring hierarchies and adds specific highlighting for
+advanced YAML features like anchors and tags, ensuring that the
+logical structure of your configuration is always transparent and easy
+to manipulate safely.
+
+#+begin_src emacs-lisp
+(use-package yaml-pro
+  :after yaml-ts-mode
+  :hook ((yaml-ts-mode . yaml-pro-mode)
+         (yaml-ts-mode . outline-minor-mode))
+  :config
+  (defvar yaml-pro-set-colors)
+  (declare-function yaml-pro-move-up "yaml-pro")
+  (declare-function yaml-pro-move-down "yaml-pro")
+  (declare-function yaml-pro-up-level "yaml-pro")
+  (declare-function yaml-pro-down-level "yaml-pro")
+  (declare-function yaml-pro-convolute-tree "yaml-pro")
+  (setq yaml-pro-set-colors t)
+
+  (defun cfg-lang/yaml-pro-toggle-feature (var name)
+    "Toggle a local boolean YAML feature VAR and display message with NAME."
+    (set (make-local-variable var) (not (symbol-value var)))
+    (font-lock-flush)
+    (font-lock-ensure)
+    (message "YAML %s highlighting: %s" name (if (symbol-value var) "Enabled" "Disabled")))
+
+  ;; Named interactive commands
+  (defun cfg-lang/yaml-pro-toggle-anchors ()
+    "Toggle YAML anchor highlighting in current buffer."
+    (interactive)
+    (cfg-lang/yaml-pro-toggle-feature 'yaml-pro-highlight-anchors "Anchor"))
+
+  (defun cfg-lang/yaml-pro-toggle-tags ()
+    "Toggle YAML tag highlighting in current buffer."
+    (interactive)
+    (cfg-lang/yaml-pro-toggle-feature 'yaml-pro-highlight-tags "Tag")))
+#+end_src
+
+* Keybindings
+Registers keybindings for YAML structural navigation and features.
+
+#+begin_src emacs-lisp
+;; Mode-specific bindings inside yaml-pro buffers
+(with-eval-after-load 'yaml-pro
+  (define-key yaml-pro-mode-map (kbd "C-c v k") #'yaml-pro-move-up)
+  (define-key yaml-pro-mode-map (kbd "C-c v j") #'yaml-pro-move-down)
+  (define-key yaml-pro-mode-map (kbd "C-c v h") #'yaml-pro-up-level)
+  (define-key yaml-pro-mode-map (kbd "C-c v l") #'yaml-pro-down-level)
+  (define-key yaml-pro-mode-map (kbd "C-c v c") #'yaml-pro-convolute-tree)
+  (define-key yaml-pro-mode-map (kbd "C-c v a") #'cfg-lang/yaml-pro-toggle-anchors)
+  (define-key yaml-pro-mode-map (kbd "C-c v t") #'cfg-lang/yaml-pro-toggle-tags))
+
+;; Static Leader Keybindings under +code/language -> +yaml
+(cfg-keys/leader-def
+  "l"     '(:ignore t :which-key "+code/lang")
+  "l y"   '(:ignore t :which-key "+yaml")
+  ;; Structural Movement
+  "l y k" #'yaml-pro-move-up
+  "l y j" #'yaml-pro-move-down
+  "l y h" #'yaml-pro-up-level
+  "l y l" #'yaml-pro-down-level
+  ;; Folding & Magic:
+  "l y c" #'yaml-pro-convolute-tree
+  ;; Toggles:
+  "l y a" #'cfg-lang/yaml-pro-toggle-anchors
+  "l y t" #'cfg-lang/yaml-pro-toggle-tags)
+#+end_src
+
+* System Setup
+No system setup required.

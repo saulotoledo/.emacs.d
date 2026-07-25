@@ -1,0 +1,890 @@
+#+TITLE: LSP Base Layer
+#+CATEGORY: lsp
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides IDE-like features via the Language Server Protocol using lsp-mode,
+lsp-ui, and lsp-treemacs. Includes advanced completion debouncing,
+TRAMP/devcontainer integration, and workspace filtering to keep language servers
+scoped to relevant files.
+
+* Emacs Configuration
+** LSP Use Plists (early-init)
+By default, ~lsp-mode~ uses hash tables to handle the serialization of JSON-RPC
+messages from language servers. However, some language servers do not handle
+this default implementation correctly and will fail, often attempting to
+endlessly search for hash-table structures that aren't being parsed as expected.
+Even when you enable =lsp-use-plists= in your standard configuration, the
+package may still initialize or compile using its default hash-table
+architecture. Setting the =LSP_USE_PLISTS= environment variable acts as a global
+override, forcing ~lsp-mode~ to use property lists (~plists~) instead of the
+default hash tables from the very start. The variable is needed when compiling
+LSP to make sure it has the proper support, and later when running it.
+Therefore, we do it in our =early-init.el= to ensure it takes effect before any
+LSP code is loaded or compiled.
+
+#+begin_src emacs-lisp :tangle early-init.el
+;; Force lsp-mode to use plists instead of the default hash tables.
+;; This is required for some language servers that fail when they encounter
+;; hash tables. This must be set before lsp-mode loads or compiles to
+;; ensure it does not default to the hash-table implementation.
+(setenv "LSP_USE_PLISTS" "1")
+
+(defun cfg-lsp/lsp-recompile-for-plists ()
+  "Recompile lsp-mode with LSP_USE_PLISTS=1 so diagnostics work with plists.
+Run once if you see wrong-type-argument hash-table-p when flycheck runs LSP diagnostics."
+  (interactive)
+  (setenv "LSP_USE_PLISTS" "1")
+  (byte-recompile-directory (file-name-directory (locate-library "lsp-mode")) 0 t)
+  (message "Recompiled. Restart Emacs for changes to take effect."))
+#+end_src
+
+** lsp-mode: Core LSP Client
+~lsp-mode~ is the main package that connects Emacs to language servers, enabling
+code completion, go-to-definition, diagnostics, and more.
+
+#+begin_src emacs-lisp
+(use-package lsp-mode
+  :pin "MELPA Unstable"
+  :init
+  (setq
+   ;; Needed for TRAMP performance:
+   lsp-auto-register-remote-clients t
+   ;; Do not load unnecessary clients:
+   lsp-auto-require-clients nil
+   ;; Use the standard completion-at-point mechanism, which Corfu and other
+   ;; completion frameworks integrate with. See the `lsp-completion-mode'
+   ;; advice below: in this lsp-mode version :capf also auto-enables company,
+   ;; so we suppress that side effect when Corfu is active.
+   lsp-completion-provider :capf
+   ;; Load lsp-mode with this setting so its which-key labels never expose
+   ;; the default Super-key prefix.
+   lsp-keymap-prefix "C-c l")
+
+  :bind
+  (:map lsp-mode-map ("M-RET" . lsp-execute-code-action))
+
+  :hook
+  (prog-mode . lsp-deferred)
+
+  :custom
+  (lsp-response-timeout 20) ; Increase timeout for slow language servers
+  (lsp-enable-indentation t)
+  (lsp-enable-on-type-formatting nil)
+  (lsp-enable-symbol-highlighting nil) ; Constant overlay updates trigger extra redisplay passes
+  (lsp-format-on-save nil)
+  (lsp-log-io nil)
+  (lsp-semantic-tokens-enable nil) ; Performance improvement, it avoids constant text-property updates
+  ;; Both fire LSP requests on every after-change-functions call. While typing fast, each request
+  ;; is immediately cancelled by the next keystroke, producing a storm of "Cancelling
+  ;; textDocument/codeAction(N) in hook after-change-functions" messages and repeated modeline
+  ;; redraws. Disable both; use M-RET for code actions.
+  (lsp-modeline-code-actions-enable nil)
+  (lsp-lens-enable nil)
+  ;; Do NOT include :on-trigger-char: that fires on every ( and , in TypeScript, recreating
+  ;; the posframe child frame each time and occasionally disrupting input routing (producing
+  ;; "( is undefined" / "= is undefined" in *Messages*). Keep :after-execute so signature
+  ;; still shows when you pick a completion, and :on-server-request for server-pushed help.
+  (lsp-signature-auto-activate '(:after-execute :on-server-request))
+  (lsp-idle-delay 0.6)
+  ;; kind-icon already renders kind icons in the Corfu margin; disable LSP's
+  ;; own kind annotation string (kind-icon handles it visually).
+  (lsp-completion-show-kind nil)
+  (lsp-completion-show-detail t)
+  ;; Show partial results immediately when the server flags isIncomplete=true.
+  ;; Combined with the debounce advice in :config, this gives VSCode-like
+  ;; responsiveness: the first tick fires the real request; subsequent ticks
+  ;; within the debounce window filter the cached response client-side.
+  (lsp-completion-filter-on-incomplete t)
+
+  ;; Configure LSP to work with TRAMP/devcontainer
+  ;; When using TRAMP to access files inside devcontainer, LSP should use
+  ;; the container's environment and paths
+  ;;
+  ;; lsp-use-plists: set to t for production.
+  ;; - t (plists): Improves performance for TRAMP/remote LSP. Some language servers and
+  ;;   LSP client code paths work more reliably when using plists rather than hash-tables
+  ;;   for representing data, especially over slower or unstable remote connections.
+  ;; - nil / unset (hash-tables): dockerfile-ls initializes, but you get "Unknown request
+  ;;   method: nil" (incoming server requests use string keys, code expects :method), and
+  ;;   semgrep-ls can crash (Jsonrpc: json conversion failed: Id.t) due to id format.
+  ;;   Possible readon: dockerfile-ls requires plists.
+  (lsp-use-plists t)
+
+  ;; Other settings
+  (lsp-completion-enable-additional-text-edit t) ; Enable auto-imports and extra code snippets on completion
+  (lsp-enable-snippet t) ; Allow LSP completion items to expand yasnippet parameter placeholders
+
+  :config
+  (add-hook 'emacs-lisp-mode-hook (lambda ()
+                                    (setq-local lsp-warn-no-matched-clients nil)
+                                    (lsp-mode -1)))
+  ;; lsp-mode may have been autoloaded before this declaration. Rebuild both
+  ;; bindings so command completion immediately reports C-c l, never s-l.
+  (define-key lsp-mode-map (kbd lsp-keymap-prefix) lsp-command-map)
+
+  (with-eval-after-load 'lsp-completion
+    (defun cgf-lsp/lsp-completion-mode-without-company-for-corfu (orig &rest args)
+      "Prevent lsp-mode from enabling Company in Corfu buffers.
+`lsp-completion-mode' still installs `lsp-completion-at-point' and the LSP
+completion category settings. Only its Company autoconfiguration is skipped
+when `corfu-mode' is active."
+      (if (not (and (bound-and-true-p corfu-mode)
+                    (fboundp 'company-mode)))
+          (apply orig args)
+        ;; In lsp-mode 20260630, `lsp-completion-mode' installs the CAPF before
+        ;; consulting `lsp-completion-provider'. Bind it to :none only for this
+        ;; call so lsp-mode skips its Company branch, which otherwise enables
+        ;; `company-mode' and mutates `company-backends' even in Corfu buffers.
+        (let ((lsp-completion-provider :none))
+          (apply orig args))))
+
+    (advice-add 'lsp-completion-mode
+                :around
+                #'cgf-lsp/lsp-completion-mode-without-company-for-corfu))
+
+  ;; makes `lsp-completion-at-point` return the last cached list when a request is interrupted
+  ;; (:interrupted catch).
+  (setq lsp-completion-use-last-result t)
+
+  ;; Some language servers (TypeScript, Pyright, clangd, etc.) frequently return
+  ;; isIncomplete=true in their textDocument/completion responses. When that
+  ;; happens lsp-mode stores :incomplete in lsp-completion--cache, and the
+  ;; (listp :incomplete) guard always fails, forcing a new server request on
+  ;; every corfu-auto tick; even within the same session. The result:
+  ;; lsp-request-while-no-input -> sit-for leading to very high CPU usage.
+  ;;
+  ;; Fix: within `cgf-lsp/lsp-completion-debounce-delay' seconds and the same
+  ;; bounds-start, return the last raw LSP response without a server round-trip;
+  ;; `lsp-completion--filter-candidates' still applies prefix filtering locally.
+  ;; When the server returns a complete list, lsp-mode's own cache already
+  ;; avoids the round-trip, so this debounce only activates for incomplete
+  ;; results. Manual completion (`non-essential = nil`) is never throttled.
+  (with-eval-after-load 'lsp-completion
+    (defvar-local cgf-lsp/lsp-completion--last-resp nil
+      "Cached raw LSP textDocument/completion response for auto-completion reuse.")
+    (defvar-local cgf-lsp/lsp-completion--last-resp-time 0
+      "Float-time of the last cached LSP completion response.")
+    (defvar-local cgf-lsp/lsp-completion--last-resp-bounds nil
+      "bounds-start of the last cached LSP completion response.")
+    (defcustom cgf-lsp/lsp-completion-debounce-delay 0.8
+      "Seconds to reuse a cached LSP textDocument/completion response.
+Applies only in non-essential (auto-completion) context and only when
+bounds-start is unchanged (same completion session)."
+      :type 'number
+      :group 'lsp-completion)
+
+    (defun cgf-lsp/corfu-refresh-after-lsp-async (buf)
+      "Refresh Corfu in BUF through `completion-at-point'.
+Async LSP callbacks can run outside Corfu's normal command lifecycle.  Re-enter
+via `completion-at-point' so Corfu tears down and recreates its child frame
+through `completion-in-region-mode' instead of repainting private frames
+directly."
+      (when-let ((win (and (buffer-live-p buf)
+                           (get-buffer-window buf t))))
+        (with-selected-window win
+          (with-current-buffer buf
+            (when (bound-and-true-p corfu-mode)
+              (let ((non-essential t))
+                (completion-at-point)))))))
+
+    (defun cgf-lsp/lsp-completion-supported-p ()
+      "Return non-nil when an active LSP workspace supports completion."
+      (and (fboundp 'lsp-feature?)
+           (ignore-errors
+             (lsp-feature? "textDocument/completion"))))
+
+    (defun cgf-lsp/lsp-request-while-no-input--debounce (orig method params)
+      "Prevent `lsp-request-while-no-input' from blocking for textDocument/completion.
+
+For any `textDocument/completion' request the advice operates in two modes,
+regardless of `non-essential':
+
+  1. Cache hit  – same bounds-start, recent response (<
+     `cgf-lsp/lsp-completion-debounce-delay' s old): return the cached LSP response
+     immediately without a server round-trip.
+
+  2. Cache miss – fire `lsp-request-async' and return nil immediately; the
+     sit-for loop inside `lsp-request-while-no-input' is never entered.
+     When the response arrives the cache is updated and a debounced (50 ms)
+     timer re-triggers completion so candidates appear without a keypress.
+
+The original blocking function is only called for non-completion methods.
+
+Rationale for dropping the `non-essential' guard on the cache-miss branch:
+The profiler showed `lsp-request-while-no-input' blocking for ~lsp-response-
+timeout (20 s) seconds via the `(t ...)' fallback even inside corfu-auto's
+timer callbacks, where `non-essential' should have been t. Rather than rely
+on a dynamic binding that can silently fail, we intercept ALL
+`textDocument/completion' requests unconditionally."
+      (let ((bounds-start (or (car (bounds-of-thing-at-point 'symbol)) (point))))
+        (cond
+         ;; Cache hit: same bounds, recent response -> return immediately.
+         ;; non-essential is NOT checked so manual completion (C-M-i/M-TAB)
+         ;; also benefits from the cache on repeated invocations.
+         ((and (equal method "textDocument/completion")
+               (cgf-lsp/lsp-completion-supported-p)
+               cgf-lsp/lsp-completion--last-resp
+               (equal cgf-lsp/lsp-completion--last-resp-bounds bounds-start)
+               (< (- (float-time) cgf-lsp/lsp-completion--last-resp-time)
+                  cgf-lsp/lsp-completion-debounce-delay))
+          cgf-lsp/lsp-completion--last-resp)
+
+         ;; If the current server set does not advertise completion, do not call
+         ;; `lsp-request-async'. It signals before its error handler is installed.
+         ((and (equal method "textDocument/completion")
+               (not (cgf-lsp/lsp-completion-supported-p)))
+          (setq cgf-lsp/lsp-completion--last-resp nil
+                cgf-lsp/lsp-completion--last-resp-time 0
+                cgf-lsp/lsp-completion--last-resp-bounds nil)
+          nil)
+
+         ;; textDocument/completion cache miss: ALWAYS fire async and return nil
+         ;; immediately — the sit-for loop is never entered. This is the core
+         ;; fix: the loop blocks whenever the user pauses typing because there is
+         ;; no input to interrupt `while-no-input', and lsp-response-timeout is
+         ;; 20 s. By firing async here for every context (auto and manual alike)
+         ;; we guarantee zero blocking for completion requests.
+         ;;
+         ;; When the response arrives the cache is updated. The refresh timer
+         ;; then re-enters completion through `completion-at-point', which lets
+         ;; Corfu run its normal teardown/setup path and avoids leaving stale
+         ;; child frames visible after async Java/JDTLS responses.
+         ((equal method "textDocument/completion")
+          (let ((buf (current-buffer))
+                (saved-bounds bounds-start))
+            (lsp-request-async
+             method params
+             (lambda (result)
+               (when (and result (buffer-live-p buf))
+                 (with-current-buffer buf
+                   (setq cgf-lsp/lsp-completion--last-resp        result
+                         cgf-lsp/lsp-completion--last-resp-time   (float-time)
+                         cgf-lsp/lsp-completion--last-resp-bounds saved-bounds)
+                   ;; Clear lsp-mode's internal cache so the next capf call doesn't
+                   ;; return the empty result caused by our nil return earlier.
+                   (setq lsp-completion--cache nil)
+                   (when (bound-and-true-p corfu-mode)
+                     (when (timerp cgf-lsp/lsp-completion--refresh-timer)
+                       (cancel-timer cgf-lsp/lsp-completion--refresh-timer))
+                     (setq cgf-lsp/lsp-completion--refresh-timer
+                           (run-at-time 0.05 nil
+                                        (lambda ()
+                                          (when (and (buffer-live-p buf)
+                                                     (with-current-buffer buf
+                                                       (bound-and-true-p corfu-mode)))
+                                            (with-current-buffer buf
+                                              (cgf-lsp/corfu-refresh-after-lsp-async buf))))))))))
+             :mode 'alive
+             :error-handler #'ignore))
+          nil)
+
+         ;; All other methods (non-completion): call the original function.
+         (t
+          (funcall orig method params)))))
+
+    (advice-add 'lsp-request-while-no-input
+                :around
+                #'cgf-lsp/lsp-request-while-no-input--debounce)
+
+    ;; Async-resolve completion items to show `labelDetails.description` inline
+    ;; in the corfu annotation list (the module/import source for a candidate).
+    ;; Many language servers omit this field from the initial
+    ;; `textDocument/completion` response and populate it only after
+    ;; `completionItem/resolve` (LSP 3.17 §3.16.3).
+    ;;
+    ;; We store resolved LabelDetails in a buffer-local hash-table keyed by
+    ;; "label|sortText" (stable across re-renders without touching the
+    ;; server-supplied item, so this works with both `lsp-use-plists t` (plists)
+    ;; and nil (hash-tables)). After any resolve completes, the next corfu
+    ;; render (triggered by navigation, typing, or the auto-timer) picks up
+    ;; the cached description without an extra server round-trip.
+    (defvar-local cgf-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal)
+      "label|sortText -> resolved module source for inline annotations.")
+
+    (defvar-local cgf-lsp/lsp-completion--refresh-timer nil
+      "Timer to debounce corfu refresh after async resolve completes.")
+
+    (defun cgf-lsp/lsp-completion--ld-key (item)
+      "Return a string cache key for CompletionItem ITEM."
+      (format "%s|%s"
+              (or (lsp-get item :label) "")
+              (or (lsp-get item :sortText) "")))
+
+    (defun cgf-lsp/lsp-completion--annotation-description (item)
+      "Extract `labelDetails.description` from CompletionItem ITEM.
+This is the module/import source (e.g. \"next/link\"), NOT the verbose
+type detail. Returns nil when unavailable."
+      (when-let* ((ld (lsp:completion-item-label-details? item))
+                  (desc (lsp:label-details-description? ld)))
+        (unless (lsp-falsy? desc) desc)))
+
+    (defun cgf-lsp/lsp-completion--import-source-from-buffer (symbol-name)
+      "Search buffer imports for SYMBOL-NAME and return the module path.
+Handles ES import patterns: `import X from \"mod\"`, `import { X } from \"mod\"`,
+`import { Y as X } from \"mod\"`. Returns nil if not found."
+      (save-excursion
+        (save-restriction
+          (widen)
+          (goto-char (point-min))
+          (let ((pattern (concat "\\bimport\\b[^;]*\\b"
+                                 (regexp-quote symbol-name)
+                                 "\\b[^;]*from\\s-+[\"']\\([^\"']+\\)[\"']")))
+            (when (re-search-forward pattern nil t)
+              (match-string-no-properties 1))))))
+
+    (defun cgf-lsp/lsp-completion--resolve-description (resolved-item)
+      "Extract module source from RESOLVED-ITEM, using multiple strategies.
+1. `labelDetails.description` (auto-import items provide this directly).
+2. Buffer import lookup when detail indicates an imported symbol."
+      (or
+       ;; Strategy 1: labelDetails.description (best: auto-import items)
+       (cgf-lsp/lsp-completion--annotation-description resolved-item)
+       ;; Strategy 2: detail ends with "\\nimport SYMBOL" or
+       ;; "\\nexport default SYMBOL" -> look up the import in the buffer
+       (when-let* ((detail (lsp-get resolved-item :detail))
+                   (label (lsp-get resolved-item :label)))
+         (when (string-match
+                (concat "\n\\(?:import\\|export default\\)\\s-+"
+                        (regexp-quote label) "\\s-*$")
+                detail)
+           (cgf-lsp/lsp-completion--import-source-from-buffer label)))))
+
+    (defun cgf-lsp/lsp-completion--annotate-with-resolve (orig cand)
+      "Annotate CAND with module source (e.g. \"next/link\") via async resolve.
+Fires one background `completionItem/resolve` per candidate that lacks a
+description and caches the result."
+      (let* ((raw (get-text-property 0 'lsp-completion-unresolved-item cand))
+             (base-ann (funcall orig cand)))
+        (when raw
+          (let* ((key (cgf-lsp/lsp-completion--ld-key raw))
+                 (pkey (concat "P:" key))
+                 (raw-desc (cgf-lsp/lsp-completion--annotation-description raw))
+                 (has-raw (not (null raw-desc)))
+                 (cached-desc (gethash key cgf-lsp/lsp-completion--ld-cache))
+                 (has-cached (not (null cached-desc))))
+            ;; Trigger a single background resolve if description is missing and not cached
+            (when (and (not has-raw)
+                       (not has-cached)
+                       (not (gethash pkey cgf-lsp/lsp-completion--ld-cache))
+                       (lsp-feature? "completionItem/resolve"))
+              (puthash pkey t cgf-lsp/lsp-completion--ld-cache)
+              (let ((cache cgf-lsp/lsp-completion--ld-cache)
+                    (buf (current-buffer)))
+                (lsp-completion--resolve-async
+                 cand
+                 (lambda (resolved-item)
+                   (when (buffer-live-p buf)
+                     (with-current-buffer buf
+                       (when-let* ((desc (cgf-lsp/lsp-completion--resolve-description resolved-item)))
+                         (puthash key desc cache)
+                         ;; Schedule a debounced corfu refresh so annotations appear
+                         ;; without waiting for the next user keypress.
+                         (when (bound-and-true-p corfu-mode)
+                           (when (timerp cgf-lsp/lsp-completion--refresh-timer)
+                             (cancel-timer cgf-lsp/lsp-completion--refresh-timer))
+                           (setq cgf-lsp/lsp-completion--refresh-timer
+                                 (run-at-time 0.05 nil
+                                              (lambda ()
+                                                (when (and (buffer-live-p buf)
+                                                           (bound-and-true-p corfu--candidates))
+                                                  (cgf-lsp/corfu-refresh-after-lsp-async buf))))))
+                       (remhash pkey cache))))
+                 (lambda ()
+                   (when (buffer-live-p buf)
+                     (with-current-buffer buf
+                       (remhash pkey cache)))))))
+            ;; Append cached description (module source) to the annotation
+            (when (and lsp-completion-show-detail (not has-raw) has-cached)
+              (setq base-ann (concat (or base-ann "") " " cached-desc)))))
+        base-ann))
+
+    ;; Flush the resolve cache at the same time lsp-mode clears its own.
+    (advice-add 'lsp-completion--clear-cache :after
+                (lambda (&rest _)
+                  (setq cgf-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal))))
+
+    (advice-add 'lsp-completion--annotate :around
+                #'cgf-lsp/lsp-completion--annotate-with-resolve))
+
+  ;; workspace/executeCommand is used by language servers in two very different ways:
+  ;;
+  ;;   1. Automatic side-effects during completion, code-lens, or typing --
+  ;;      e.g. vtsls _vtsls.completionCacheCommand fired after a completion item
+  ;;      is resolved. These are optimisation hints; if they block and time out
+  ;;      (lsp-response-timeout = 20 s) Emacs freezes for no user-visible reason.
+  ;;
+  ;;   2. Interactive code actions (M-RET -> lsp-execute-code-action) that apply
+  ;;      WorkspaceEdits and MUST complete synchronously so the edits land before
+  ;;      the user types again.
+  ;;
+  ;; lsp-mode has no native setting that distinguishes these two cases; the only
+  ;; native lever is lsp-response-timeout, which caps the freeze duration but
+  ;; does not eliminate it.
+  ;;
+  ;; Two small, general advices handle both cases cleanly:
+  ;;   - cgf-lsp/lsp--in-code-action: a flag that is non-nil only while
+  ;;     lsp-execute-code-action is on the call stack (case 2 above).
+  ;;   - lsp-request advice: fires workspace/executeCommand asynchronously
+  ;;     (zero blocking) unless that flag is set. Errors are logged to
+  ;;     *Messages* so they remain visible.
+  (defvar cgf-lsp/lsp--in-code-action nil
+    "Non-nil while `lsp-execute-code-action' is on the call stack.
+Prevents the async redirect below from applying to interactive code actions,
+which need to complete synchronously to apply their edits.")
+
+  (advice-add 'lsp-execute-code-action :around
+              (lambda (orig &rest args)
+                (let ((cgf-lsp/lsp--in-code-action t))
+                  (apply orig args))))
+
+  (advice-add 'lsp-request :around
+              (lambda (orig method params &rest args)
+                (if (and (equal method "workspace/executeCommand")
+                         (not cgf-lsp/lsp--in-code-action))
+                    ;; Automatic context: fire async so sit-for never blocks.
+                    (lsp-request-async method params
+                                       (lambda (_) nil)
+                                       :error-handler
+                                       (lambda (err)
+                                         (message "LSP: workspace/executeCommand: %s" err)))
+                  (apply orig method params args))))
+
+  ;; lsp-mode only calls completionItem/resolve before snippet expansion for ts-ls
+  ;; (see lsp-completion--exit-fn). vtsls has the same limitation: the initial
+  ;; completion list omits insertText/textEdit with snippet format; those fields
+  ;; are populated only after completionItem/resolve. Without this advice,
+  ;; selecting a function like parseInt inserts only the bare label with no params.
+  (advice-add 'lsp-completion--exit-fn :before
+              (lambda (candidate &rest _)
+                (when (and lsp-enable-snippet
+                           (lsp-completion--find-workspace 'vtsls))
+                  (lsp-completion--resolve candidate))))
+
+  ;; After LSP snippet expansion, re-verify cursor is inside the snippet's
+  ;; active field. With certain servers (e.g. vtsls JSX/TSX attribute
+  ;; completions like className="$1"), the cursor sometimes ends up at the
+  ;; snippet start (before the attribute name) rather than inside the value
+  ;; field. Silently re-navigate to the active field when that happens.
+  (advice-add 'lsp-completion--exit-fn :after
+              (lambda (&rest _)
+                (when (and (bound-and-true-p yas-minor-mode)
+                           (yas-active-snippets))
+                  (let* ((snippet (car (yas-active-snippets)))
+                         (active-field (yas--snippet-active-field snippet)))
+                    (when (and active-field
+                               (not (yas--field-contains-point-p active-field)))
+                      (yas--move-to-field snippet active-field))))))
+
+  ;; When using TRAMP with devcontainer, LSP servers run inside the container.
+  ;; The container should have Node.js and language server extensions installed.
+  ;; LSP-mode automatically handles TRAMP, but ESLint extension must be installed in the container.
+
+  ;; Configure ESLint for Tramp/devcontainer
+  ;; The local ESLint server path doesn't exist on remote machines.
+  ;; We configure lsp-mode to use `vscode-eslint-language-server` which must be installed globally on the remote.
+  ;; Run: `npm install -g vscode-langservers-extracted` on the remote/container.
+
+  ;; Configure ESLint for Tramp/devcontainer
+  ;; The local ESLint server path doesn't exist on remote machines.
+  ;; Strategy: Disable the default `eslint` client (which hardcodes local paths)
+  ;; and register a specialized `eslint-remote` client that uses the global server.
+
+  ;; Performance tuning: read-process-output-max limits how much data Emacs reads from an external process in a single
+  ;; chunk; increasing it allows Emacs to consume large outputs (e.g. from LSP servers) more efficiently and with less
+  ;; overhead.
+  (setq read-process-output-max (* 4 1024 1024))
+
+  ;; Slightly (but insignificantly) more costly, but it prevents Emacs from triggering lsp--on-rename-file ->
+  ;; workspace/willRenameFiles, which eventually freezes Emacs when backup (filename~) files are written by Emacs:
+  (setq backup-by-copying t)
+  (setq backup-by-copying-when-linked t)
+  (setq backup-by-copying-when-mismatch t)
+
+  ;; Prevent noisy language servers (like semgrep-ls) from prompting
+  ;; to restart if they crash due to pipe breakage during Emacs shutdown.
+  (add-hook 'kill-emacs-query-functions
+            (lambda ()
+              (setq lsp-restart 'ignore)
+              t))
+
+  ;; Globally ignore large/irrelevant directories
+  (dolist (dir '("[/\\\\]\\.emacs\\.d\\'"
+                 "[/\\\\]\\.git\\'"
+                 "[/\\\\]\\.gradle\\'"
+                 "[/\\\\]\\.mvn\\'"
+                 "[/\\\\]\\.next\\'"
+                 "[/\\\\]\\.pnpm-store\\'"
+                 "[/\\\\]\\.vercel\\'"
+                 "[/\\\\]build\\'"
+                 "[/\\\\]dist\\'"
+                 "[/\\\\]node_modules\\'"
+                 "[/\\\\]out\\'"
+                 "[/\\\\]target\\'"))
+    (add-to-list 'lsp-file-watch-ignored-directories dir))
+
+  ;; Kill workspaces when their last buffer closes.
+  ;; Default is t, which permanently accumulates every project you ever open
+  ;; into .lsp-session-v1 and re-sends them all to every server on the next
+  ;; startup. nil prunes workspaces (and session entries) as soon as their
+  ;; last buffer closes, so each session only contains what is currently open.
+  (setq lsp-keep-workspace-alive nil)
+
+  ;; Add the following to $HOME/.ssh/config to reuse existing connections:
+  ;; Host *
+  ;;   ControlMaster auto
+  ;;   ControlPath ~/.ssh/sockets/%r@%h-%p
+  ;;   ControlPersist 600
+
+  ;; Disable ESLint for TRAMP using connection-local variables
+  ;; This sets lsp-eslint-enable to nil BEFORE the activation function runs
+  ;; The activation function checks lsp-eslint-enable, so this prevents it from activating
+  (connection-local-set-profile-variables
+   'remote-lsp-disable-eslint
+   '((lsp-eslint-enable . nil)))
+
+  (connection-local-set-profiles
+   '(:application tramp) 'remote-lsp-disable-eslint)
+
+  (add-to-list 'lsp-language-id-configuration '(dotenv-mode . "none"))
+
+  (defun cfg-lsp/lsp-tramp-optimize-clients ()
+    "Disable specific LSP clients when working over TRAMP.
+The built-in ESLint client ID is 'eslint'. When lsp-auto-register-remote-clients
+is t, lsp-mode may create remote versions automatically. We disable both 'eslint'
+and use 'eslint-remote' instead for TRAMP buffers.
+
+Add-on clients (like ESLint) are LSP clients registered with :add-on? t.
+They can run alongside other language servers (e.g., TypeScript + ESLint).
+Because they're add-on clients, they may bypass lsp-disabled-clients checks,
+so we also set lsp-eslint-enable to nil for extra reliability."
+    (when (file-remote-p (or (buffer-file-name) default-directory))
+      ;; Disable the default 'eslint' client which tries to use local paths
+      (setq-local lsp-disabled-clients (cons 'eslint (bound-and-true-p lsp-disabled-clients)))
+      ;; Also disable via the enable flag (more reliable for add-on clients)
+      ;; Add-on clients can bypass lsp-disabled-clients, so this is a safety net
+      ;; Note: This is already set via connection-local, but we set it again as a safety net
+      (setq-local lsp-eslint-enable nil)
+      ;; Also highly recommended: disable file watchers on remote
+      (setq-local lsp-enable-file-watchers nil)
+      (message "LSP: Disabled 'eslint' client for TRAMP (using 'eslint-remote' instead)")))
+
+  ;; Run on multiple hooks to catch the client before it initializes:
+  ;; - lsp-before-initialize-hook: Earliest hook, runs before workspace initialization
+  ;; - lsp-configure-hook: Main hook when LSP configures a buffer
+  ;; - find-file-hook: Safety net for buffers opened before LSP initializes
+  ;; Run on hooks to catch the client before it initializes:
+  (add-hook 'lsp-before-initialize-hook #'cfg-lsp/lsp-tramp-optimize-clients)
+  (add-hook 'lsp-configure-hook #'cfg-lsp/lsp-tramp-optimize-clients)
+
+  ;; 2. Configure TRAMP paths
+  (connection-local-set-profile-variables
+   'remote-path-with-node
+   '((tramp-remote-path . (tramp-own-remote-path
+                           tramp-default-remote-path
+                           "/usr/local/share/npm-global/bin"
+                           "/usr/local/bin"
+                           "/usr/bin"
+                           "/bin"))))
+
+  (connection-local-set-profiles
+   '(:application tramp) 'remote-path-with-node)
+
+  (with-eval-after-load 'lsp-mode
+    ;; Also remove any already-registered remote eslint clients
+    (when (gethash 'eslint lsp-clients)
+      (let ((eslint-client (gethash 'eslint lsp-clients)))
+        (when (lsp--client-remote? eslint-client)
+          (remhash 'eslint lsp-clients)
+          (message "LSP: Removed pre-existing auto-registered remote 'eslint' client"))))
+
+    ;; Silence "Unknown notification: window/workDoneProgress/create" (semgrep-ls and
+    ;; others send it as a notification; lsp-mode only handles the request form).
+    (puthash "window/workDoneProgress/create" #'ignore lsp--default-notification-handlers)
+
+    (defun cgf-lsp/lsp-inspect-remote-clients ()
+      "Inspect active LSP clients and their processes for the current remote buffer."
+      (interactive)
+      (when (file-remote-p (or (buffer-file-name) default-directory))
+        (message "--- LSP Remote Client Inspection ---")
+        (message "Buffer: %s" (buffer-name))
+        (message "lsp-disabled-clients: %S" lsp-disabled-clients)
+        (message "lsp-eslint-enable: %S" lsp-eslint-enable)
+        (if (bound-and-true-p lsp-mode)
+            (progn
+              (message "Active Clients: %S" (mapcar #'lsp--client-server-id lsp--managed-clients))
+              (dolist (client lsp--managed-clients)
+                (let* ((server-id (lsp--client-server-id client))
+                       (workspace (cl-find-if (lambda (w) (eq (lsp--workspace-client w) client)) lsp--buffer-workspaces))
+                       (proc (and workspace (lsp--workspace-proc workspace))))
+                  (message " Client: %s | Process: %s | Status: %s"
+                           server-id
+                           (or proc "None")
+                           (if proc (process-status proc) "N/A")))))
+          (message "LSP mode NOT active in this buffer"))
+        (message "------------------------------------")))
+
+    ;; Register a dedicated client for remote ESLint that relies on PATH
+    ;; We use 'vscode-eslint-language-server' which is provided by `vscode-langservers-extracted`
+    ;; Install it on remote: `npm install -g vscode-langservers-extracted`
+    (lsp-register-client
+     (make-lsp-client :new-connection (lsp-stdio-connection '("vscode-eslint-language-server" "--stdio"))
+                      :activation-fn (lambda (file-name _mode)
+                                       (let* ((filename (or file-name (buffer-file-name)))
+                                              (is-match (and filename (string-match-p "\\.\\(js\\|ts\\|cts\\|mts\\|jsx\\|tsx\\|html\\|vue\\)\\'" filename))))
+                                         ;; Only check for TRAMP if the extension already matched
+                                         (and is-match (file-remote-p filename))))
+                      :server-id 'eslint-remote
+                      :priority 10
+                      :add-on? t
+                      :environment-fn (lambda ()
+                                        '(("NODE_NO_WARNINGS" . "1")))))))
+#+end_src
+
+** LSP Workspace Optimizations
+When you have multiple projects open simultaneously, lsp-mode broadcasts
+~workspace/didChangeWorkspaceFolders~ to EVERY running server whenever a new
+root is added -- even if that server has no interest in the language.
+
+Opening a =Node.js= project while =jdtls= is running, for example, would add the
+JS root to =jdtls=, causing it to crawl =node_modules=.
+
+The ~cfg-lsp/server-file-extensions~ below is the single place to declare which
+file extensions each server owns. Whenever you add a new language server to your
+config, add a matching entry here. Servers with no entry are unrestricted (the
+notification passes through unchanged).
+
+The interceptor uses =ripgrep= (=rg=) for the filesystem scan; it falls back to
+GNU =find= and logs a one-time hint to install =rg= if it is missing. =rg= is
+much faster than =find=, especially on large projects and remote filesystems, so
+it's highly recommended to install it for optimal performance.
+
+#+begin_src emacs-lisp
+(defvar cfg-lsp/server-file-extensions '()
+  "Alist mapping LSP server IDs (symbols) to accepted file-extension lists.
+Each entry has the form (SERVER-ID . (EXT1 EXT2 ...)) where extensions are
+plain strings without a leading dot (e.g. \"java\", \"ts\").
+
+Add a new entry here whenever you register a new language server.
+Servers absent from this map are unrestricted: they receive every
+workspace/didChangeWorkspaceFolders notification unchanged.")
+
+(defvar cfg-lsp--rg-warned-p nil
+  "Non-nil once the one-time ripgrep-missing warning has been emitted.")
+
+(defun cfg-lsp--folder-has-extensions-p (folder extensions)
+  "Return non-nil if FOLDER has any file matching EXTENSIONS.
+EXTENSIONS is a list of extension strings without a leading dot.
+Uses ripgrep (rg) when available; falls back to GNU find and emits a
+one-time suggestion to install rg for faster workspace filtering."
+  (when (and folder (file-directory-p folder) extensions)
+    (let* ((dir (shell-quote-argument (expand-file-name folder)))
+           (result
+            (if (executable-find "rg")
+                (shell-command-to-string
+                 (concat "rg --files --max-depth 5 "
+                         (mapconcat (lambda (e)
+                                      (concat "-g " (shell-quote-argument
+                                                     (concat "*." e))))
+                                    extensions " ")
+                         " " dir " 2>/dev/null | head -1"))
+              (progn
+                (unless cfg-lsp--rg-warned-p
+                  (setq cfg-lsp--rg-warned-p t)
+                  (message (concat "lsp-filter: ripgrep (rg) not found; "
+                                   "using find for workspace filtering (slower). "
+                                   "Install rg for faster performance.")))
+                (shell-command-to-string
+                 (format "find %s -maxdepth 5 \\( %s \\) -print -quit 2>/dev/null"
+                         dir
+                         (mapconcat (lambda (e)
+                                      (concat "-name "
+                                              (shell-quote-argument
+                                               (concat "*." e))))
+                                    extensions " -o ")))))))
+      (not (string-empty-p (string-trim result))))))
+
+(defun cfg-lsp--server-extensions (workspace)
+  "Return the accepted extension list for WORKSPACE's server if restricted.
+If unrestricted, returns nil."
+  (let* ((client (lsp--workspace-client workspace))
+         (server-id (and client (lsp--client-server-id client))))
+    (alist-get server-id cfg-lsp/server-file-extensions)))
+
+(defun cfg-lsp--filter-added-folders (added extensions)
+  "Filter ADDED workspace-folder entries, keeping only those matching EXTENSIONS."
+  (seq-filter
+   (lambda (entry)
+     (let ((uri (if (listp entry)
+                    (plist-get entry :uri)
+                  (gethash "uri" entry))))
+       (cfg-lsp--folder-has-extensions-p (lsp--uri-to-path uri) extensions)))
+   (if (listp added) added (append added nil))))
+
+(defun cfg-lsp--rebuild-params (params filtered-added removed)
+  "Rebuild a workspace-change PARAMS with FILTERED-ADDED and REMOVED."
+  (if (listp params)
+      (list :event (list :added filtered-added :removed (or removed [])))
+    (let ((tbl (copy-hash-table params))
+          (ev  (make-hash-table :test #'equal)))
+      (puthash "added" filtered-added   ev)
+      (puthash "removed" (or removed []) ev)
+      (puthash "event" ev tbl)
+      tbl)))
+
+(defun cfg-lsp--filter-workspace-change-for-server (orig-fun workspace method params)
+  "Filter workspace/didChangeWorkspaceFolders using our extensions list.
+Servers absent from the map are unrestricted and receive the notification
+unchanged.
+- ORIG-FUN is `lsp--notify'
+- WORKSPACE is the target workspace,
+- METHOD is the JSON-RPC method string
+- PARAMS are the notification params."
+  (if (not (equal method "workspace/didChangeWorkspaceFolders"))
+      (funcall orig-fun workspace method params)
+    (let ((extensions (cfg-lsp--server-extensions workspace)))
+      (if (null extensions)
+          ;; Servers not in the map are unrestricted
+          (funcall orig-fun workspace method params)
+        (let* ((event (if (listp params)
+                          (plist-get params :event)
+                        (gethash "event" params)))
+               (added (if (listp event)
+                          (plist-get event :added)
+                        (gethash "added" event)))
+               (removed (if (listp event)
+                            (plist-get event :removed)
+                          (gethash "removed" event)))
+               (filtered-added (cfg-lsp--filter-added-folders added extensions)))
+          (when (or filtered-added (and removed (not (seq-empty-p removed))))
+            (funcall orig-fun workspace method
+                     (cfg-lsp--rebuild-params params filtered-added removed))))))))
+
+(defun cfg-lsp--find-multiroot-workspace-filter
+    (orig-fun session client project-root)
+  "Block multi-root workspace expansion when PROJECT-ROOT has no matching files.
+
+SESSION is the current LSP session.
+CLIENT is the active LSP client.
+PROJECT-ROOT is the directory being considered for multiroot expansion.
+
+Return nil as if no multiroot workspace exists for this pairing.
+lsp-mode then skips both the `workspace/didChangeWorkspaceFolders'
+notification and the `server-id->folders' update that would otherwise be
+persisted to .lsp-session-v1.
+
+Without this guard, opening any directory, for example ~/.emacs.d or a
+React project, while jdtls is running silently adds that directory to
+jdtls's `server-id->folders'. On the next Emacs start jdtls restores all
+those folders, triggering the >1000-directory watch prompt and
+unnecessary project scanning.
+
+The `cfg-lsp--filter-workspace-change-for-server' advice on `lsp--notify'
+intercepts before `server-id->folders' is updated. Suppressing the
+notification does not prevent the hash-table update. This advice fixes
+that by returning nil before the update runs."
+  (let* ((server-id  (lsp--client-server-id client))
+         (extensions (alist-get server-id cfg-lsp/server-file-extensions)))
+    (if (and extensions
+             (not (cfg-lsp--folder-has-extensions-p project-root extensions)))
+        nil
+      (funcall orig-fun session client project-root))))
+
+(with-eval-after-load 'lsp-mode
+  (advice-add 'lsp--notify :around #'cfg-lsp--filter-workspace-change-for-server)
+  (advice-add 'lsp--find-multiroot-workspace
+              :around #'cfg-lsp--find-multiroot-workspace-filter))
+#+end_src
+
+** LSP Workspace Helpers
+#+begin_src emacs-lisp
+(defun cfg-lsp/clean-lsp-workspace-cache ()
+  "Delete ~/.emacs.d/workspace/ to force a fresh LSP reindex.
+Use this when switching Java major versions or when jdtls shows stale errors.
+After this runs, restart LSP (or Emacs) to trigger a full reindex."
+  (interactive)
+  (let ((workspace-dir (expand-file-name "workspace" user-emacs-directory)))
+    (when (and (file-directory-p workspace-dir)
+               (yes-or-no-p (format "Delete all files in %s? " workspace-dir)))
+      (delete-directory workspace-dir t)
+      (message "LSP workspace cache cleared. Restart Emacs or LSP for a fresh index."))))
+#+end_src
+
+** lsp-ui: UI Enhancements
+~lsp-ui~ adds visual improvements to LSP, such as inline documentation popups,
+code actions in the sideline, and better navigation.
+
+The helper below, adapted from
+https://github.com/themkat/.emacs.d/blob/master/init.org, toggles the
+documentation popup:
+
+#+begin_src emacs-lisp
+;; Silence byte-compiler warnings for lsp-ui doc popup helpers
+(declare-function lsp-ui-doc-show "lsp-ui")
+(declare-function lsp-ui-doc-hide "lsp-ui")
+(declare-function lsp-ui-doc--visible-p "lsp-ui")
+
+(defun cfg-lsp/ui-show-doc-helper ()
+  "Toggle the visibility of the lsp-ui documentation popup."
+  (interactive)
+  (if (lsp-ui-doc--visible-p)
+      (lsp-ui-doc-hide)
+    (lsp-ui-doc-show)))
+#+end_src
+
+We load the main lsp-ui package below:
+
+#+begin_src emacs-lisp
+(use-package lsp-ui
+  :pin "MELPA Unstable"
+  :after lsp-mode
+
+  ;; :commands ensures lsp-ui is loaded only when lsp-ui-mode is called
+  :commands lsp-ui-mode
+
+  :custom
+  (lsp-ui-doc-enable t)
+  (lsp-ui-doc-position 'top) ; 'at-point causes infinite redisplay_internal loop (child frame repositions during redisplay)
+  ;; Ensure the doc child frame never steals keyboard focus from the editing buffer.
+  (lsp-ui-doc-frame-parameters '((no-accept-focus . t) (min-width . 0) (width . 0) (min-height . 0) (height . 0)))
+  (lsp-ui-sideline-enable nil)
+  (lsp-ui-sideline-show-hover t)
+  (lsp-ui-peek-always-show t)
+  (lsp-ui-sideline-show-code-actions t)
+  ;; The following are important for performance:
+  (lsp-ui-doc-delay 0.5) ; reduces the number of requests when typing
+  (lsp-ui-doc-show-with-cursor nil) ; cursor motion is extremely frequent, leading to redisplays
+  (lsp-ui-sideline-enable nil)) ; too many overlays, so we disable it
+#+end_src
+
+** lsp-treemacs: Project and Symbol Tree Views
+~lsp-treemacs~ integrates Treemacs with LSP, providing a sidebar for project symbols,
+errors, references, and more.
+
+#+begin_src emacs-lisp
+(use-package lsp-treemacs
+  :pin "MELPA Unstable"
+  :after (lsp-mode treemacs)
+  :config
+  (setq lsp-treemacs-sync-mode nil) ;; Keep off by default
+  (add-hook 'treemacs-mode-hook (lambda () (lsp-treemacs-sync-mode 1)))) ;; Enable only when Treemacs is open
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(with-eval-after-load 'lsp-mode
+  (define-key lsp-mode-map (kbd "M-s M-d") #'cfg-lsp/ui-show-doc-helper)
+  (define-key lsp-mode-map (kbd "M-s M-s") #'lsp-signature-activate)) ; Manual trigger since :on-trigger-char is disabled
+
+(cfg-keys/leader-def
+  "l"   '(:ignore t :which-key "+lsp")
+  "l d" #'lsp-find-definition
+  "l r" #'lsp-find-references
+  "l R" #'lsp-rename
+  "l a" #'lsp-execute-code-action
+  "l f" #'lsp-format-buffer
+  "l s" #'cfg-lsp/ui-show-doc-helper)
+#+end_src
+
+* System Setup
+No system setup required.

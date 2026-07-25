@@ -1,0 +1,75 @@
+#+TITLE: Modeline Layer
+#+CATEGORY: ui
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Configures the Emacs mode line layout using doom-modeline, buffer location scroll indicators with mlscroll, and function context tracking via which-func.
+
+* Emacs Configuration
+** Doom Modeline Configuration
+#+begin_src emacs-lisp
+(use-package doom-modeline
+  :after all-the-icons nerd-icons
+  :init (doom-modeline-mode 1)
+  :custom
+  (doom-modeline-height 15)
+  (doom-modeline-icon t))
+#+end_src
+
+** Scrollbar on the modeline
+
+Yascroll provides a vertical scrollbar for Emacs running in terminal mode (tty).
+It is a nice package, but it has a known bug reported at
+[[https://github.com/emacs-evil/yascroll/issues/1]].
+
+#+begin_example emacs-lisp
+(use-package yascroll
+  :config
+  (global-yascroll-bar-mode 1)
+  (setq yascroll:delay-to-hide nil)
+  ;; (setq yascroll:thumb-texture 'rounded)
+  (add-hook 'treemacs-mode-hook 'yascroll-bar-mode)
+  (with-eval-after-load 'treemacs
+    (add-hook 'treemacs-mode-hook
+              (lambda ()
+                (yascroll-bar-mode 1)
+                 (setq yascroll:delay-to-hide nil)))))
+#+end_example
+
+Another suggestion is to use ~smart-mode-line~, but that cannot be active
+together with ~doom-modeline~, so we comment it out for now.
+
+#+begin_example emacs-lisp
+;; Smart Mode Line for a clean, informative modeline (works in GUI and terminal)
+(use-package smart-mode-line
+  :init
+  (setq sml/no-confirm-load-theme t)
+  (setq sml/theme 'respectful) ; or 'dark, 'light, 'powerline, etc.
+  :config
+  (sml/setup))
+#+end_example
+
+As the packages above did not work as expected, I found another package that
+seems to work nicely: ~mlscroll~. It adds a scrollbar to the mode line, showing
+the current position in the buffer. It needs ~which-func~ (builtin) to work
+properly.  It is not a full scrollbar, but at least it gives an indication of
+the position in the buffer.
+
+#+begin_src emacs-lisp
+(use-package which-func
+  :ensure t)
+
+(use-package mlscroll
+  :config
+  (setq mlscroll-shortfun-min-width 11) ; truncate which-func
+  (mlscroll-mode 1))
+
+  ;; If starting Emacs as a server, enable mlscroll for new frames
+  ;; :hook (server-after-make-frame . mlscroll-mode)
+#+end_src
+
+* Keybindings
+No keybindings required.
+
+* System Setup
+No system setup required.

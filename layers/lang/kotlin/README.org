@@ -1,0 +1,104 @@
+#+TITLE: Kotlin Language Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Provides IDE capabilities for Kotlin development using Kotlin Language Server (KLS) and ~kotlin-mode~ with ~dap-mode~ integration.
+
+* Emacs Configuration
+** Kotlin Mode Configuration
+#+begin_src emacs-lisp
+(declare-function dap-register-debug-template "dap-mode")
+
+(defun cfg-lang/kotlin-register-debug-templates ()
+  "Register DAP debug templates for Kotlin."
+  (dap-register-debug-template "Kotlin tests with launcher"
+                               (list :type "kotlin"
+                                     :request "launch"
+                                     :mainClass "org.junit.platform.console.ConsoleLauncher --scan-class-path"
+                                     :enableJsonLogging nil
+                                     :noDebug nil)))
+
+(defvar lsp-kotlin-debug-adapter-path nil)
+
+(use-package kotlin-mode
+  :defer t
+  :after (lsp-mode dap-mode yasnippet)
+  :config
+  (require 'dap-kotlin)
+  (setq lsp-kotlin-debug-adapter-path (or (executable-find "kotlin-debug-adapter") ""))
+  (with-eval-after-load 'dap-mode
+    (cfg-lang/kotlin-register-debug-templates))
+  :hook ((kotlin-mode . lsp-deferred)
+         (kotlin-mode . yas-minor-mode)))
+
+(when (boundp 'cfg-lsp/server-file-extensions)
+  (add-to-list 'cfg-lsp/server-file-extensions '(kotlin-ls . ("kt" "kts"))))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Major mode leader bindings for Kotlin
+(cfg-keys/leader-def
+  "m"     '(:ignore t :which-key "+major-mode")
+  "m k"   '(:ignore t :which-key "+kotlin")
+  "m k d" '(dap-debug :whichkey "Debug Kotlin"))
+#+end_src
+
+* System Setup
+** KLS & Kotlin SDK Installation
+To enable IDE features for Kotlin, you need to install the Kotlin Language
+Server (KLS), which provides IDE features (like code completion,
+go-to-definition, etc.) for the Language Server Protocol (LSP).
+
+#+begin_src sh
+KLS_VERSION="1.3.13"
+KLS_TARGET_DIR="$HOME/.emacs.d/lsp_language_servers/kotlin.ls"
+
+is_installed__lang__kotlink__kls() {
+  [ -f "$KLS_TARGET_DIR/bin/kotlin-language-server" ]
+}
+
+install__lang__kotlink__kls() {
+  if ! is_installed__lang__kotlink__kls; then
+    local KLS_TMP_DIR
+    KLS_TMP_DIR=$(mktemp -d)
+    rm -Rf "$KLS_TARGET_DIR"
+    mkdir -p "$KLS_TARGET_DIR"
+    run_task "Downloading KLS" "curl -L https://github.com/fwcd/kotlin-language-server/releases/download/$KLS_VERSION/server.zip -o $KLS_TMP_DIR/kotlin-language-server.zip"
+    run_task "Extracting KLS" "unzip -q $KLS_TMP_DIR/kotlin-language-server.zip -d $KLS_TMP_DIR && mv $KLS_TMP_DIR/server/* $KLS_TARGET_DIR/"
+    rm -Rf "$KLS_TMP_DIR"
+  fi
+}
+
+uninstall__lang__kotlink__kls() {
+  if is_installed__lang__kotlink__kls; then
+    run_task "Removing existing KLS installation" "rm -Rf${VERBOSE:+v} $KLS_TARGET_DIR"
+  fi
+}
+
+is_installed__lang__kotlin__kotlin() {
+  return 1
+}
+
+install__lang__kotlin__kotlin() {
+  install__lang__kotlink__kls
+  install__lang__jvm__sdkman
+
+  KOTLIN_VERSIONS_TO_INSTALL=(
+    "2.3.10"
+  )
+
+  for v in "${KOTLIN_VERSIONS_TO_INSTALL[@]}"; do
+    run_task "Kotlin $v" "sdk install kotlin $v > /dev/null 2>&1"
+  done
+}
+
+uninstall__lang__kotlin__kotlin() {
+  uninstall__lang__kotlink__kls
+  log_skip "Kotlin SDKs (SDKMAN!)"
+}
+
+register_action "Lang / Kotlin / Install Kotlin" "-lang--kotlin--kotlin" "jvm"
+#+end_src

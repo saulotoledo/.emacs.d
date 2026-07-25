@@ -1,0 +1,46 @@
+#+TITLE: Semgrep Layer
+#+CATEGORY: tools
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Integrates Semgrep ("semantic grep") a powerful open-source static analysis tool
+that transcends standard text-based searching by performing semantic code
+pattern matching. Unlike traditional regular-expression-based tools, Semgrep
+understands the underlying structure of your code-mapping it to an Abstract
+Syntax Tree (AST)--which allows it to identify complex bugs, security
+vulnerabilities, and coding anti-patterns with high precision. By using highly
+readable YAML-based rules, you can enforce custom security policies, coding
+standards, and architectural constraints across multiple languages, catching
+logical flaws in your local environment that typical linters often overlook.
+
+* Emacs Configuration
+** Semgrep Integration
+We use Semgrep through LSP. We just need it to be available in the system.
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Leader bindings for static analysis
+(cfg-keys/leader-def
+  "c"   '(:ignore t :which-key "+code")
+  "c s" '(:ignore t :which-key "+semgrep"))
+#+end_src
+
+* System Setup
+First we need to install Semgrep on our system using pipx:
+
+#+begin_src sh
+is_installed__tools__semgrep__semgrep() {
+  command -v semgrep >/dev/null 2>&1
+}
+
+install__tools__semgrep__semgrep() {
+  install_via_pipx "Semgrep" "semgrep"
+}
+
+uninstall__tools__semgrep__semgrep() {
+  run_task "Uninstalling Semgrep" "pipx uninstall semgrep 2>/dev/null || true"
+}
+
+register_action "Tools / Semgrep / Install Semgrep" "-tools--semgrep--semgrep" "standalone"
+#+end_src

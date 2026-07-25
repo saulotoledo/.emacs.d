@@ -1,0 +1,55 @@
+#+TITLE: Autotools Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Provides editing support and Language Server Protocol (LSP) capabilities for GNU
+Autotools project files (=configure.ac=, =Makefile.am=) via the
+~autotools-language-server~. Delivers code completion, navigation, and
+diagnostics for build system scripts.
+
+* Emacs Configuration
+** Autotools Language Server LSP Registration
+#+begin_src emacs-lisp
+(with-eval-after-load 'lsp-mode
+  (add-to-list 'lsp-language-id-configuration '(autoconf-mode . "autotools"))
+  (add-to-list 'lsp-language-id-configuration '(automake-mode . "autotools"))
+  (lsp-register-client
+   (make-lsp-client
+    :new-connection (lsp-stdio-connection '("autotools-language-server"))
+    :activation-fn (lsp-activate-on "autotools")
+    :server-id 'autotools-ls)))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Major mode leader bindings for Autotools files
+(cfg-keys/leader-def
+  "m"   '(:ignore t :which-key "+major-mode")
+  "m a" '(:ignore t :which-key "+autotools"))
+#+end_src
+
+* System Setup
+For projects using the GNU Autotools suite (=configure.ac=, =Makefile.am=), we
+use the ~autotools-language-server~. This provides navigation, diagnostics, and
+autocompletion.
+
+We install it here via =pipx= (a tool to manage Python applications in isolated
+environments) and use it via the Language Server Protocol (LSP).
+
+#+begin_src sh
+is_installed__tools__autotools__language_server() {
+  command -v autotools-language-server >/dev/null 2>&1
+}
+
+install__tools__autotools__language_server() {
+  install_via_pipx "Autotools Language Server" "autotools-language-server"
+}
+
+uninstall__tools__autotools__language_server() {
+  run_task "Uninstalling Autotools LS" "pipx uninstall autotools-language-server 2>/dev/null || true"
+}
+
+register_action "Tools / Autotools / Install Autotools Language Server" "-tools--autotools--language-server" "standalone"
+#+end_src

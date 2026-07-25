@@ -1,0 +1,62 @@
+#+TITLE: Core Server Layer
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+CATEGORY: core
+
+* Description
+Configures Emacs socket and daemon settings for reliable ~emacsclient~
+connections across local, remote, and containerized environments. It evaluates
+connection strategies for daemon instances—including TCP/IP network sockets for
+containerized port forwarding or SSH tunnels—and establishes an active file
+socket configuration residing in =/tmp/emacs-server= to bypass home-directory
+permission bottlenecks during SSH client sessions.
+
+* Emacs Configuration
+** Server Connection Strategies
+When running Emacs as a daemon using =emacs --daemon=, the ~(server-start)~
+command is triggered implicitly, allowing the fast client, =emacsclient=, to
+connect. For remote or containerized environments (like Docker), the default
+local file socket often creates challenges with network exposure and file
+permissions. We must configure a reliable server connection method.
+
+*** Option 1: TCP/IP Socket (For Direct Network Exposure)
+This approach is best if you want the Emacs server to listen on a network
+interface, which is useful when running Emacs inside a Docker container that is
+exposed via port forwarding or an SSH tunnel.
+
+#+begin_example emacs-lisp
+;; Configure the Emacs server to listen on a TCP socket
+(setq server-use-tcp t)
+
+;; Define the specific port the Emacs daemon should listen on inside the container
+(setq server-port 4000)
+
+;; Define the host interface to listen on. Setting this to "127.0.0.1" (localhost)
+;; inside the container provides enhanced security, as Emacs will only accept
+;; connections originating from within the container itself. This relies on the
+;; external SSH tunnel to securely forward traffic to this local address.
+(setq server-host "127.0.0.1")
+#+end_example
+
+*** Option 2: File Socket Directory (Active Configuration)
+Using a dedicated socket file location is often simpler for secure connections
+over SSH, especially when using tools like =ssh -L=. This method is preferred
+because it bypasses the common challenge of file permission issues associated
+with the default socket location (usually in the user's home directory), which
+might be inaccessible to the =sshd= process or other services. We address this
+directly by moving the socket to the universally accessible =/tmp= directory,
+which centralizes its location and ensures accessibility. Ultimately, given its
+ease of use for remote access, we opted for this file socket approach in our
+configuration:
+
+#+begin_src emacs-lisp
+(use-package server
+  :ensure nil ; built-in
+  :custom
+  (server-socket-dir "/tmp/emacs-server"))
+#+end_src
+
+* Keybindings
+No keybindings registered.
+
+* System Setup
+No system setup required.

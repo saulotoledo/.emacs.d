@@ -1,0 +1,87 @@
+#+TITLE: Diagrams Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides syntax highlighting, autocompletion, previewing, and syntax checking
+for UML and technical diagrams. Supports standalone diagram files (.puml,
+.plantuml, .pu, .wsd, .iuml) as well as inline PlantUML code blocks inside
+Org-mode documents.
+
+* Emacs Configuration
+** PlantUML Mode
+[[https://plantuml.com/][PlantUML]] is a tool for creating UML diagrams from a simple text description.
+The ~plantuml-mode~ package provides syntax highlighting, autocompletion, and preview
+capabilities for PlantUML diagrams within Emacs.
+
+#+begin_src emacs-lisp
+(use-package plantuml-mode
+  :mode (("\\.wsd\\'" . plantuml-mode)
+         ("\\.pu\\'" . plantuml-mode)
+         ("\\.puml\\'" . plantuml-mode)
+         ("\\.plantuml\\'" . plantuml-mode)
+         ("\\.iuml\\'" . plantuml-mode))
+  :custom
+  (plantuml-jar-path (expand-file-name "~/.emacs.d/plantuml/plantuml.jar"))
+  (plantuml-default-exec-mode 'jar)
+  (plantuml-output-type "svg")
+  (plantuml-indent-level 2)
+  :config
+  ;; Enable PlantUML integration with org-mode
+  (with-eval-after-load 'org
+    (add-to-list 'org-src-lang-modes '("plantuml" . plantuml))))
+#+end_src
+
+** PlantUML Flycheck
+#+begin_src emacs-lisp
+(use-package flycheck-plantuml
+  :after flycheck
+  :config
+  (flycheck-plantuml-setup))
+#+end_src
+
+* Keybindings
+Registers keybindings for previewing and editing diagrams.
+
+#+begin_src emacs-lisp
+;; Mode-specific shortcuts for PlantUML buffers
+(with-eval-after-load 'plantuml-mode
+  (define-key plantuml-mode-map (kbd "C-c C-c") #'plantuml-preview))
+
+;; Leader keybindings under +code/lang -> +diagrams
+(cfg-keys/leader-def
+  "l"     '(:ignore t :which-key "+code/lang")
+  "l d"   '(:ignore t :which-key "+diagrams")
+  "l d p" #'plantuml-preview)
+#+end_src
+
+* System Setup
+To use ~plantuml-mode~, you need to have PlantUML installed. Below we download
+the PlantUML JAR file to =~/.emacs.d/plantuml/plantuml.jar=.
+
+#+begin_src sh
+# Update PlantUML version as needed:
+PLANTUML_VERSION="1.2026.6"
+PLANTUML_DIR="$HOME/.emacs.d/plantuml"
+
+is_installed__lang__diagrams__plantuml() {
+  [ -f "$HOME/.emacs.d/plantuml/plantuml.jar" ]
+}
+
+install__lang__diagrams__plantuml() {
+  local PLANTUML_JAR="$PLANTUML_DIR/plantuml.jar"
+  local PLANTUML_URL="https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar"
+
+  if [ -f "$PLANTUML_JAR" ]; then
+    log_skip "PlantUML" "EXISTS"
+  else
+    run_task "Downloading PlantUML" "mkdir -p $PLANTUML_DIR && curl -L $PLANTUML_URL -o $PLANTUML_JAR"
+  fi
+}
+
+uninstall__lang__diagrams__plantuml() {
+  run_task "Removing PlantUML" "rm -Rf $PLANTUML_DIR"
+}
+
+register_action "Lang / Diagrams / Install PlantUML" "-lang--diagrams--plantuml" "standalone"
+#+end_src

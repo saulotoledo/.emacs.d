@@ -1,0 +1,29 @@
+#+TITLE: Rainbow Layer
+#+CATEGORY: editor
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides multi-color column highlighting for CSV and TSV spreadsheet buffers via rainbow-csv.
+
+* Emacs Configuration
+** Rainbow CSV
+The package below highlights CSV and TSV spreadsheet files in different colors,
+making it easier to identify the columns:
+
+#+begin_src emacs-lisp
+(use-package rainbow-csv
+  :config
+  (defun cfg-editor/rainbow-csv-setup ()
+    "Enable rainbow-csv-mode and set up local refresh on save."
+    (rainbow-csv-mode 1)
+    (add-hook 'after-save-hook #'rainbow-csv-highlight nil t))
+
+  (add-hook 'csv-mode-hook #'cfg-editor/rainbow-csv-setup)
+  (add-hook 'tsv-mode-hook #'cfg-editor/rainbow-csv-setup))
+#+end_src
+
+* Keybindings
+No keybindings required.
+
+* System Setup
+No system setup required.

@@ -6,8 +6,8 @@
 \#*\#
 
 # Session files
+./server/
 eca/
-server/
 undo-tree/
 eca-chats/
 .desktop
@@ -37,11 +37,13 @@ eln-cache
 *undo-tree-history*
 
 # TRAMP files
-tramp
+*.tramp
 *~
 
 # Org-mode export cache
 *.org~
+.init.tangle.org
+.init.tangle.el
 
 # Backups and auto-saves
 backups/
@@ -59,6 +61,8 @@ drafts.el
 ssh_keys/*
 
 # Other
+*.db
+*.sqlite
 google-java-format/
 auto-save-list/
 eclipse*/

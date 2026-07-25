@@ -1,0 +1,122 @@
+#+TITLE: Vterm Layer
+#+CATEGORY: tools
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Provides full terminal emulation inside Emacs using vterm compiled C module.
+Alternatives like ~Eshell~ or ~Term~ are written in Elisp; while they integrate
+deeply with Emacs, they often lag, flicker, or break entirely when running
+resource-heavy programs like =htop= or =vim=. By using ~vterm~, we get a "real"
+terminal experience that handles complex character encoding and high-speed
+scrolling without the compromises found in pure Emacs Lisp shells.
+
+* Emacs Configuration
+** Vterm Terminal Emulator
+#+begin_src emacs-lisp
+(use-package vterm
+  :defer t
+  :preface
+  (defvar cfg-tools/vterms nil)
+  (defun cfg-tools/vterm-kill-with-no-query-around (orig &rest args)
+    "Do not ask about killing vterm buffers.
+It uses advice-add instead of defadvice."
+    (let ((buf (apply orig args)))
+      (when (and (bufferp buf) (get-buffer-process buf))
+        (set-process-query-on-exit-flag (get-buffer-process buf) nil))
+      buf))
+
+  (defun cfg-tools/toggle-vterm (&optional n)
+    (interactive)
+    (setq cfg-tools/vterms (seq-filter 'buffer-live-p cfg-tools/vterms))
+    (let ((default-directory (or (vc-root-dir) default-directory)))
+      (cond ((numberp n) (push (vterm n) cfg-tools/vterms))
+            ((null cfg-tools/vterms) (push (vterm 1) cfg-tools/vterms))
+            ((seq-contains-p cfg-tools/vterms (current-buffer))
+             (switch-to-buffer (car (seq-difference (buffer-list) cfg-tools/vterms))))
+            (t (switch-to-buffer (car (seq-intersection (buffer-list) cfg-tools/vterms)))))))
+
+  (declare-function vterm-send-next-key "vterm")
+  (defun cfg-tools/vterm-send-next-key ()
+    "Prompt for a key sequence and send it to the vterm terminal."
+    (interactive)
+    (when (derived-mode-p 'vterm-mode)
+      (message "The next key will be sent to vterm")
+      (vterm-send-next-key)))
+
+  :config
+  (setq vterm-max-scrollback 10000)
+  (advice-add 'vterm :around #'cfg-tools/vterm-kill-with-no-query-around))
+
+(add-hook 'vterm-mode-hook (lambda () (setq-local global-hl-line-mode nil)))
+
+(with-eval-after-load 'vterm
+  ;; Here we set the font for vterm to a Nerd Font that supports glyphs.
+  (set-frame-font "JetBrainsMono Nerd Font" nil t))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; --- Global Keybindings via cfg-keys-map ---
+(define-key cfg-keys-map (kbd "C-z") #'cfg-tools/toggle-vterm)
+(define-key cfg-keys-map (kbd "M-1") (lambda () (interactive) (cfg-tools/toggle-vterm 1)))
+(define-key cfg-keys-map (kbd "M-2") (lambda () (interactive) (cfg-tools/toggle-vterm 2)))
+(define-key cfg-keys-map (kbd "M-3") (lambda () (interactive) (cfg-tools/toggle-vterm 3)))
+(define-key cfg-keys-map (kbd "M-4") (lambda () (interactive) (cfg-tools/toggle-vterm 4)))
+(define-key cfg-keys-map (kbd "M-5") (lambda () (interactive) (cfg-tools/toggle-vterm 5)))
+(define-key cfg-keys-map (kbd "M-6") (lambda () (interactive) (cfg-tools/toggle-vterm 6)))
+(define-key cfg-keys-map (kbd "M-7") (lambda () (interactive) (cfg-tools/toggle-vterm 7)))
+(define-key cfg-keys-map (kbd "M-8") (lambda () (interactive) (cfg-tools/toggle-vterm 8)))
+(define-key cfg-keys-map (kbd "M-9") (lambda () (interactive) (cfg-tools/toggle-vterm 9)))
+(define-key cfg-keys-map (kbd "C-c C-x") #'cfg-tools/vterm-send-next-key)
+
+;; --- Leader Bindings ---
+(cfg-keys/leader-def
+  "'"   #'cfg-tools/toggle-vterm)
+#+end_src
+
+* System Setup
+~vterm~ requires a few development packages installed on your system to allow
+Emacs to build the driver during the initial setup:
+
+#+begin_src sh
+VTERM_BUILD_PACKAGES=(
+  "libvterm" "cmake" "build-essential"
+)
+
+is_installed__tools__vterm__vterm_build_bundle() {
+  are_these_system_packages_installed "${VTERM_BUILD_PACKAGES[@]}"
+}
+
+register_system_package "libvterm" \
+                        "alpine:libvterm-dev" \
+                        "fedora:libvterm-devel" \
+                        "linuxbrew:libvterm" \
+                        "mac:libvterm" \
+                        "debian-ubuntu:libvterm-dev"
+
+register_system_package "cmake" \
+                        "alpine:cmake" \
+                        "fedora:cmake" \
+                        "linuxbrew:cmake" \
+                        "mac:cmake" \
+                        "debian-ubuntu:cmake"
+
+register_system_package "build-essential" \
+                        "alpine:build-base" \
+                        "fedora:gcc-c++" \
+                        "linuxbrew:gcc" \
+                        "mac:xcode" \
+                        "debian-ubuntu:build-essential"
+
+install__tools__vterm__vterm_build_bundle() {
+  log_info "Starting C++ Development environment setup..."
+  install_system_packages "${VTERM_BUILD_PACKAGES[@]}"
+}
+
+uninstall__tools__vterm__vterm_build_bundle() {
+  log_skip "vterm build bundle" "The packages used for vterm builds are system packages and will not be uninstalled automatically"
+}
+
+register_action "Tools / VTerm / Install vterm build bundle" "-tools--vterm--vterm_build_bundle" "utils"
+#+end_src

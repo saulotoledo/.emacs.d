@@ -1,0 +1,1046 @@
+#+TITLE: AI Tools Layer
+#+CATEGORY: tools
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+This layer covers the configuration of AI-powered tools integrated into Emacs to
+enhance productivity, code generation, and interactive assistance. These tools
+leverage advanced language models and AI capabilities to provide intelligent
+suggestions, code completion, and interactive chat interfaces (ECA and GitHub
+Copilot).
+
+* Emacs Configuration
+** Encrypted API Keys for the AI Providers
+This section covers the configuration of encrypted API keys for the AI providers
+(see next section). Here's how it works (functions are defined later in this
+file):
+
+1. ~cfg-tools/get-token-from-auth-source~ function:
+   - Searches auth-source for a credential entry matching the given host
+   - Looks for user ="apikey"= (common convention for API keys)
+   - Requires =:secret= (password field) to be present
+   - Returns the secret (API key) as a string, or signals an error if not found
+
+2. ~cfg-tools/eca-setup-tokens~ function:
+   - Iterates over a list of providers, each mapping:
+     - Environment variable name (e.g., ="ANTHROPIC_API_KEY"=)
+     - Hostname (e.g., ="api.anthropic.com"=)
+   - For each provider:
+     - Calls ~cfg-tools/get-token-from-auth-source~ with the hostname
+     - If found, sets the environment variable using ~setenv~
+     - Handles errors gracefully (missing keys don't crash the setup)
+
+3. Deferred execution with idle timer:
+   - Uses ~run-with-idle-timer~ with 0 delay to run after Emacs is idle
+   - Why: auth-source backends (gpg-agent, pass, keychain) initialize lazily and
+     may rely on async processes
+   - During early startup, ~auth-source-search~ can return ~nil~ because:
+     - The command loop isn't running yet
+     - Async processes haven't completed
+     - Backends may not be initialized
+   - Waiting for the first idle moment ensures:
+     - The command loop is running
+     - Async processes can complete
+     - Auth-source backends are initialized
+
+The flow is as follows:
+
+1. Emacs starts up
+2. ECA package (see next section) loads (after auth-source)
+3. Idle timer waits for first idle moment
+4. ~cfg-tools/eca-setup-tokens~ runs:
+   - For each provider (Anthropic, OpenAI, etc.)
+   - Searches =~/.authinfo.gpg= for entry matching host and extracts the API key
+   - Sets it as environment variable
+5. ECA can now use these environment variables to authenticate with the AI
+   providers
+
+** ECA (Editor Code Assistant)
+ECA (Editor Code Assistant) is a powerful AI assistant designed to integrate
+seamlessly with Emacs. It provides advanced features such as code generation,
+refactoring, debugging, and interactive chat. ECA supports multiple AI models
+and can be configured to work alongside or as an alternative to GitHub Copilot,
+depending on your workflow and preferences.
+
+We start with a few helper functions to retrieve tokens from the auth-source and
+check if the machine is authorized for GitHub Copilot. We do not enable ECA if
+copilot is enabled in the current machine. In addition, we have a helper to
+install the ECA config file to the global path.
+
+#+begin_src emacs-lisp
+(defun cfg-tools/get-token-from-auth-source (host)
+  "Find token in auth-source for HOST."
+  (require 'epa-file)
+  ;; Per-spec cache holds stale nil results for ~2h after early-startup
+  ;; failures. Clearing all cached results before lookup ensures a fresh
+  ;; read from the GPG file (gpg-agent keeps the key in memory so repeated
+  ;; decryptions are fast and silent after the first unlock).
+  (auth-source-forget-all-cached)
+  (let* ((entry (car (auth-source-search :host host :user "apikey" :max 1)))
+         (secret-fn (when entry (plist-get entry :secret))))
+    (cond
+     ((null entry)
+      (error "Token not found for host %s user %s" host "apikey"))
+     ((null secret-fn)
+      (error "Token found for host %s user %s but no password field in ~/.authinfo.gpg"
+             host "apikey"))
+     (t
+      (if (functionp secret-fn) (funcall secret-fn) secret-fn)))))
+
+(defun cfg-tools/ai-copilot-authorized-p ()
+  "Check if this machine is authorized for GitHub Copilot.
+Returns t only if a valid entry with secret exists in auth-source.
+Returns nil if auth-source is not ready or key is missing."
+  (let ((auth-file (expand-file-name "~/.config/github-copilot/apps.json")))
+    (and (file-exists-p auth-file)
+         (file-readable-p auth-file)
+         ;; Check if the file is not just an empty JSON object "{}"
+         (> (file-attribute-size (file-attributes auth-file)) 5))))
+#+end_src
+
+*** ECA Config Installation with Default Model Override
+The ~cfg-tools/eca-install-config~ function syncs =eca-config.json= from your
+Emacs directory to =~/.config/eca/config.json=. It supports overriding the
+=defaultModel= setting via a local variable:
+
+1. **Default model in config**: The =eca-config.json= file has =defaultModel=
+   set to a copilot model by default.
+
+2. **Local override variable**: You can set ~cfg-tools/eca-default-model~ in
+   =local.el= to override the default model for your machine:
+
+#+begin_example
+;;; -*- lexical-binding: t -*-
+;;; local.el - Local configuration that doesn't need to be in version control
+;;;
+;;; This file is loaded after custom.el and init.el
+;;; Use this for machine-specific settings
+
+;; ECA default model override
+;; Set this to override the default model in eca-config.json
+;; If nil or not set, uses copilot from eca-config.json
+;; Example: (setq cfg-tools/eca-default-model "mistral/devstral-2512")
+(setq cfg-tools/eca-default-model "openrouter/openrouter/free")
+#+end_example
+
+3. **Replacement process**: When ~cfg-tools/eca-install-config~ runs:
+   - It reads the source =eca-config.json= file
+   - If ~cfg-tools/eca-default-model~ is set, it replaces the =defaultModel=
+     value in the JSON content before comparing or copying
+   - The replacement happens =before= comparing with the existing target file,
+     so the comparison uses the processed content
+   - The processed content is then written to =~/.config/eca/config.json=
+
+4. **Benefits**: This allows you to:
+   - Keep ="copilot"= as the default in version control
+   - Override it per-machine via =local.el= (which is typically not versioned)
+   - Have different models on different machines without conflicts
+
+#+begin_src emacs-lisp
+(defun cfg-tools/eca-install-config ()
+  "Sync eca-config.json to global path.
+Replaces defaultModel with value from cfg-tools/eca-default-model if set.
+Skips if file exists and is identical, backups if different."
+  ;; Ensure local.el is loaded to get cfg-tools/eca-default-model if it exists
+  (let ((local-file (concat user-emacs-directory "local.el")))
+    (when (and (file-exists-p local-file)
+               (not (boundp 'cfg-tools/eca-default-model)))
+      (load-file local-file)))
+  (let* ((source (expand-file-name "eca-config.json" user-emacs-directory))
+         (dest-dir (expand-file-name "~/.config/eca/"))
+         (dest-file (expand-file-name "config.json" dest-dir))
+         (default-model (when (bound-and-true-p cfg-tools/eca-default-model)
+                          cfg-tools/eca-default-model))
+         (replace-default-model (lambda (content)
+                                  "Replace defaultModel in JSON content if override is set."
+                                  (if default-model
+                                      (replace-regexp-in-string
+                                       "\"defaultModel\"\\s-*:\\s-*\"[^\"]*\""
+                                       (format "\"defaultModel\" : \"%s\"" default-model)
+                                       content)
+                                    content))))
+
+    (unless (file-exists-p dest-dir)
+      (make-directory dest-dir t))
+
+    (if (file-exists-p source)
+        (let* ((source-content (with-temp-buffer
+                                 (insert-file-contents source)
+                                 (buffer-string)))
+               (processed-content (funcall replace-default-model source-content)))
+
+          (if (file-exists-p dest-file)
+              (let ((dest-content (with-temp-buffer
+                                    (insert-file-contents dest-file)
+                                    (buffer-string))))
+                (if (string= processed-content dest-content)
+                    (message "ECA [✓]: Config is already installed and up to date.")
+
+                  (if (y-or-n-p "ECA: Global config has changed. Overwrite with Emacs config? ")
+                      (progn
+                        (rename-file dest-file (concat dest-file ".~" (format-time-string "%Y%m%d-%H%M%S") "~") t)
+                        (with-temp-file dest-file
+                          (insert processed-content))
+                        (message "ECA [✓]: Config updated and backed up.%s"
+                                 (if default-model
+                                     (format " (defaultModel set to %s)" default-model)
+                                   ""))
+                        (when (fboundp 'eca-restart-server) (eca-restart-server)))
+                    (message "ECA [-]: Config update skipped by user."))))
+            (progn
+              (with-temp-file dest-file
+                (insert processed-content))
+              (message "ECA [✓]: Config installed to global path.%s"
+                       (if default-model
+                           (format " (defaultModel set to %s)" default-model)
+                         "")))))
+      (message "ECA [x]: Source eca-config.json not found!"))))
+#+end_src
+
+*** ECA Main Setup
+#+begin_src emacs-lisp
+;; ECA tries to use evil-mode functions. If Evil is not installed, we see warnings.
+;; To prevent those warnings from appearing, we define placeholders for the
+;; Evil functions that ECA tries to use.
+(unless (fboundp 'evil-delete)
+  (defun evil-delete (&rest _)
+    "Placeholder for evil-delete (Evil mode not installed)."
+    (interactive)))
+
+(unless (fboundp 'evil-change-line)
+  (defun evil-change-line (&rest _)
+    "Placeholder for evil-change-line (Evil mode not installed)."
+    (interactive)))
+
+(use-package eca
+  :after auth-source
+  :pin "MELPA Unstable"
+  :custom
+  (eca-chat-select-model "google/gemini-3-flash-preview") ; Your preferred "Brain"
+
+  :config
+  ;; Use ediff for file change diffs (smerge is for merge conflicts, not file changes)
+  (setq eca-chat-diff-tool 'ediff)
+  (setq eca-extra-args '("--verbose" "--log-level" "debug"))
+  (add-hook 'eca-chat-mode-hook (lambda () (setq-local show-trailing-whitespace nil)))
+
+  (defun cfg-tools/eca-init (&rest _args)
+    "Ensure ECA config is installed."
+    (unless (and (boundp 'cfg-tools/eca-initialized-p) cfg-tools/eca-initialized-p)
+      (condition-case err
+          (progn
+            ;; Ensure local.el is loaded (it's loaded in after-init-hook, but be safe)
+            (let ((local-file (concat user-emacs-directory "local.el")))
+              (when (and (file-exists-p local-file)
+                         (not (boundp 'cfg-tools/eca-default-model)))
+                (load-file local-file)))
+            (cfg-tools/eca-install-config)
+            (setq cfg-tools/eca-initialized-p t)
+            ;; Defer token setup: gpg-agent may not be ready when eca is first
+            ;; invoked. Tokens are env vars read at call time, so setting them
+            ;; a few seconds later is safe.
+            (run-with-idle-timer 2 nil #'cfg-tools/eca-setup-tokens))
+        (error (message "ECA: Failed to load local.el: %s" (error-message-string err))))))
+
+  (defvar cfg-tools/eca-initialized-p nil
+    "Non-nil when `cfg-tools/eca-init' has run this session.")
+
+  ;; Define completion setup function after ECA is fully loaded.
+  ;; ECA uses eca-completion-mode (overlay-based).
+  (with-eval-after-load 'eca
+    (defun cfg-tools/eca-setup-completion (&optional _arg)
+      "Enable ECA completion mode only if Copilot is disabled.
+ECA uses its own overlay-based completion system.
+Optional _ARG is ignored (for compatibility with advice)."
+      (interactive)
+
+      (if (cfg-tools/ai-copilot-authorized-p)
+          ;; If Copilot is ON, disable ECA completion to avoid conflicts
+          (when (bound-and-true-p eca-completion-mode)
+            (eca-completion-mode -1)
+            (message "ECA [-]: Skipping ECA completion because Copilot is enabled"))
+        ;; If Copilot is OFF, enable ECA completion
+        (when (and (fboundp 'eca-completion-mode) (not (derived-mode-p 'eca-chat-mode)))
+          (cfg-tools/eca-init) ;; Ensure ECA is initialized before enabling completion
+          (eca-completion-mode 1)
+          (message "ECA [✓]: Using ECA for ghost completions"))))
+
+    ;; Special handling for org-mode: org-mode uses org-self-insert-command instead of self-insert-command
+    ;; We need to make ECA's post-command function recognize org-mode's insertion commands
+    (when (fboundp 'eca-completion--post-command)
+      (defun cfg-tools/eca-org-post-command-wrapper (orig-fn)
+        "Wrapper for ECA post-command that handles org-mode's insertion commands."
+        (if (and (derived-mode-p 'org-mode)
+                 (eq this-command 'org-self-insert-command))
+            ;; In org-mode, treat org-self-insert-command like self-insert-command
+            (let ((this-command 'self-insert-command))
+              (funcall orig-fn))
+          ;; For other modes, call normally
+          (funcall orig-fn)))
+
+      (advice-add 'eca-completion--post-command :around #'cfg-tools/eca-org-post-command-wrapper))
+
+    ;; Set up hooks after ECA is loaded and function is defined
+    (dolist (hook '(prog-mode-hook
+                    text-mode-hook
+                    markdown-mode-hook
+                    org-mode-hook
+                    yaml-ts-mode-hook
+                    json-ts-mode-hook
+                    sh-mode-hook
+                    dockerfile-mode-hook
+                    css-mode-hook
+                    sql-mode-hook
+                    conf-mode-hook
+                    shell-mode-hook
+                    term-mode-hook
+                    vterm-mode-hook))
+      (add-hook hook #'cfg-tools/eca-setup-completion))
+
+    ;; Advice copilot-mode to update ECA completion when toggled
+    (when (fboundp 'copilot-mode)
+      (advice-add 'copilot-mode :after #'cfg-tools/eca-setup-completion)))
+
+  ;; Setup tokens when auth-source backends are initialized
+  (defun cfg-tools/eca-setup-tokens ()
+    "Setup ECA provider tokens from auth-source."
+    (let ((providers '(("ANTHROPIC_API_KEY"   "api.anthropic.com")
+                       ("DEEPSEEK_API_KEY"    "api.deepseek.com")
+                       ("GROQ_API_KEY"        "api.groq.com")
+                       ("HUGGINGFACE_API_KEY" "router.huggingface.co")
+                       ("MISTRAL_API_KEY"     "api.mistral.ai")
+                       ("OPENAI_API_KEY"      "api.openai.com")
+                       ("OPENROUTER_API_KEY"  "openrouter.ai")
+                       ("SILICONFLOW_API_KEY" "api.siliconflow.cn"))))
+      (dolist (provider providers)
+        (let ((env-var (car provider))
+              (host    (cadr provider)))
+          (condition-case err
+              (let ((token (cfg-tools/get-token-from-auth-source host)))
+                (if token
+                    (progn
+                      (setenv env-var token)
+                      (message "ECA [✓]: Key %s initialized with token for %s from credentials" env-var host))
+                  (message "ECA [-]: Skipping key %s: no token found for host (%s) on credentials" env-var host)))
+            (error
+             (message "ECA [-]: Skipping key %s: %s"
+                      env-var (error-message-string err))))))))
+
+  (defun cfg-tools/eca-toggle ()
+    "Toggle ECA.
+If the window is visible, stop the process and kill it.
+Otherwise, start a fresh session."
+    (interactive)
+    (let ((eca-buf (cl-find-if (lambda (b)
+                                 (string-match-p "^<eca-chat" (buffer-name b)))
+                               (buffer-list))))
+      (if (and eca-buf (get-buffer-window eca-buf))
+          (progn
+            (eca-stop)
+            (delete-window (get-buffer-window eca-buf))
+            (dolist (buf (buffer-list))
+              (when (string-match-p "^<eca" (buffer-name buf))
+                (kill-buffer buf)))
+            (message "ECA Sessions Terminated."))
+        (eca))))
+
+  (advice-add 'eca :before #'cfg-tools/eca-init)
+
+  ;; NOTE: auth-source backends (gpg-agent, pass, keychain, etc.) are initialized
+  ;; lazily and may rely on async subprocesses and the Emacs event loop.
+  ;;
+  ;; During early startup (even in `after-init-hook`), Emacs has not yet entered
+  ;; the command loop, so async processes and process filters may not have run.
+  ;; As a result, `auth-source-search` can return nil on the first call.
+  ;;
+  ;; Using an idle timer guarantees that Emacs is fully "alive":
+  ;; - the command loop is running
+  ;; - async processes can complete
+  ;; - auth-source backends are initialized
+  ;;
+  ;; A 1-second delay ensures ECA and its dependencies (auth-source, package loading,
+  ;; server connection) have sufficient time to initialize properly. A 0-second delay
+  ;; was originally enough (the key was waiting for the first idle moment), but it
+  ;; became insufficient after adding a delay for starting up copilot-mode on buffers,
+  ;; causing ECA to start with an empty buffer.
+  ;; This also prevents files from opening on top of the ECA chat buffer.
+  ;;
+  ;; Uncommment to start ECA automatically after startup:
+  ;; (run-with-idle-timer 1 nil #'eca)
+  )
+#+end_src
+
+*** ECA over TRAMP
+I found a problem where the package suffers from a "paradox": it intends to be
+helpful but constantly probes files as if they were local, effectively "DDOSing"
+your high-latency TRAMP/Docker connection and causing those persistent
+freezes. I solved it with a TRAMP-aware protective wrapper using advice-add,
+which acts as a filter to intercept and guard the function calls; this ensures
+the heavy cursor-tracking logic only executes on local buffers while safely
+disabling it for remote connections, keeping your Docker sessions stable and
+responsive.
+
+This might limit how ECA works. I will revisit this solution in the future.
+
+#+begin_src emacs-lisp
+(defun cfg-tools/eca-chat-track-cursor-safeguard (orig-fun &rest args)
+  "Wrap the package's tracking function to prevent remote TRAMP spamming.
+Applies ORIG-FUN with ARGS."
+  (if (file-remote-p default-directory)
+      ;; SAFETY: If remote, skip the heavy probe to prevent freezing
+      nil
+    ;; NORMAL: If local, run the original function as normal
+    (apply orig-fun args)))
+
+;; Attach the guard to the package function
+(advice-add 'eca-chat--track-cursor :around #'cfg-tools/eca-chat-track-cursor-safeguard)
+#+end_src
+
+*** ECA Chat Copilot Autocompletion
+This section configures key integration between Copilot's autocompletion and the
+ECA Chat (Editor Code Assistant) within Emacs. It ensures that when both Copilot
+and ECA Chat are active, pressing ~Tab~ will accept Copilot completions when
+available, otherwise, it will fall back to ECA Chat's behavior.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'eca-chat
+  (advice-add 'eca-chat--key-pressed-tab :around
+              (lambda (orig-fun &rest args)
+                (if (and (featurep 'copilot)
+                         (boundp 'copilot-mode)
+                         copilot-mode
+                         (fboundp 'copilot-accept-completion)
+                         (copilot-accept-completion))
+                    t  ;; Copilot took the Tab, suppress ECA logic
+                  (apply orig-fun args)))))
+#+end_src
+
+*** ECA Chat Management (Auto-save and Index)
+This section adds automatic saving of ECA chats to a dedicated folder and
+maintains an Org-mode index for easy navigation.
+
+#+begin_src emacs-lisp
+(declare-function eca-process-running-p "eca")
+(declare-function eca-session "eca")
+(declare-function eca-chat--custom-title "eca-chat")
+(declare-function eca-chat--get-last-buffer "eca-chat")
+(declare-function eca-chat--title "eca-chat")
+
+(defvar eca-chat-mode-map nil "Keymap for ECA chat mode.")
+
+(defvar cfg-tools/eca-chat-directory (expand-file-name "eca-chats/" user-emacs-directory)
+  "Directory to save ECA chats.")
+
+(defvar-local cfg-tools/eca-chat-last-saved-file nil
+  "The last file where this chat was saved.")
+
+(defun cfg-tools/eca-chat-get-file-name ()
+  "Get a filename for the current ECA chat."
+  (or cfg-tools/eca-chat-last-saved-file
+      (let* ((title (or (and (boundp 'eca-chat--custom-title) eca-chat--custom-title)
+                        (and (boundp 'eca-chat--title) eca-chat--title)
+                        "untitled"))
+             ;; Sanitize title for filename
+             (safe-title (replace-regexp-in-string "[^a-zA-Z0-9_-]" "_" title))
+             (id (or (and (boundp 'eca-chat--id) eca-chat--id) "new"))
+             (date-time (format-time-string "%Y-%m-%d_%H-%M-%S")))
+        (setq-local cfg-tools/eca-chat-last-saved-file
+                    (expand-file-name (format "%s_%s_%s.md"
+                                              date-time
+                                              id
+                                              safe-title)
+                                      cfg-tools/eca-chat-directory)))))
+
+(defun cfg-tools/eca-chat-update-index (file)
+  "Update the index.org file with the new chat FILE."
+  (let ((index-file (expand-file-name "index.org" cfg-tools/eca-chat-directory))
+        (title (file-name-base file))
+        (relative-path (file-name-nondirectory file)))
+    ;; Ensure directory exists
+    (unless (file-exists-p cfg-tools/eca-chat-directory)
+      (make-directory cfg-tools/eca-chat-directory t))
+    ;; Initialize index file if it doesn't exist
+    (unless (file-exists-p index-file)
+      (with-temp-file index-file
+        (insert "#+TITLE: ECA Chats Index\n\n")))
+    ;; Insert link at the top (after header) if not present
+    (save-excursion
+      (let ((buf (find-file-noselect index-file)))
+        (with-current-buffer buf
+          (goto-char (point-min))
+          ;; Prune orphaned links while we are here
+          (while (re-search-forward "^- \\[\\[file:\\([^]]+\\)\\]" nil t)
+            (let ((target (expand-file-name (match-string 1) cfg-tools/eca-chat-directory)))
+              (unless (file-exists-p target)
+                (delete-region (line-beginning-position) (line-beginning-position 2)))))
+          (goto-char (point-min))
+          (unless (search-forward relative-path nil t)
+            ;; Find the end of the header or title
+            (goto-char (point-min))
+            (if (re-search-forward "^- " nil t)
+                (goto-char (match-beginning 0))
+              (goto-char (point-max)))
+            (let ((display-title (if (string-match-p "_reset_" relative-path)
+                                     (format "↺ %s" title)
+                                   title)))
+              (insert (format "- [[file:%s][%s]]\n" relative-path display-title))
+              (save-buffer))))))))
+
+(defun cfg-tools/eca-chat-rebuild-index ()
+  "Rebuild the ECA chats index.org from all files in the directory.
+Useful if the index gets out of sync or files are manually deleted."
+  (interactive)
+  (let ((index-file (expand-file-name "index.org" cfg-tools/eca-chat-directory))
+        (files (seq-filter #'file-exists-p
+                           (directory-files cfg-tools/eca-chat-directory t "\\.md$"))))
+    (with-temp-file index-file
+      (insert "#+TITLE: ECA Chats Index (Rebuilt)\n\n")
+      (dolist (file (sort files #'string>)) ; Sort newest first
+        (unless (string-match-p "index\\.org$" file)
+          (let* ((relative-path (file-name-nondirectory file))
+                 (title (file-name-base relative-path))
+                 (display-title (if (string-match-p "_reset_" relative-path)
+                                    (format "↺ %s" title)
+                                  title)))
+            (insert (format "- [[file:%s][%s]]\n"
+                            relative-path
+                            display-title))))))
+    (message "ECA: Index rebuilt with %d chats." (length files))))
+
+(defun cfg-tools/eca-chat-auto-save-h ()
+  "Auto-save the current ECA chat buffer."
+  (when (and (derived-mode-p 'eca-chat-mode)
+             (not (and (boundp 'eca-chat--chat-loading) eca-chat--chat-loading))
+             (not (and (boundp 'eca-chat--empty) eca-chat--empty)))
+    (unless (file-exists-p cfg-tools/eca-chat-directory)
+      (make-directory cfg-tools/eca-chat-directory t))
+    (let ((file (cfg-tools/eca-chat-get-file-name))
+          (inhibit-message t))
+      ;; Use write-region to save without visiting/changing the buffer file name
+      (write-region (point-min) (point-max) file nil 'quiet)
+      (cfg-tools/eca-chat-update-index file))))
+
+;; Advice to trigger auto-save when ECA finishes loading a response
+(advice-add 'eca-chat--set-chat-loading :after
+            (lambda (&rest args)
+              (let ((loading (cadr args)))
+                (when (not loading)
+                  (cfg-tools/eca-chat-auto-save-h)))))
+
+;; Also save when killing the buffer
+(add-hook 'eca-chat-mode-hook
+          (lambda ()
+            (add-hook 'kill-buffer-hook #'cfg-tools/eca-chat-auto-save-h nil t)))
+
+(defun cfg-tools/eca-chat-rename-to-backup-h ()
+  "Rename the current chat file to a backup if it exists."
+  (let ((session (eca-session)))
+    (when (eca-process-running-p session)
+      (when-let ((buffer (eca-chat--get-last-buffer session)))
+        (with-current-buffer buffer
+          (message "ECA: Backing up chat file...")
+          (let ((file (cfg-tools/eca-chat-get-file-name)))
+            (when (file-exists-p file)
+              (let* ((timestamp (format-time-string "%Y%m%d-%H%M%S"))
+                     (backup (concat (file-name-sans-extension file) "_reset_" timestamp ".md")))
+                (rename-file file backup t)
+                (cfg-tools/eca-chat-update-index backup)
+                (setq-local cfg-tools/eca-chat-last-saved-file nil)
+                (message "ECA: Chat backed up and indexed: %s" (file-name-nondirectory backup))))))))))
+
+;; Advice to backup the chat file before it's reset/cleared
+(advice-add 'eca-chat-reset :before #'cfg-tools/eca-chat-rename-to-backup-h)
+
+;; Navigation commands
+(defun cfg-tools/eca-chat-mark-buffer (&optional proj-context)
+  "Mark buffer as ECA and read-only, safely set project context.
+Uses PROJ-CONTEXT."
+  (read-only-mode 1)
+  (setq-local cfg-tools/eca-chat-buffer t)
+  (when proj-context
+    (setq-local cfg-tools/original-project-context
+      ;; --- SAFETY FILTER: TRAMP STABILITY ---
+      ;; Broken paths  like '/docker:node@4e8...:/home/user/.cache/emacs/(("‘/workspace’") 1 ... )')
+      ;; started to appear because the project context was somehow serialized as
+      ;; a Lisp list (containing project metadata like the root, status, and
+      ;; buffer objects) rather than a simple file path string.
+      ;;
+      ;; Emacs then treated this serialized object as a valid POSIX file path. When TRAMP
+      ;; (the remote file handler) received this mangled path, it attempted to perform
+      ;; file operations (like 'stat' or 'test -d') on it within the Docker container.
+      ;; Since this is not a real directory, it triggered the "File is missing" errors
+      ;; and recursive TRAMP crash loops, freezing Emacs.
+      ;;
+      ;; We force extraction here to ensure that only a pure, valid path string
+      ;; ever enters our state variables.
+      (let ((root (cond
+                    ((stringp proj-context) proj-context)
+                    ((and (listp proj-context) (fboundp 'project-root))
+                     (condition-case nil
+                         (project-root proj-context)
+                       (error nil)))))) ;; Silently catch errors if project-root fails
+
+        ;; FINAL SAFETY CHECK: Only allow the value if it exists as a directory.
+        ;; If 'root' is not a valid directory string, we return nil to
+        ;; discard the corrupted data entirely.
+        (if (and (stringp root) (file-directory-p root))
+            root
+          nil)))))
+
+(defun cfg-tools/eca-chat-open-index ()
+  "Open the ECA chats index file."
+  (interactive)
+  (let ((index-file (expand-file-name "index.org" cfg-tools/eca-chat-directory))
+        ;; Save current project BEFORE opening the file
+        (current-project (project-current)))
+    (find-file index-file)
+    (cfg-tools/eca-chat-mark-buffer current-project)))
+
+(defun cfg-tools/eca-chat-browse ()
+  "Browse ECA chat files using completion."
+  (interactive)
+  (let* ((default-directory cfg-tools/eca-chat-directory)
+         ;; Save the current project using project.el
+         (current-project (project-current)))
+    (if (fboundp 'counsel-find-file)
+        (counsel-find-file)
+      (call-interactively #'find-file))
+    ;; Make the opened buffer read-only and mark as ECA chat buffer
+    (run-with-idle-timer 0 nil
+      (lambda (proj-context)
+        (when (buffer-live-p (current-buffer))
+          (with-current-buffer (current-buffer)
+            (cfg-tools/eca-chat-mark-buffer proj-context))))
+      current-project)))
+
+(declare-function org-element-context "org")
+(declare-function org-element-property "org")
+
+(defun cfg-tools/eca-chat-follow-link-no-project (orig-fun &rest args)
+  "Advice for org-open-at-point to open chat files without changing project.
+Preserves the current project context when opening linked files.
+
+- ORIG-FUN is the original function passed by advice.
+- ARGS: Arguments passed to the original function (ignored)."
+  (let* ((context (org-element-context))
+         (type (org-element-property :type context))
+         (_path (org-element-property :path context))
+         ;; Save current project before opening (using project.el)
+         (current-project (project-current)))
+    ;; Only handle file links in the eca-chats directory
+    (if (and (string= type "file")
+             (buffer-file-name)
+             (string-prefix-p (expand-file-name cfg-tools/eca-chat-directory)
+                              (expand-file-name (buffer-file-name))))
+        (progn
+          ;; Open the file normally
+          (apply orig-fun args)
+          (cfg-tools/eca-chat-mark-buffer current-project))
+      ;; For all other cases, use the original function
+      (apply orig-fun args))))
+
+(advice-add 'org-open-at-point :around #'cfg-tools/eca-chat-follow-link-no-project)
+
+;; Recursion guard: This variable prevents the function from calling itself
+;; while it is already trying to resolve a context. Without this, TRAMP
+;; handshakes (which trigger filesystem probes) can cause an infinite loop.
+(defvar cfg-tools/eca-chat-in-progress nil
+  "Flag to prevent recursive calls during project context resolution.")
+
+(defun cfg-tools/eca-chat-restore-project-context (orig-fun &rest args)
+  "Return the original project context for ECA chat buffers, with local filtering.
+
+This function acts as a firewall: it intercepts calls to `project-current'.
+If an ECA chat buffer is trapped in a bad state, it cleans the directory
+locally before allowing the original `project-current' function to execute.
+
+This avoids infinite recursion by not calling filesystem primitives like
+`file-directory-p' through an advice wrapper.
+
+- ORIG-FUN is the original function passed by advice.
+- ARGS: Arguments passed to the original function."
+
+  (let ((context (and (boundp 'cfg-tools/eca-chat-buffer)
+                      cfg-tools/eca-chat-buffer
+                      (boundp 'cfg-tools/original-project-context)
+                      cfg-tools/original-project-context)))
+
+    ;; 1. CHECK CONTEXT LOCALLY:
+    ;; We only check the variable content. We avoid calling complex
+    ;; filesystem checks here to prevent triggering TRAMP or recursion.
+    (if (and (stringp context)
+             (not (string-match-p "[()\[\]]" context)))
+        context
+
+      ;; 2. ENVIRONMENT HEALING:
+      ;; If the context variable is garbage (corrupted), we reset the
+      ;; buffer's 'default-directory' to a safe local path (~/).
+      ;; This prevents 'project-current' from trying to scan a
+      ;; broken/malformed path.
+      (when (and (stringp default-directory)
+                 (string-match-p "cache/emacs" default-directory))
+        (setq-local default-directory (expand-file-name "~/")))
+
+      ;; 3. EXECUTE ORIGINAL:
+      ;; Now it is safe to let Emacs run the standard project discovery.
+      (apply orig-fun args))))
+
+(advice-add 'project-current :around #'cfg-tools/eca-chat-restore-project-context)
+#+end_src
+
+*** Token Optimization
+Rust Token Killer (=rtk=) is designed to filter and compress command outputs
+before they reach the LLM context. ECA does not support it by default, but here
+we make sure ECA uses it when invoking commands.
+
+ECA's native hook system handles the wrapping via a ~preToolCall~ hook in
+~eca-config.json~. The hook runs before every ~eca__shell_command~ call. It
+delegates to =rtk rewrite= -- the single source of truth for all rewrite rules
+-- which handles compound commands, pipes, and 70+ command patterns
+correctly. =jq= is used for safe JSON parsing (no regex, handles any quoted
+value). The hook is fail-open: if =rtk= or =jq= is missing it exits silently.
+
+Examples of how =rtk rewrite= works:
+- =git status= -> =rtk git status= (specific optimized command)
+- =cd folder && rg --files | grep test= -> =cd folder && rtk grep --files | grep
+  test= (per-segment rewrite)
+- =grep -r "search term" .= -> =rtk grep -r "search term" .= (quotes handled
+  safely)
+- =htop= -> no rewrite (exits 1, passed through unchanged)
+- Already-RTK commands -> no rewrite (idempotent)
+
+#+begin_example
+"hooks": {
+  "rtk-shell-command": {
+    "oype": "preToolCall",
+    "matcher": "eca__shell_command",
+    "visible": false,
+    "actions": [
+      {
+        "oype": "shell",
+        "shell": "if command -v jq >/dev/null 2>&1 && command -v rtk >/dev/null 2>&1; then INPUT=$(cat); CMD=$(printf '%s' \"$INPUT\" | jq -r '[.command?, .tool_input.command?, .input.command?, (.. | objects | .command?)] | map(select(type==\"string\" and length>0)) | .[0] // empty'); if [ -n \"$CMD\" ]; then REWRITTEN=$(rtk rewrite \"$CMD\" 2>/dev/null); EC=$?; if [ \"$EC\" -eq 0 ] || [ \"$EC\" -eq 3 ]; then if [ \"$CMD\" != \"$REWRITTEN\" ]; then UPDATED=$(printf '%s' \"$INPUT\" | jq -c --arg cmd \"$REWRITTEN\" 'if type==\"object\" and has(\"command\") then (.command=$cmd) elif type==\"object\" and (.tool_input|type==\"object\") and (.tool_input|has(\"command\")) then (.tool_input | .command=$cmd) elif type==\"object\" and (.input|type==\"object\") and (.input|has(\"command\")) then (.input | .command=$cmd) else {command:$cmd} end'); printf '{\"updatedInput\":%s}' \"$UPDATED\"; fi; fi; fi; fi"
+      }
+    ]
+  }
+}
+#+end_example
+
+The full hook is already embedded in ~eca-config.json~ and gets deployed to the
+global ECA config path automatically by ~cfg-tools/eca-install-config~.
+
+The Emacs code below validates that =rtk= and =jq= are on PATH when ECA starts,
+so we get an early warning rather than a silent failure:
+
+#+begin_src emacs-lisp
+(defun cfg-tools/eca-rtk-check ()
+  "Warn if `rtk' or `jq' are not on PATH (required by the ECA preToolCall hook)."
+  (unless (executable-find "rtk")
+    (message "ECA [!]: `rtk' not found on PATH. Shell commands will run without token optimization."))
+  (unless (executable-find "jq")
+    (message "ECA [!]: `jq' not found on PATH. The RTK hook requires jq for JSON parsing.")))
+
+(add-hook 'eca-before-initialize-hook #'cfg-tools/eca-rtk-check)
+#+end_src
+
+** GitHub Copilot
+GitHub Copilot integration for Emacs. It provides AI-powered code suggestions as
+you type.
+
+#+begin_src emacs-lisp
+(declare-function cfg-tools/copilot-kubernetes-sensitive-p nil)
+(declare-function cfg-tools/copilot-excluded-file-p nil)
+
+(use-package copilot
+  ;; We activate the copilot extension only if it is authorized on this computer.
+  ;; This will prevent us from loading it if not in use:
+  :if (cfg-tools/ai-copilot-authorized-p)
+  :pin "MELPA Unstable"
+  :after eca
+  :init
+  ;; Disable indentation offset warnings - Copilot will use existing indentation
+  ;; See https://github.com/copilot-emacs/copilot.el/issues/312#issuecomment-2729052774
+  (setq copilot-indent-offset-warning-disable t)
+
+  ;; Disable buffer size warnings - prevents "file size exceeds copilot-max-char" warnings for large files
+  ;; Not working yet. See https://github.com/copilot-emacs/copilot.el/issues/313
+  (setq-default copilot-max-char-warning-disabled t)
+
+  :custom
+  ;; Provide valid settings structure to prevent "Cannot read properties of null (reading 'copilot')" error
+  (copilot-lsp-settings '(:copilot ()))
+
+  :config
+  ;; Configure Copilot to use the server from our PATH
+  (let ((copilot-server (executable-find "copilot-language-server"))
+        (node-binary (executable-find "node")))
+
+    ;; Add NODE_NO_WARNINGS=1 to environment for Copilot server, or it will spam warnings
+    ;; about deprecated Node.js APIs on stderr that cause Copilot to malfunction.
+    (setenv "NODE_NO_WARNINGS" "1")
+
+    ;; Check Node.js version (Copilot requires >= 22.0.0)
+    (if (or (not node-binary)
+            (let* ((version-output (shell-command-to-string (concat node-binary " -v")))
+                   (major-version (when (string-match "v\\([0-9]+\\)" version-output)
+                                    (string-to-number (match-string 1 version-output)))))
+              (< (or major-version 0) 22)))
+        (progn
+          (warn "Copilot disabled: Node.js v22+ required, found %s"
+                (if node-binary (string-trim (shell-command-to-string (concat node-binary " -v"))) "none"))
+          (setq copilot-server-executable nil))
+
+      (if (and copilot-server node-binary)
+          (progn
+            (setq copilot-server-executable copilot-server)
+            (message "Copilot: Using server at %s" copilot-server))
+        (message "Copilot: No language server found. Run setup.sh to install locally.")
+        (setq copilot-mode nil))))
+
+  ;; Files to exclude from Copilot
+  (defvar cfg-tools/copilot-excluded-files
+    '("\\.env\\(\\..*\\)?$"
+      "\\.config$"
+      "\\.cfg$"
+      "secret"
+      "credential"
+      "^id_rsa"
+      "\\.key$"
+      "\\.log$"
+      "\\.tmp$"
+      "\\.ini$"
+      "\\.txt$")
+    "List of regex patterns for files to exclude from Copilot.")
+
+  (defun cfg-tools/copilot-kubernetes-sensitive-p ()
+    "Check if current buffer contains Kubernetes sensitive content.
+Returns non-nil if buffer contains Kubernetes Secrets or ConfigMaps."
+    (save-excursion
+      (goto-char (point-min))
+      (and (re-search-forward "^apiVersion:" nil t)
+           (goto-char (point-min))
+           (re-search-forward "^kind:\\s-*\\(Secret\\|ConfigMap\\)\\s-*$" nil t))))
+
+  (defun cfg-tools/tab-indent-or-complete ()
+    "Handle TAB key with a priority-based dispatch system.
+The priority order is as follows:
+1. Copilot: If a ghost-text overlay is active, accept the completion.
+2. ECA: If an ECA completion overlay is present, accept the ECA completion.
+2. Corfu: If the Corfu completion popup is visible, select the current candidate.
+3. Default: Fall back to standard indentation."
+    (interactive)
+    (let* ((at-point (overlays-at (point)))
+           (copilot-ov (and (bound-and-true-p copilot--overlay)
+                            (overlay-buffer copilot--overlay)
+                            copilot--overlay))
+           (eca-ov (cl-find-if (lambda (ov) (overlay-get ov 'completion)) at-point)))
+      (cond
+       (copilot-ov
+        (copilot-accept-completion))
+       (eca-ov
+        (if (fboundp 'eca-completion-accept)
+            (eca-completion-accept)
+          (indent-for-tab-command)))
+       ((and (bound-and-true-p corfu-mode)
+             (or (and (bound-and-true-p corfu--frame) (frame-visible-p corfu--frame))
+                 (and (featurep 'corfu-terminal) (corfu-terminal--visible-p))))
+        (corfu-complete))
+       (t
+        (indent-for-tab-command)))))
+
+  (defun cfg-tools/copilot-excluded-file-p ()
+    "Check if current file should be excluded from Copilot."
+    (or
+     ;; Check filename patterns
+     (and buffer-file-name
+          (let ((filename (file-name-nondirectory buffer-file-name)))
+            (cl-some (lambda (pattern)
+                       (string-match-p pattern filename))
+                     cfg-tools/copilot-excluded-files)))
+     ;; Check directory patterns
+     (and buffer-file-name
+          (string-match-p "/\\(dist\\|build\\|vendor\\)/" buffer-file-name))
+     ;; Check content patterns
+     (cfg-tools/copilot-kubernetes-sensitive-p)))
+
+  (defun cfg-tools/safe-copilot-mode ()
+    "Enable copilot-mode with silent error handling, excluding sensitive files.
+Defers activation to ensure Copilot server is ready."
+    (unless (or (file-remote-p (or (buffer-file-name) default-directory))
+                (cfg-tools/copilot-excluded-file-p))
+      (let ((buf (current-buffer)))
+        (run-with-idle-timer
+         0.5 nil
+         (lambda ()
+           (when (buffer-live-p buf)
+             (with-current-buffer buf
+               (condition-case err
+                   (when (and (featurep 'copilot)
+                              (boundp 'copilot-server-executable)
+                              copilot-server-executable
+                              (file-executable-p copilot-server-executable))
+                     (copilot-mode 1))
+                 (error
+                  ;; Only report errors if copilot is loaded (real errors)
+                  (when (featurep 'copilot)
+                    (message "Copilot activation failed: %S" err)))))))))))
+
+  :hook ((prog-mode . cfg-tools/safe-copilot-mode)
+         (text-mode . cfg-tools/safe-copilot-mode)
+         (markdown-mode . cfg-tools/safe-copilot-mode)
+         (yaml-ts-mode . cfg-tools/safe-copilot-mode)
+         (json-ts-mode . cfg-tools/safe-copilot-mode)
+         (sh-mode . cfg-tools/safe-copilot-mode)
+         (dockerfile-mode . cfg-tools/safe-copilot-mode)
+         (css-mode . cfg-tools/safe-copilot-mode)
+         (sql-mode . cfg-tools/safe-copilot-mode)
+         (conf-mode . cfg-tools/safe-copilot-mode)))
+#+end_src
+
+** GitHub Copilot Chat
+GitHub Copilot Chat provides an interactive chat interface with GitHub Copilot,
+similar to what's available in VS Code or IntelliJ. This is a separate package
+from the completion-only ~copilot.el~. It enables natural language interactions
+with Copilot, allowing you to ask questions, request code explanations, generate
+tests, and more, all within Emacs.
+
+*** Features
+- Interactive chat with GitHub Copilot
+- Code explanation, review, and generation
+- Multiple frontend options (Org-mode, Markdown, Shell-maker)
+- Integration with your codebase context
+- Transient menu interface for easy access
+
+#+begin_src emacs-lisp
+(use-package copilot-chat
+  ;; We activate the copilot chat extension only if it is authorized on this computer.
+  ;; This will prevent us from loading it if not in use:
+  :if (cfg-tools/ai-copilot-authorized-p)
+  :pin "MELPA Unstable"
+  :after (org markdown-mode)
+
+  :custom
+  ;; Use org-mode as the frontend (recommended for Emacs users)
+  (copilot-chat-frontend 'org)
+  ;; Configure the default model (will be updated from API)
+  (copilot-chat-default-model "gpt-4o")
+  ;; Follow chat buffer automatically
+  (copilot-chat-follow t)
+  :config
+  ;; Add current buffer automatically when opening chat
+  (declare-function copilot-chat-add-current-buffer "copilot-chat")
+  (add-hook 'copilot-chat-mode-hook #'copilot-chat-add-current-buffer))
+#+end_src
+
+* Keybindings
+Registers keybindings for AI tools, ECA chat sessions, Copilot, and Copilot Chat integrations.
+
+#+begin_src emacs-lisp
+;; ECA Chat mode navigation
+(with-eval-after-load 'eca-chat
+  (define-key eca-chat-mode-map (kbd "C-c C-S-i") #'cfg-tools/eca-chat-open-index))
+
+;; Completion overlay maps (Active when ghost text / popup is visible)
+(with-eval-after-load 'corfu
+  (define-key corfu-map (kbd "TAB") #'cfg-tools/tab-indent-or-complete)
+  (define-key corfu-map (kbd "<tab>") #'cfg-tools/tab-indent-or-complete))
+
+(with-eval-after-load 'copilot
+  (define-key copilot-completion-map (kbd "C-g") #'copilot-clear-overlay)
+  (define-key copilot-completion-map (kbd "M-p") #'copilot-previous-completion)
+  (define-key copilot-completion-map (kbd "M-n") #'copilot-next-completion)
+  (define-key copilot-completion-map (kbd "TAB") #'cfg-tools/tab-indent-or-complete))
+
+;; Leader Bindings
+(cfg-keys/leader-def
+  "a"   '(:ignore t :which-key "+AI")
+
+  ;; --- ECA ---
+  "a e"   '(cfg-tools/eca-toggle :whichkey "Toggle ECA")
+  "a E"   '(:ignore t :which-key "+ECA Actions")
+  "a E f" '(cfg-tools/eca-chat-browse :whichkey "Browse Chat")
+  "a E i" '(cfg-tools/eca-chat-open-index :whichkey "Open Index")
+  "a E r" '(cfg-tools/eca-chat-rebuild-index :whichkey "Rebuild Index")
+
+  ;; --- Copilot ---
+  "a c"   '(copilot-mode :whichkey "Toggle Copilot")
+  "a C"   '(:ignore t :which-key "+Copilot Actions")
+  "a C l" '(copilot-login :whichkey "Login")
+  "a C x" '(copilot-diagnose :whichkey "Diagnose")
+
+  ;; --- Copilot Chat ---
+  "a P"   '(:ignore t :which-key "+Copilot Chat")
+  "a P c" '(copilot-chat-display :whichkey "Display Chat")
+  "a P h" '(copilot-chat-hide :whichkey "Hide Chat")
+  "a P e" '(copilot-chat-explain :whichkey "Explain Code")
+  "a P r" '(copilot-chat-review :whichkey "Review Code")
+  "a P f" '(copilot-chat-fix :whichkey "Fix Code")
+  "a P d" '(copilot-chat-doc :whichkey "Doc Code")
+  "a P t" '(copilot-chat-test :whichkey "Generate Tests")
+  "a P o" '(copilot-chat-optimize :whichkey "Optimize Code")
+  "a P i" '(copilot-chat-ask-and-insert :whichkey "Ask & Insert")
+  "a P m" '(copilot-chat-transient :whichkey "Transient Menu")
+  "a P y" '(copilot-chat-yank :whichkey "Yank Code Block")
+  "a P M-y" #'copilot-chat-yank-pop
+  "a P C-y" (lambda () (interactive) (copilot-chat-yank-pop -1)))
+#+end_src
+
+* System Setup
+Provides setup actions for installing GitHub Copilot language server and Rust
+Token Killer (rtk).
+
+#+begin_src sh
+# Copilot installation requirements
+is_installed__tools__ai__copilot() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/copilot-language-server" ] || command -v copilot-language-server >/dev/null 2>&1
+}
+
+install__tools__ai__copilot() {
+  install_nodejs_tools
+}
+
+uninstall__tools__ai__copilot() {
+  uninstall_nodejs_tools
+}
+
+register_action "Tools / AI / Install GitHub Copilot" "-tools--ai--copilot" "node"
+
+# RTK installation requirements
+register_system_package "jq" \
+                        "alpine:jq" \
+                        "fedora:jq" \
+                        "linuxbrew:jq" \
+                        "mac:jq" \
+                        "debian-ubuntu:jq"
+
+is_installed__tools__ai__jq() {
+  command -v jq >/dev/null 2>&1
+}
+
+is_installed__tools__ai__rtk() {
+  command -v rtk >/dev/null 2>&1
+}
+
+install__tools__ai__rtk() {
+  if ! is_installed__tools__ai__jq; then
+    install_system_packages "jq"
+  else
+    log_skip "jq is already installed."
+  fi
+  if ! is_installed__tools__ai__rtk; then
+    if curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh; then
+      return 0
+    else
+      log_error "RTK installation failed."
+      return 1
+    fi
+  else
+    log_skip "RTK is already installed."
+  fi
+}
+
+uninstall__tools__ai__rtk() {
+  log_skip "RTK" "RTK might be in use by another tool in the system. If required, please uninstall it manually."
+}
+
+register_action "Tools / AI / Install Rust Token Killer (rtk)" "-tools--ai--rtk" "standalone"
+#+end_src

@@ -1,0 +1,217 @@
+#+TITLE: Core Editor Layer
+#+CATEGORY: core
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Configures fundamental editing defaults, text manipulation rules, and buffer
+behaviors across programming and prose modes. This layer establishes baseline
+encoding and line ending standards, centralizes backup and auto-save file
+management, sets up unified indentation defaults, handles EditorConfig rules,
+ANSI color interpretation, and line wrapping alongside visual editing aids like line numbers and whitespace indicators.
+
+* Emacs Configuration
+** ANSI Color Support
+Translate ANSI color codes into text properties in compilation buffers.
+
+#+begin_src emacs-lisp
+(use-package ansi-color
+  :ensure nil ; Built-in
+  :config
+  (defun cfg-core/ansi-colorize-buffer ()
+    "Translate ANSI color codes into text properties."
+    (let ((inhibit-read-only t))
+      (read-only-mode -1)
+      (ansi-color-apply-on-region (point-min) (point-max))
+      (read-only-mode 1)))
+
+  (add-hook 'compilation-filter-hook 'ansi-color-compilation-filter))
+#+end_src
+
+** Backups & Auto-Saves
+Redirect backup files and auto-save files away from working project directories
+into dedicated subdirectories within the Emacs configuration directory.
+
+#+begin_src emacs-lisp
+(setq create-lockfiles nil)
+
+(setq backup-directory-alist
+      `((".*" . ,(expand-file-name "backups/" user-emacs-directory))))
+
+(make-directory (expand-file-name "auto-save-list/" user-emacs-directory) t)
+(setq auto-save-file-name-transforms
+      `((".*" ,(expand-file-name "auto-save-list/" user-emacs-directory) t)))
+#+end_src
+
+** EditorConfig Integration
+Using [[https://editorconfig.org/][EditorConfig]] is a must when collaborating with others. It is also a way
+of having multiple tools that want to format your buffer to agree (e.g. both
+the language's Emacs mode and some external formatter/prettifier).
+
+#+begin_src emacs-lisp
+(use-package editorconfig
+  :config
+  (add-to-list 'editorconfig-indentation-alist '(json-mode json-indent-level))
+  (add-to-list 'editorconfig-indentation-alist '(json-ts-mode json-ts-mode-indent-level))
+  (add-to-list 'editorconfig-indentation-alist '(js-json-mode js-indent-level))
+  (editorconfig-mode 1))
+#+end_src
+
+** Encoding & Buffer Defaults
+Set UTF-8 encoding across all buffer contexts, enforce final newlines on save,
+alias buffer list commands, and enable auto-reverting for DocView and text
+buffers.
+
+#+begin_src emacs-lisp
+(set-language-environment "UTF-8")
+(prefer-coding-system 'utf-8)
+
+(defalias 'list-buffers 'ibuffer-other-window)
+
+(setq require-final-newline t)
+(setq auto-revert-interval 1)
+
+(add-hook 'doc-view-mode-hook #'auto-revert-mode)
+#+end_src
+
+** Save Hooks
+Run a configurable list of functions before saving. Currently trims trailing
+whitespace in selected modes.
+
+#+begin_src emacs-lisp
+(defun cfg-core/trim-whitespace ()
+  "Trim trailing whitespace before saving."
+  (when (derived-mode-p
+    'conf-unix-mode
+    'markdown-mode
+    'nxml-mode
+    'org-mode
+    'prog-mode
+    'text-mode
+    'yaml-ts-mode) ; only certain modes
+    (delete-trailing-whitespace)))
+
+(defvar cfg-core/save-hooks
+  '(cfg-core/trim-whitespace
+    ;; more functions here
+    )
+  "List of functions to run before saving a file.")
+
+(defun cfg-core/run-save-hooks ()
+  "Run all functions in `cfg-core/save-hooks'."
+  (run-hooks 'cfg-core/save-hooks))
+
+(add-hook 'before-save-hook #'cfg-core/run-save-hooks)
+#+end_src
+
+** Indentation Framework
+Defines a standard 2-space indentation application function across text and
+programming hooks. Special care is taken to avoid interfering with Org mode tab
+widths and to set tree-sitter defaults ahead of mode initialization.
+
+#+begin_src emacs-lisp
+(defvar sh-basic-offset)
+(defvar sh-indentation)
+(defvar c-basic-offset)
+(defvar java-ts-mode-indent-offset)
+(defvar js-indent-level)
+(defvar typescript-indent-level)
+(defvar css-indent-offset)
+(defvar python-indent-offset)
+(defvar nxml-child-indent)
+(defvar coffee-tab-width)
+
+(setq-default java-ts-mode-indent-offset 2)
+
+(defun cfg-core/default-indentation ()
+  "Apply preferred 2-space indentation settings across modes.
+These settings are intended to be overridden by `editorconfig-mode'."
+  (unless (eq major-mode 'org-mode)
+    (setq
+     tab-width 2
+     indent-tabs-mode nil
+     standard-indent 2
+     sh-basic-offset 2
+     sh-indentation 2
+     c-basic-offset 2
+     java-ts-mode-indent-offset 2
+     js-indent-level 2
+     typescript-indent-level 2
+     css-indent-offset 2
+     python-indent-offset 2
+     nxml-child-indent 2
+     coffee-tab-width 2)))
+
+(dolist (hook '(conf-unix-mode-hook
+                java-ts-mode-hook
+                markdown-mode-hook
+                nxml-mode-hook
+                prog-mode-hook
+                text-mode-hook
+                yaml-ts-mode-hook))
+  (add-hook hook #'cfg-core/default-indentation))
+#+end_src
+
+** Line Limits & Auto-Fill Rules
+Establish global line wrapping boundaries and restrict automatic filling to
+comments in code buffers while enforcing strict wrapping for documentation.
+
+#+begin_src emacs-lisp
+(setq-default fill-column 120)
+(setq-default comment-auto-fill-only t)
+
+(add-hook 'org-mode-hook
+  (lambda ()
+    (setq-local fill-column 80)
+    (auto-fill-mode 1)))
+
+(add-hook 'prog-mode-hook
+  (lambda ()
+    (setq-local comment-auto-fill-only t)
+    (auto-fill-mode 1)))
+#+end_src
+
+** Line Numbering & Whitespace Visualization
+Enable line numbers across development modes and highlight trailing whitespace
+with styled wave underlines. Custom display mappings are assigned for tab
+characters.
+
+#+begin_src emacs-lisp
+(setq-default whitespace-style '(face tabs tab-mark))
+(setq-default whitespace-display-mappings
+              '((tab-mark 9 [8594 32] [92 9])))
+(global-whitespace-mode 1)
+
+(dolist (hook '(prog-mode-hook text-mode-hook))
+  (add-hook hook #'display-line-numbers-mode)
+  (add-hook hook
+            (lambda ()
+              (setq-local show-trailing-whitespace t)
+              (face-remap-add-relative
+               'trailing-whitespace
+               `(:background ,(face-background 'default)
+                 :underline (:style wave :color ,(face-foreground 'error)))))))
+#+end_src
+
+** Modes configuration
+Enable essential built-in global modes for buffer editing and file management.
+
+#+begin_src emacs-lisp
+(dolist (mode
+         '(abbrev-mode             ; E.g. sopl -> System.out.println
+           delete-selection-mode   ; Replace selected text
+           dirtrack-mode           ; directory tracking in *shell*
+           global-auto-revert-mode ; Revert files when changed on disk
+           global-so-long-mode     ; Mitigate performance for long lines
+           recentf-mode))          ; Recently opened files
+  (funcall mode 1))
+#+end_src
+
+* Keybindings
+Registers keybindings for literal tab insertions inside the core keymap.
+
+#+begin_src emacs-lisp
+(define-key cfg-keys-map (kbd "C-s-<tab>") (lambda () (interactive) (insert "\t")))
+#+end_src
+
+* System Setup
+No system setup required.

@@ -1,0 +1,90 @@
+#+TITLE: Web Development Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Provides editing support, inline documentation, and Language Server Protocol
+(LSP) capabilities for general web development including HTML, CSS, SCSS,
+templates, and Tailwind CSS.
+
+* Emacs Configuration
+** SASS/CSS and ElDoc
+ElDoc is a built-in Emacs minor mode that displays function signatures, variable
+documentation, or other context-sensitive help in the minibuffer as you type or
+move the cursor. For CSS and SASS, the ~css-eldoc~ package integrates with eldoc
+to show documentation for CSS properties and functions inline, making it much
+easier to remember valid values and arguments without leaving your editor.
+
+#+begin_src emacs-lisp
+(use-package css-eldoc
+  :hook
+  (css-mode . turn-on-css-eldoc)
+  (scss-mode . turn-on-css-eldoc))
+#+end_src
+
+** Web Mode
+~web-mode~ is a major mode for editing web templates and component files, such
+as HTML, Vue, EJS, Nunjucks, Jinja, Twig, and ERB. It provides syntax
+highlighting, indentation, and structural editing for these formats.
+
+#+begin_src emacs-lisp
+(use-package web-mode
+  :defer t
+  :after (css-eldoc)
+  :mode ("\\.html?\\'" "\\.ejs\\'" "\\.vue\\'" "\\.njk\\'" "\\.jinja\\'" "\\.twig\\'" "\\.erb\\'")
+  :custom
+  (web-mode-enable-current-element-highlight t))
+#+end_src
+
+** Tailwind CSS LSP
+[[https://tailwindcss.com/][Tailwind CSS]] provides a dedicated language server
+(~@tailwindcss/language-server~) that enables completions, hovers, and
+diagnostics for Tailwind CSS classes in HTML, CSS, TypeScript, and other files.
+
+The server is installed via =nodejs_tools= and pointed to via
+=lsp-tailwindcss-server-path= so that ~lsp-mode~ can launch it.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'lsp-tailwindcss
+  (setq lsp-tailwindcss-server-path
+        (or (executable-find "tailwindcss-language-server")
+            (expand-file-name
+             "nodejs_tools/node_modules/@tailwindcss/language-server/bin/tailwindcss-language-server"
+             user-emacs-directory))))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "m"     '(:ignore t :which-key "+major-mode")
+  "m w"   '(:ignore t :which-key "+web")
+  "m w h" '(web-mode-element-highlight-min :whichkey "Highlight Element")
+  "m w e" '(web-mode-element-close :whichkey "Close Tag")
+  "m w r" '(web-mode-element-rename :whichkey "Rename Tag"))
+#+end_src
+
+* System Setup
+** Tailwind CSS Language Server
+[[https://tailwindcss.com/][Tailwind CSS]] provides a dedicated language server
+(~@tailwindcss/language-server~) that enables completions, hovers, and
+diagnostics for Tailwind CSS classes in HTML, CSS, TypeScript, and other files.
+
+The server is installed via =nodejs_tools= and pointed to via
+=lsp-tailwindcss-server-path= so that ~lsp-mode~ can launch it.
+
+#+begin_src sh
+is_installed__lang__web__tailwindcss_language_server() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/tailwindcss-language-server" ]
+}
+
+install__lang__web__tailwindcss_language_server() {
+  install_nodejs_tools
+}
+
+uninstall__lang__web__tailwindcss_language_server() {
+  uninstall_nodejs_tools
+}
+
+register_action "Lang / Web / Install Tailwind CSS Language Server" "-lang--web--tailwindcss-language-server" "node"
+#+end_src

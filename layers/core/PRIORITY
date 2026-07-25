@@ -1,0 +1,2 @@
+# Load core before other categories (lower = earlier; default 100 if missing)
+0

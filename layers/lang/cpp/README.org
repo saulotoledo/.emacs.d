@@ -1,0 +1,291 @@
+#+TITLE: C++ Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides full C/C++ language support, including LSP via ~clangd~, automated formatting via ~clang-format~ / ~apheleia~, tree-sitter integration, and smart GDB debugging with ~dap-mode~. Includes system setup declarations for compiler toolchains and development headers.
+
+* Emacs Configuration
+** Formatting Style Configuration
+#+begin_src emacs-lisp
+(defvar cfg-lang/cpp-format-style 'bsd
+  "The formatting style for C and C++ files.
+Supported values:
+- \='gnu        : GNU Style (brackets indented, next line)
+- \='bsd        : BSD/Allman Style (brackets not indented, next line)
+- \='k&r        : K&R Style (brackets on same line)
+- \='stroustrup : Stroustrup Style (K&R variant)
+- \='linux      : Linux Kernel Style
+- \='google     : Google C++ Style
+- \='llvm       : LLVM Default Style
+- \='microsoft  : Microsoft Style
+- \='webkit     : WebKit Style
+- \='mozilla    : Mozilla Style
+- \='chromium   : Chromium Style
+- \='whitesmith : Whitesmith Style (indented braces)
+
+You can override this in local.el by setting it before init.org is loaded
+or using (setq cfg-lang/cpp-format-style \='bsd) there.")
+
+(defun cfg-lang/map-cpp-base-indent-style-for-emacs ()
+  "Map user-selected style to an Emacs-supported base style.
+Emacs built-in modes (`cc-mode' and `c-ts-mode') only understand a
+limited set of historical base styles (like \='gnu, \='bsd, \='k&r,
+\='linux). By grouping modern styles into the closest base
+style, we ensure the editor has a rough fallback to guess where
+to place the cursor while typing interactively."
+  (pcase cfg-lang/cpp-format-style
+    ((or 'mozilla 'webkit 'microsoft) 'bsd)
+    ((or 'google 'llvm 'chromium) 'gnu)
+    (style style)))
+
+;; Common indentation settings (fallback styles for interactive typing)
+(defvar c-ts-mode-indent-style nil)
+(setq c-default-style (symbol-name (cfg-lang/map-cpp-base-indent-style-for-emacs)))
+(setq c-ts-mode-indent-style (cfg-lang/map-cpp-base-indent-style-for-emacs))
+(setq-default c-basic-offset 2)
+#+end_src
+
+** Language Server (clangd & lsp-mode)
+#+begin_src emacs-lisp
+(with-eval-after-load 'lsp-mode
+  (defvar lsp-clients-clangd-args nil)
+  (setq lsp-clients-clangd-args
+        `("--header-insertion=never"
+          "--background-index"
+          "--log=error"
+          ,(format "--fallback-style=%s"
+                   (pcase cfg-lang/cpp-format-style
+                     ('bsd "BSD")
+                     ('google "Google")
+                     ('llvm "LLVM")
+                     (_ "LLVM"))))))
+
+;; Register accepted extensions for workspace folder filtering
+(when (boundp 'cfg-lsp/server-file-extensions)
+  (add-to-list 'cfg-lsp/server-file-extensions
+	       '(clangd . ("c" "cpp" "h" "hpp" "cc" "cxx" "cu"))))
+#+end_src
+
+** Code Formatting (Apheleia & clang-format)
+#+begin_src emacs-lisp
+(defun cfg-lang/apheleia-get-cpp-style ()
+  "Determine the best -style argument for clang-format.
+If a local .clang-format exists, use -style=file.
+Otherwise, use our custom configuration string."
+  (let ((config-file (locate-dominating-file
+		      (or (buffer-file-name) default-directory)
+                                             ".clang-format")))
+    (if config-file
+        "-style=file"
+      (format "-style=%s"
+              (pcase cfg-lang/cpp-format-style
+                ('bsd        "{BasedOnStyle: LLVM, BreakBeforeBraces: Allman, IndentWidth: 2}")
+                ('k&r        "{BasedOnStyle: K&R, BreakBeforeBraces: Attach, IndentWidth: 2}")
+                ('stroustrup "{BasedOnStyle: Stroustrup, IndentWidth: 2}")
+                ('linux      "{BasedOnStyle: Linux, IndentWidth: 2}")
+                ('google     "{BasedOnStyle: Google, IndentWidth: 2}")
+                ('llvm       "{BasedOnStyle: LLVM, IndentWidth: 2}")
+                ('microsoft  "{BasedOnStyle: Microsoft, IndentWidth: 2}")
+                ('mozilla    "{BasedOnStyle: Mozilla, IndentWidth: 2}")
+                ('chromium   "{BasedOnStyle: Chromium, IndentWidth: 2}")
+                ('webkit     "{BasedOnStyle: WebKit, IndentWidth: 2}")
+                ('whitesmith "{BasedOnStyle: Whitesmith, IndentWidth: 2}")
+                (_           "{BasedOnStyle: LLVM, BreakBeforeBraces: Allman, IndentWidth: 2}"))))))
+
+(defvar apheleia-formatters nil)
+(defvar apheleia-mode-alist nil)
+
+(with-eval-after-load 'apheleia
+  (setf (alist-get 'clang-format-cpp apheleia-formatters)
+        '("clang-format" (cfg-lang/apheleia-get-cpp-style)))
+
+  (setf (alist-get 'c-mode apheleia-mode-alist) 'clang-format-cpp)
+  (setf (alist-get 'c++-mode apheleia-mode-alist) 'clang-format-cpp)
+  (setf (alist-get 'c-ts-mode apheleia-mode-alist) 'clang-format-cpp)
+  (setf (alist-get 'c++-ts-mode apheleia-mode-alist) 'clang-format-cpp))
+#+end_src
+
+** DAP Integration & Smart Debug Launch
+#+begin_src emacs-lisp
+(defvar cfg-lang/dap-compilation-source-buffer nil
+  "Global storage for the buffer that started a debug compile.")
+
+(defun cfg-lang/run-dap-logic (&optional source-buffer)
+  "Find binary based on SOURCE-BUFFER and start DAP."
+  (interactive)
+  (let* (;; Use the provided buffer, or fall back to current if none provided
+         (target-buffer (or source-buffer (current-buffer)))
+         ;; Get the file name from that specific buffer
+         (file-path (buffer-file-name target-buffer))
+         (bin-name (if file-path (file-name-base file-path) ""))
+         (bin-path (concat default-directory bin-name ".out"))
+         ;; Check if the binary actually exists.
+         ;; Performance: Skip synchronous 'file-exists-p' on remote paths to avoid freezes.
+         (final-path (if (and (not (string-empty-p bin-name))
+                              (or (file-remote-p default-directory)
+                                  (file-exists-p bin-path)))
+                         bin-path
+                       (read-file-name "Select binary to debug: " default-directory))))
+    (dap-debug
+     (list :type "gdb"
+           :request "launch"
+           :name "GDB::SmartRun"
+           :target final-path
+           :cwd default-directory
+           :valuesFormatting "prettyPrinters"
+           :gdb-mi-interpreter "console"
+           :gdb-args '("-ex" "set confirm off" "-ex" "set debuginfod enabled off")))))
+
+(defun cfg-lang/cpp-compilation-sentinel (_buf str)
+  "Triggered when compilation finishes with status STR."
+  (message "Sentinel checking buffer: %s" cfg-lang/dap-compilation-source-buffer)
+  (if (and (string-match-p "finished" str)
+           cfg-lang/dap-compilation-source-buffer)
+      (let ((source-buf cfg-lang/dap-compilation-source-buffer))
+        (setq cfg-lang/dap-compilation-source-buffer nil)
+        (message "Logic passed! Launching debugger...")
+        (run-with-timer 0.1 nil (lambda () (cfg-lang/run-dap-logic source-buf))))
+    (message "Logic failed: Status was '%s', Buffer was %s"
+             (string-trim str)
+             cfg-lang/dap-compilation-source-buffer)))
+
+(defun cfg-lang/dap-cpp-launch ()
+  "The entry point: Remember the buffer, then compile."
+  (interactive)
+  (setq cfg-lang/dap-compilation-source-buffer (current-buffer))
+  (message "Source buffer saved: %s" (buffer-name cfg-lang/dap-compilation-source-buffer))
+  (add-hook 'compilation-finish-functions #'cfg-lang/cpp-compilation-sentinel)
+  (cfg-lang/smart-compile t))
+
+(add-hook 'c++-ts-mode-hook
+          (lambda ()
+            (require 'dap-gdb-lldb)
+            (declare-function dap-gdb-lldb-setup "dap-gdb-lldb")
+            (dap-gdb-lldb-setup)
+            (setq-local cfg-lang/dap-start-debug #'cfg-lang/dap-cpp-launch)))
+#+end_src
+
+* Keybindings
+No keybindings required.
+
+* System Setup
+Registers system package dependencies for C++ development across multiple operating systems and package managers.
+
+#+begin_src sh :tangle setup.sh
+CPP_MIN_DEV_PACKAGES=(
+  "gcc-c++" "gdb" "cmake" "make" "clang-tools-extra" "bear"
+  "openssl-devel" "libxcrypt-devel" "ncurses-devel"
+  "zlib-devel" "sqlite-devel" "readline-devel" "libffi-devel"
+)
+
+is_installed__lang__cpp__cpp_dev_bundle() {
+  are_these_system_packages_installed "${CPP_MIN_DEV_PACKAGES[@]}"
+}
+
+# Compiler & Build Tools
+register_system_package "bear" \
+                        "alpine:bear" \
+                        "fedora:bear" \
+                        "linuxbrew:bear" \
+                        "mac:bear" \
+                        "debian-ubuntu:bear"
+
+register_system_package "clang-tools-extra" \
+                        "alpine:clang-extra-tools" \
+                        "fedora:clang-tools-extra" \
+                        "linuxbrew:llvm" \
+                        "mac:llvm" \
+                        "debian-ubuntu:clangd"
+
+register_system_package "cmake" \
+                        "alpine:cmake" \
+                        "fedora:cmake" \
+                        "linuxbrew:cmake" \
+                        "mac:cmake" \
+                        "debian-ubuntu:cmake"
+
+register_system_package "gcc-c++" \
+                        "alpine:g++" \
+                        "fedora:gcc-c++" \
+                        "linuxbrew:gcc" \
+                        "mac:gcc" \
+                        "debian-ubuntu:g++"
+
+# Note: gdb on Mac might require extra configuration for "signing"
+# the binary to allow it to control other processes
+register_system_package "gdb" \
+                        "alpine:gdb" \
+                        "fedora:gdb" \
+                        "linuxbrew:gdb" \
+                        "mac:gdb" \
+                        "debian-ubuntu:gdb"
+
+register_system_package "make" \
+                        "alpine:make" \
+                        "fedora:make" \
+                        "linuxbrew:make" \
+                        "mac:make" \
+                        "debian-ubuntu:make"
+
+# Libraries & Headers
+register_system_package "libffi-devel" \
+                        "alpine:libffi-dev" \
+                        "fedora:libffi-devel" \
+                        "linuxbrew:libffi" \
+                        "mac:libffi" \
+                        "debian-ubuntu:libffi-dev"
+
+register_system_package "libxcrypt-devel" \
+                        "alpine:libxcrypt-dev" \
+                        "fedora:libxcrypt-devel" \
+                        "linuxbrew:libxcrypt" \
+                        "mac:libxcrypt" \
+                        "debian-ubuntu:libxcrypt-source"
+
+register_system_package "ncurses-devel" \
+                        "alpine:ncurses-dev" \
+                        "fedora:ncurses-devel" \
+                        "linuxbrew:ncurses" \
+                        "mac:ncurses" \
+                        "debian-ubuntu:libncurses-dev"
+
+register_system_package "openssl-devel" \
+                        "alpine:openssl-dev" \
+                        "fedora:openssl-devel" \
+                        "linuxbrew:openssl" \
+                        "mac:openssl" \
+                        "debian-ubuntu:libssl-dev"
+
+register_system_package "readline-devel" \
+                        "alpine:readline-dev" \
+                        "fedora:readline-devel" \
+                        "linuxbrew:readline" \
+                        "mac:readline" \
+                        "debian-ubuntu:libreadline-dev"
+
+register_system_package "sqlite-devel" \
+                        "alpine:sqlite-dev" \
+                        "fedora:sqlite-devel" \
+                        "linuxbrew:sqlite" \
+                        "mac:sqlite" \
+                        "debian-ubuntu:libsqlite3-dev"
+
+register_system_package "zlib-devel" \
+                        "alpine:zlib-dev" \
+                        "fedora:zlib-devel" \
+                        "linuxbrew:zlib" \
+                        "mac:zlib" \
+                        "debian-ubuntu:zlib1g-dev"
+
+install__lang__cpp__cpp_dev_bundle() {
+  log_info "Starting C++ Development environment setup..."
+  install_system_packages "${CPP_MIN_DEV_PACKAGES[@]}"
+}
+
+uninstall__lang__cpp__cpp_dev_bundle() {
+  log_skip "C++ dev bundle" "The packages used for C++ development are system packages and will not be uninstalled automatically"
+}
+
+register_action "Lang / CPP / Install C++ dev tools" "-lang--cpp--cpp-dev-bundle" "cpp"
+#+end_src

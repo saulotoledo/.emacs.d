@@ -1,0 +1,45 @@
+#+TITLE: Focus Layer
+#+CATEGORY: editor
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Integrates focus mode to dim text outside the active editing region and olivetti
+mode to center text within distraction-free buffer margins.
+
+* Emacs Configuration
+** Focus Mode Integration
+Defers loading until explicitly invoked to ensure fast startup times.
+
+#+begin_src emacs-lisp
+(use-package focus
+  :defer t
+  :config
+  (declare-function focus-mode "focus"))
+#+end_src
+
+** Olivetti Text Centering
+#+begin_src emacs-lisp
+(use-package olivetti
+  :defer t
+  :config
+  (setq-default olivetti-body-width (max 120 (+ fill-column 3))))
+#+end_src
+
+* Keybindings
+Registers leader keybindings to toggle focus mode and olivetti on demand.
+
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "t"   '(:ignore t :which-key "+toggles")
+  "t f" #'focus-mode
+  "t o" #'olivetti-mode)
+#+end_src
+
+Useful Olivetti's built-in keybindings:
+
+- =C-c {= : Decreases width (=olivetti-shrink=).
+- =C-c }= : Increases width (=olivetti-expand=).
+- =C-c |= : Sets a specific width (=olivetti-set-width=).
+
+* System Setup
+No system setup required.

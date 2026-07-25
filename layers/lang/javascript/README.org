@@ -1,0 +1,339 @@
+#+TITLE: JavaScript & TypeScript Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Provides a comprehensive development environment for Node.js, JavaScript, and
+TypeScript using modern Tree-sitter major modes (~js-ts-mode~,
+~typescript-ts-mode~, ~tsx-ts-mode~), ~vtsls~ (VS Code TypeScript Language
+Server wrapper) via ~lsp-mode~, ~dap-js~ for debugging, ~npm-el~ for package
+management, and ~nodejs-repl~.
+
+Key features:
+- **Package Manager Detection**: Automatic detection of =npm=, =yarn=, or =pnpm= via project lockfiles.
+- **vtsls LSP Integration**: Uses =@vtsls/language-server= for high-fidelity VS Code parity, supporting workspace TSDK auto-detection and snippet completions.
+- **DAP Debugging**: Integrated Node.js debugging via ~dap-js~ with auto-patching for process environment inheritance and terminal attaching.
+- **Linting & Execution**: Dynamic ESLint invocation via Flycheck and Transient menu interface via ~npm.el~.
+
+* Emacs Configuration
+** Package Manager & Flycheck Helpers
+#+begin_src emacs-lisp
+(defun cfg-lang/nodejs-get-project-package-manager ()
+  "Detect the package manager by looking for lockfiles."
+  (let ((root (or (and (fboundp 'project-root)
+                       (project-current)
+                       (project-root (project-current)))
+                  default-directory)))
+    (cond
+     ((file-exists-p (expand-file-name "pnpm-lock.yaml" root)) "pnpm")
+     ((file-exists-p (expand-file-name "yarn.lock" root)) "yarn")
+     (t "npm"))))
+
+(defun cfg-lang/nodejs-flycheck-use-eslint ()
+  "Configure Flycheck to use eslint via the detected package manager."
+  (let ((manager (cfg-lang/nodejs-get-project-package-manager)))
+    (cond
+     ((string-equal manager "pnpm")
+      (setq-local flycheck-javascript-eslint-executable "pnpm")
+      (setq-local flycheck-javascript-eslint-args '("exec" "eslint" "--format" "unix" "--stdin")))
+     ((string-equal manager "yarn")
+      (setq-local flycheck-javascript-eslint-executable "yarn")
+      (setq-local flycheck-javascript-eslint-args '("eslint" "--format" "unix" "--stdin")))
+     (t
+      (setq-local flycheck-javascript-eslint-executable "npx")
+      (setq-local flycheck-javascript-eslint-args '("eslint" "--format" "unix" "--stdin"))))))
+
+(add-hook 'flycheck-mode-hook #'cfg-lang/nodejs-flycheck-use-eslint)
+
+(defun cfg-lang/yarn-run-script (script)
+  "Run SCRIPT with Yarn in the project root."
+  (interactive "sYarn script: ")
+  (compile (concat "yarn " script)))
+#+end_src
+
+** DAP Mode & Node.js Debug Adapter Patching
+#+begin_src emacs-lisp
+;; Ensure dap-js is loaded and the debug adapter is installed automatically.
+;; dap-js-path defaults to ~/.emacs.d/.extension/js-debug.
+;; dap-js-setup downloads the adapter only when it is missing.
+(with-eval-after-load 'dap-mode
+  (require 'dap-js)
+  (dap-js-setup)
+
+  ;; dap-mode bug: dap--start-process ignores both `env` and the DAP spec
+  ;; requirement that the runInTerminal success response include a body with
+  ;; `shellProcessId`. For pwa-node the adapter needs both:
+  ;;   1. the env vars (NODE_OPTIONS / VSCODE_INSPECTOR_OPTIONS) in the child
+  ;;      process so the bootloader is loaded, and
+  ;;   2. the shell PID in the response body so it can track/auto-attach to the
+  ;;      node process. Without the PID the adapter crashes immediately after
+  ;;      receiving the success response ("connection broken by remote peer").
+  (defun cfg-lang/dap--start-process-with-env (debug-session parsed-msg)
+    "Override `dap--start-process' to pass env and return shellProcessId.
+Extracts `env', `args', `cwd', `title', and `kind' from PARSED-MSG,
+spawns the command in a shell with the env vars injected into
+`process-environment', captures the shell PID, and sends a success
+response containing :shellProcessId so pwa-node can auto-attach."
+    (let* ((args-hash (gethash "arguments" parsed-msg))
+           (seq       (gethash "seq" parsed-msg))
+           (args      (gethash "args" args-hash))
+           (cwd       (gethash "cwd" args-hash))
+           (title     (or (gethash "title" args-hash) "DAP Terminal"))
+           (env-hash  (gethash "env" args-hash))
+           (default-directory (or cwd default-directory))
+           ;; Build the env list from the hash
+           (extra-env
+            (when (hash-table-p env-hash)
+              (let (pairs)
+                (maphash (lambda (k v) (push (concat k "=" v) pairs)) env-hash)
+                pairs)))
+           (process-environment (append extra-env process-environment))
+           (command (combine-and-quote-strings (append args nil) " "))
+           ;; Spawn via shell so we can capture the shell PID
+           (buf (dap--make-terminal-buffer title debug-session))
+           (proc (start-process-shell-command title buf command))
+           (pid (process-id proc)))
+      (dap--send-message
+       (dap--make-success-response seq "runInTerminal" (list :shellProcessId pid))
+       (dap--resp-handler)
+       debug-session)))
+
+  (advice-add 'dap--start-process :override #'cfg-lang/dap--start-process-with-env))
+#+end_src
+
+** Node.js REPL
+Node.js REPL integration with ~nodejs-repl~ package. This provides an
+interactive Node.js shell within Emacs, allowing you to run JavaScript code
+snippets and test functions on the fly.
+
+#+begin_src emacs-lisp
+(use-package nodejs-repl
+  :config
+  (defun cfg-lang/nodejs-repl-with-manager ()
+    "Launch nodejs-repl using the detected package manager."
+    (interactive)
+    (let* ((manager (cfg-lang/nodejs-get-project-package-manager))
+           (cmd (if (string-equal manager "npm") "npx" manager)))
+      (setq nodejs-repl-command cmd)
+      (setq nodejs-repl-arguments '("node"))
+      (nodejs-repl))))
+#+end_src
+
+** npm.el
+=npm-el= is a feature-rich Transient UI popup menu for all NPM-related tasks.
+
+#+begin_src emacs-lisp
+(use-package npm
+  :config
+  (defun cfg-lang/npm-fix-command-for-package-manager (args)
+    "Replace 'npm' with the detected package manager in npm-common--compile ARGS."
+    (let* ((manager (cfg-lang/nodejs-get-project-package-manager))
+           (npm-command (car args))
+           (rest (cdr args)))
+      (if (string-equal manager "npm")
+          args
+        (cons (replace-regexp-in-string "^npm\\b" manager npm-command) rest))))
+
+  (advice-add 'npm-common--compile :filter-args #'cfg-lang/npm-fix-command-for-package-manager))
+#+end_src
+
+** Major Modes (JavaScript & TypeScript Tree-sitter)
+#+begin_src emacs-lisp
+(use-package js
+  :ensure nil
+  :defer t
+  :mode (("\\.[cm]?js\\'" . js-ts-mode)
+         ("\\.jsx\\'" . tsx-ts-mode)))
+
+(use-package typescript-ts-mode
+  :defer t
+  :mode (("\\.[cm]?ts\\'" . typescript-ts-mode)
+         ("\\.tsx\\'" . tsx-ts-mode))
+  :after (lsp-mode dap-mode yasnippet)
+  :config
+  ;; dap-js (pwa-node / vscode-js-debug) is the DAP adapter for Node.js/TS.
+  ;; It operates independently of the LSP server -- no LSP calls are made
+  ;; during debugging. Requiring it here ensures the adapter is ready when
+  ;; TypeScript mode activates.
+  (require 'dap-js)
+  :hook (((typescript-ts-mode tsx-ts-mode) . lsp-deferred)
+         ((typescript-ts-mode tsx-ts-mode) . yas-minor-mode)))
+#+end_src
+
+** LSP Registration & vtsls Setup
+#+begin_src emacs-lisp
+;; Register accepted extensions for workspace folder filtering
+(dolist (entry '((eslint        . ("ts" "tsx" "cts" "mts" "js" "jsx" "html" "vue"))
+                 (eslint-remote . ("ts" "tsx" "cts" "mts" "js" "jsx" "html" "vue"))
+                 (vtsls         . ("ts" "tsx" "cts" "mts" "js" "jsx" "mjs" "cjs"))))
+  (when (boundp 'cfg-lsp/server-file-extensions)
+    (add-to-list 'cfg-lsp/server-file-extensions entry)))
+
+(defun cfg-lang/typescript-register-debug-templates ()
+  "Register DAP debug templates for TypeScript."
+  (require 'dap-mode)
+
+  (with-eval-after-load 'dap-mode
+    (dap-register-debug-template
+     "Node::Attach"
+     (list :type "node"
+           :request "attach"
+           :name "Node::Attach"
+           :port 9229
+           :address "localhost"
+           :restart t
+           :protocol "inspector"))
+
+    (dap-register-debug-template
+     "Node::Launch Program"
+     (list :type "node"
+           :request "launch"
+           :name "Node::Launch Program"
+           :program "${file}"
+           :cwd "${workspaceFolder}"
+           :runtimeExecutable "node"
+           :protocol "inspector"
+           :console "integratedTerminal"
+           :internalConsoleOptions "neverOpen"))))
+
+(with-eval-after-load 'dap-mode
+  (cfg-lang/typescript-register-debug-templates))
+
+;; --- vtsls lsp-mode client registration ---
+;; vtsls wraps the VS Code TypeScript extension. There is no lsp-vtsls package
+;; on MELPA, and upstream lsp-javascript.el has no vtsls entry as of 2026-05.
+;; We register it manually at priority 0, beating ts-ls (-2) so vtsls is always
+;; used for TypeScript/JavaScript buffers.
+;;
+;; lsp-typescript-tsdk points at the TypeScript SDK vtsls should use.
+;; lsp-mode's built-in `typescript.tsdk' setting forwards it automatically via
+;; lsp-register-custom-settings -> (lsp-configuration-section "typescript").
+;;
+;; DAP (dap-js / pwa-node / vscode-js-debug) is fully independent of the LSP
+;; server and works unchanged with either ts-ls or vtsls.
+
+;; Point lsp-typescript-tsdk at our emacs-local typescript installation.
+;; Projects that have their own typescript in node_modules will override this
+;; automatically because vtsls.autoUseWorkspaceTsdk is enabled below.
+(setq lsp-typescript-tsdk
+      (expand-file-name "nodejs_tools/node_modules/typescript/lib"
+                        user-emacs-directory))
+
+(defun cfg-lang/vtsls-server-command ()
+  "Return the command to start vtsls, preferring the project-local binary."
+  (let* ((file      (or (buffer-file-name) default-directory))
+         (proj-root (or (locate-dominating-file file "node_modules")
+                        user-emacs-directory))
+         (proj-bin  (expand-file-name "node_modules/.bin/vtsls" proj-root))
+         (local-bin (expand-file-name "nodejs_tools/node_modules/.bin/vtsls"
+                                      user-emacs-directory))
+         (binary    (cond
+                     ((file-executable-p proj-bin)  proj-bin)
+                     ((file-executable-p local-bin) local-bin)
+                     (t (executable-find "vtsls")))))
+    (list binary "--stdio")))
+
+;; Enable snippet completions for TS function calls.
+;; lsp-typescript-suggest-complete-function-calls defaults to nil but must be t
+;; so that typescript.suggest.completeFunctionCalls is included when
+;; lsp-configuration-section "typescript" is serialised below.
+(setq lsp-typescript-suggest-complete-function-calls t)
+(setq lsp-typescript-preferences-import-module-specifier "auto") ; other values: non-relative, relative
+
+(with-eval-after-load 'lsp-mode
+  (add-to-list 'lsp-language-id-configuration '(typescript-ts-mode . "typescript"))
+  (add-to-list 'lsp-language-id-configuration '(tsx-ts-mode . "typescriptreact"))
+  (add-to-list 'lsp-language-id-configuration '(js-ts-mode . "javascript"))
+
+  (lsp-register-client
+   (make-lsp-client
+    :new-connection (lsp-stdio-connection #'cfg-lang/vtsls-server-command)
+    :activation-fn 'lsp-typescript-javascript-tsx-jsx-activate-p
+    :priority 0    ;; beats ts-ls (-2); vtsls is always preferred
+    :server-id 'vtsls
+    :initialized-fn
+    (lambda (workspace)
+      (with-lsp-workspace workspace
+        ;; lsp-configuration-section "typescript" picks up lsp-typescript-tsdk
+        ;; and all other lsp-typescript-* customization variables automatically.
+        (lsp--set-configuration
+         (ht-merge
+          (lsp-configuration-section "javascript")
+          (lsp-configuration-section "typescript")
+          ;; "completions" section sends completions.completeFunctionCalls (t by default)
+          ;; which tells vtsls to insert function parameter snippets on completion.
+          (lsp-configuration-section "completions")
+          (ht ("vtsls" (ht ("autoUseWorkspaceTsdk" t))))))))
+    ;; initialization-options are sent at the LSP initialize handshake.
+    ;; autoUseWorkspaceTsdk tells vtsls to prefer project-local typescript
+    ;; over its bundled version when a workspace typescript is detected.
+    :initialization-options '(:vtsls (:autoUseWorkspaceTsdk t)))))
+
+;; Disable lsp-mode's `textDocument/documentColor' integration globally.
+;; `vtsls' advertises colorProvider, which 'triggers lsp-mode to send
+;; `textDocument/documentColor' requests. `lsp-mode' has no UI handler for
+;; color responses, causing "Unhandled method" errors that freeze Corfu.
+;; Setting this variable to nil suppresses the feature at the source.
+(setq lsp-enable-text-document-color nil)
+
+(defun cfg-lang/dap-js--start-debug ()
+  "Launch a JS/TS DAP session for the current project.
+Uses .vscode/launch.json when present; falls back to a basic
+pwa-node launch for the current file otherwise."
+  (let* ((file (buffer-file-name))
+         (root (or (and file (locate-dominating-file file "package.json"))
+                   default-directory)))
+    (if (and root (file-exists-p (expand-file-name ".vscode/launch.json" root)))
+        (call-interactively 'dap-debug)
+      (when file
+        (dap-debug (list :type "pwa-node"
+                         :request "launch"
+                         :name (format "Node::%s" (file-name-nondirectory file))
+                         :program file
+                         :cwd root
+                         :console "integratedTerminal"))))))
+
+(defun cfg-lang/js-ts-dap-setup ()
+  "Set local DAP launcher for JavaScript and TypeScript modes."
+  (setq-local cfg-lang/dap-start-debug #'cfg-lang/dap-js--start-debug))
+
+(add-hook 'typescript-ts-mode-hook #'cfg-lang/js-ts-dap-setup)
+(add-hook 'js-ts-mode-hook #'cfg-lang/js-ts-dap-setup)
+(add-hook 'tsx-ts-mode-hook #'cfg-lang/js-ts-dap-setup)
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(define-key cfg-keys-map (kbd "C-c n") #'npm)
+(define-key cfg-keys-map (kbd "C-c y") #'cfg-lang/yarn-run-script)
+
+(cfg-keys/leader-def
+  "m"     '(:ignore t :which-key "+major-mode")
+  "m j"   '(:ignore t :which-key "+javascript")
+  "m j n" '(npm :whichkey "NPM Menu")
+  "m j y" '(cfg-lang/yarn-run-script :whichkey "Yarn script")
+  "m j r" '(cfg-lang/nodejs-repl-with-manager :whichkey "Node REPL")
+  "m j d" '(cfg-lang/dap-js--start-debug :whichkey "Debug JS/TS"))
+#+end_src
+
+* System Setup
+** vtsls Language Server
+To enable IDE features for TypeScript, we use =@vtsls/language-server=
+(=vtsls=), a modern LSP wrapper around the VS Code TypeScript extension.
+
+#+begin_src sh
+is_installed__lang__javascript__vtsls_language_server() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/vtsls" ] || command -v vtsls >/dev/null 2>&1
+}
+
+install__lang__javascript__vtsls_language_server() {
+  install_nodejs_tools
+}
+
+uninstall__lang__javascript__vtsls_language_server() {
+  uninstall_nodejs_tools
+}
+
+register_action "Lang / JavaScript / Install vtsls Language Server" "-lang--javascript--vtsls-language-server" "node"
+#+end_src

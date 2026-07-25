@@ -1,0 +1,105 @@
+#+TITLE: Tabs Layer
+#+CATEGORY: ui
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+A visually polished tab bar for Emacs using Centaur Tabs. Groups buffers
+dynamically by project, major mode, or purpose, while hiding ephemeral and
+system buffers to keep the editing workspace clutter-free.
+
+* Emacs Configuration
+** Centaur Tabs
+#+begin_src emacs-lisp
+(declare-function centaur-tabs-2str "centaur-tabs")
+(declare-function project-root "project")
+
+(use-package centaur-tabs
+  :pin "MELPA Unstable"
+  :ensure
+  :demand
+  :after all-the-icons
+  :config
+  (centaur-tabs-mode t)
+  (setq centaur-tabs-set-icons t
+        centaur-tabs-icon-type 'all-the-icons
+        centaur-tabs-plain-icons t
+        centaur-tabs-height 32
+        centaur-tabs-style "bar"
+        centaur-tabs-gray-out-icons 'buffer
+        centaur-tabs-set-bar 'over
+        centaur-tabs-set-modified-marker t
+        centaur-tabs-adjust-buffer-order t)
+
+  (defun centaur-tabs-buffer-groups ()
+    "Organize tabs into groups by project."
+    (list
+     (cond
+      ((derived-mode-p 'eshell-mode 'term-mode 'shell-mode 'vterm-mode)
+       "Terminal")
+      ((string-prefix-p "*" (buffer-name))
+       "System")
+      ((memq major-mode '(magit-process-mode
+                          magit-status-mode
+                          magit-diff-mode
+                          magit-log-mode
+                          magit-file-mode
+                          magit-blob-mode
+                          magit-blame-mode))
+       "Magit")
+      ((derived-mode-p 'dired-mode)
+       "Dired")
+      ((file-remote-p default-directory)
+       "Remote")
+      ((project-current)
+       (format "Project: %s" (file-name-nondirectory
+                              (directory-file-name
+                               (project-root (project-current))))))
+      (t "Default"))))
+
+  (defun centaur-tabs-hide-tab (x)
+    "Do not show buffer X in tabs."
+    (let ((name (format "%s" x)))
+      (or
+       (window-dedicated-p (selected-window))
+       (string-prefix-p "*epc" name)
+       (string-prefix-p "*helm" name)
+       (string-prefix-p "*Helm" name)
+       (string-prefix-p "*Compile-Log*" name)
+       (string-prefix-p "*lsp" name)
+       (string-prefix-p "*Flycheck" name)
+       (string-prefix-p "*tramp" name)
+       (string-prefix-p " *Mini" name)
+       (string-prefix-p "*help" name)
+       (string-prefix-p "*straight" name)
+       (string-prefix-p " *temp" name)
+       (string-prefix-p "*Help" name)
+       (string-prefix-p "*mybuf" name)
+       (string-prefix-p "*scratch*" name)
+       (and (string-prefix-p "magit" name)
+            (not (file-name-extension name))))))
+  :hook
+  (dired-mode . centaur-tabs-local-mode))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Direct tab navigation keybindings
+(define-key cfg-keys-map (kbd "C-<prior>") #'centaur-tabs-backward)
+(define-key cfg-keys-map (kbd "C-<next>") #'centaur-tabs-forward)
+(define-key cfg-keys-map (kbd "C-M-S-<next>") #'centaur-tabs-forward-group)
+(define-key cfg-keys-map (kbd "C-M-S-<prior>") #'centaur-tabs-backward-group)
+
+;; Leader toggles and tab actions
+(cfg-keys/leader-def
+  "t"   '(:ignore t :which-key "+toggles")
+  "t t" '(centaur-tabs-mode :whichkey "Toggle Tabs")
+
+  "b"   '(:ignore t :which-key "+buffers")
+  "b ]" '(centaur-tabs-forward :whichkey "Next Tab")
+  "b [" '(centaur-tabs-backward :whichkey "Previous Tab")
+  "b }" '(centaur-tabs-forward-group :whichkey "Next Tab Group")
+  "b {" '(centaur-tabs-backward-group :whichkey "Previous Tab Group"))
+#+end_src
+
+* System Setup
+No system setup required.

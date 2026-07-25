@@ -1,0 +1,34 @@
+#+TITLE: Dotenv Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Dotenv is a module that loads environment variables from a =.env= file
+into =process.env=, allowing you to keep configuration secrets
+decoupled from your codebase. To accommodate different deployment
+stages, we can extend this practice using environment-specific files
+such as =.env.development=, =.env.test=, or =.env.production=.
+
+* Emacs Configuration
+** Dotenv
+#+begin_src emacs-lisp
+(use-package dotenv-mode
+  :mode (("\\.env\\(?:\\..*\\)?\\'" . dotenv-mode)))
+
+'dotenv-mode
+(add-hook 'dotenv-mode-hook
+          (lambda ()
+            (declare-function lsp-mode "lsp-mode")
+            (lsp-mode -1)
+            (font-lock-add-keywords nil
+                                    '(("\\(^\\|\\s-\\)\\([A-Z0-9_]+\\)\\s-*="
+                                       (2 font-lock-variable-name-face))
+                                      ("\\(?:=\\)\\s-*\\([^#\n]+\\)"
+                                       (1 font-lock-string-face))))))
+#+end_src
+
+* Keybindings
+No keybindings required.
+
+* System Setup
+No system setup required.

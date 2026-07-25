@@ -1,0 +1,37 @@
+#+TITLE: Python Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Provides language configuration for Python development. Sets the primary Python
+shell interpreter and resolves syntax/sexp navigation issues in Python mode.
+
+* Emacs Configuration
+** Python Setup
+#+begin_src emacs-lisp
+(defun cfg-lang/python-mode-setup ()
+  "Setup hook for python-mode buffers."
+  ;; Reset forward-sexp-function to avoid issues with standard sexp navigation
+  (setq forward-sexp-function nil))
+
+(use-package python
+  :ensure nil ; built-in
+  :custom
+  (python-shell-interpreter "python3.12")
+  :hook (python-mode . cfg-lang/python-mode-setup))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Leader bindings for Python environment
+(cfg-keys/leader-def
+  "m"   '(:ignore t :which-key "+major-mode")
+  "m p" '(:ignore t :which-key "+python")
+  "m p z" '(run-python :whichkey "Start REPL"))
+#+end_src
+
+* System Setup
+Ensure Python 3.12 is installed on the system:
+
+TODO

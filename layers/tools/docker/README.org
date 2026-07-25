@@ -1,0 +1,165 @@
+#+TITLE: Docker Layer
+#+CATEGORY: tools
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+* Emacs Configuration
+** Dockerfile Support
+Dockerfile support is provided by the ~dockerfile-mode~ package, which enables
+syntax highlighting and editing for Dockerfiles. For Docker Compose YAML files,
+we do not use the available ~docker-compose-mode~ because it cannot be used
+together with the ~yaml-ts-mode~ (they are both major modes).
+
+#+begin_src emacs-lisp
+(use-package dockerfile-mode
+  :mode "Dockerfile\\'")
+#+end_src
+
+** Devcontainers Integration
+[[https://github.com/johannes-mueller/devcontainer.el][devcontainer.el]] provides support for managing and working with [[https://containers.dev/][Development
+containers (devcontainers)]] in Emacs. Devcontainers allow you to develop inside
+Docker containers, ensuring consistent development environments across different
+machines.
+
+The package provides commands to build, launch, stop, and manage devcontainers,
+and automatically forwards =compile= commands into the devcontainer so builds
+and tests run inside the container environment. It is configured as follows:
+
+- =Global Mode= - The ~devcontainer-mode~ is enabled globally to automatically
+  intercept and forward compilation commands to the active container.
+- =Backend Engine= - The ~devcontainer-container-engine~ can be toggled between
+  ~'docker~ (default) or ~'podman~, depending on your environment.
+- =Host Execution= - Programs listed in ~devcontainer-execute-outside-container~
+  (e.g., =grep=) run directly on the host to avoid container latency and improve
+  performance.
+- =CLI Integration= - The package automatically detects and utilizes the local
+  Dev Containers CLI from =nodejs_tools/=, ensuring portability without
+  requiring global Node.js installations.
+
+When ~devcontainer-mode~ is active, all =compile= commands are automatically
+forwarded into the devcontainer. Your local working directory is typically
+mounted into the container, so you edit files normally, but builds and tests run
+inside the container.
+
+Alternatively, you can use TRAMP to edit files directly inside the container
+using =M-x devcontainer-tramp-dired=.
+
+All interactive functions use the =devcontainer-= prefix:
++ =M-x devcontainer-up= - Start the devcontainer for the current project
++ =M-x devcontainer-restart= - Stop and restart the devcontainer
++ =M-x devcontainer-rebuild-and-restart= - Rebuild and restart (useful after Dockerfile changes)
++ =M-x devcontainer-execute-command= - Execute an arbitrary command inside the container
++ =M-x devcontainer-term= - Launch a terminal inside the container
+
+#+begin_src emacs-lisp
+(use-package devcontainer
+  :config
+  ;; Utilize the Dev Containers CLI from our PATH
+  (let ((devcontainer-cli-path (executable-find "devcontainer")))
+    (when devcontainer-cli-path
+      (add-to-list 'exec-path (file-name-directory devcontainer-cli-path))))
+
+  (devcontainer-mode 1)
+  (unless (boundp 'devcontainer-engine)
+    (setq devcontainer-engine 'docker))
+
+  (setq devcontainer-execute-outside-container '("grep" "rg" "ripgrep"))
+  (setq devcontainer-term-environment '(("TERM" . "xterm-256color")))
+
+  ;; Optional: Hook to open dired inside container after startup
+  (add-hook 'devcontainer-post-startup-hook #'devcontainer-tramp-dired)
+
+  (declare-function devcontainer--read-devcontainer-json "devcontainer")
+  (defun cfg-tools/get-devcontainer-shell ()
+    "Search for a shell preference in devcontainer.json.
+Falls back to VS Code settings if a shell is not found."
+    (condition-case nil
+        (when-let* ((config (devcontainer--read-devcontainer-json))
+                    (customizations (gethash "customizations" config)))
+          (or
+           ;; 1. Check for Emacs-specific shell setting
+           (when-let ((emacs (gethash "emacs" customizations)))
+             (gethash "shell" emacs))
+           ;; 2. Fallback to VS Code default profile
+           (when-let ((vscode (gethash "vscode" customizations)))
+             (when-let ((settings (gethash "settings" vscode)))
+               (gethash "terminal.integrated.defaultProfile.linux" settings)))))
+      (error nil)))
+
+  (defun cfg-tools/vterm-use-devcontainer-shell-advice (orig-fun &rest args)
+    "Advice for `vterm' to use `devcontainer-term-shell' when in a container.
+Applies ORIG-FUN with ARGS."
+    (let ((vterm-shell (if (and (bound-and-true-p devcontainer-mode)
+                                (tramp-tramp-file-p default-directory)
+                                (let ((method (tramp-file-name-method (tramp-dissect-file-name default-directory))))
+                                  (member method (list "docker" "podman"))))
+                           (or (cfg-tools/get-devcontainer-shell)
+                               (bound-and-true-p devcontainer-term-shell)
+                               vterm-shell)
+                         vterm-shell)))
+      (apply orig-fun args)))
+
+  (with-eval-after-load 'vterm
+    (advice-add 'vterm :around #'cfg-tools/vterm-use-devcontainer-shell-advice))
+
+  ;; Optimization: Skip customizations on remote files to prevent TRAMP freeze
+  (defun cfg-tools/devcontainer-skip-remote-customization-advice (orig-fun &rest args)
+    "Skip `devcontainer--read-and-apply-customizations' for remote files.
+Applies ORIG-FUN with ARGS."
+    (unless (file-remote-p (or (buffer-file-name) default-directory))
+      (apply orig-fun args)))
+
+  (advice-add 'devcontainer--read-and-apply-customizations :around #'cfg-tools/devcontainer-skip-remote-customization-advice))
+#+end_src
+
+*** Running tools inside devcontainer
+To make tools like flycheck, linters, and other executables run inside the
+devcontainer, we configure them to use devcontainer's command forwarding. This
+ensures that tools running in your project use the container's environment and
+dependencies.
+
+Flycheck is disabled by default when over TRAMP and might not work even when it
+is available inside the container. Check the Flycheck configuration for details.
+
+*** LSP integration with devcontainer/TRAMP:
+LSP servers run inside the container when using TRAMP to access files. The
+container should have Node.js and language server extensions installed.
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Leader bindings under Devcontainer / Docker
+(cfg-keys/leader-def
+  "d"   '(:ignore t :which-key "+devcontainer/docker")
+  "d u" '(devcontainer-up :whichkey "Up / Start")
+  "d r" '(devcontainer-restart :whichkey "Restart")
+  "d R" '(devcontainer-rebuild-and-restart :whichkey "Rebuild & Restart")
+  "d e" '(devcontainer-execute-command :whichkey "Execute Command")
+  "d t" '(devcontainer-term :whichkey "Open Terminal")
+  "d d" '(devcontainer-tramp-dired :whichkey "Open Dired in Container"))
+#+end_src
+
+* System Setup
+Prerequisites for devcontainers environment:
+
++ [[https://github.com/devcontainers/cli][devcontainers/cli]]: The official command-line interface for the Dev Containers specification. It allows you to build, run, and manage development container environments defined by a =devcontainer.json= file independently of the IDE extension. It is added to the =nodejs_tools= folder, which requires running =npm install=.
++ =Container Runtime= - Have a functioning installation of either Docker or Podman.
++ =Docker Compose= - Required only if your Dev Containers configuration relies on it.
+
+#+begin_src sh
+is_installed__tools__docker__devcontainer_cli() {
+  command -v devcontainer >/dev/null 2>&1
+}
+
+install__tools__docker__devcontainer_cli() {
+  run_task "Installing Devcontainers CLI locally via npm" \
+    "mkdir -p $HOME/.emacs.d/nodejs_tools && cd $HOME/.emacs.d/nodejs_tools && npm install @devcontainers/cli --save-dev"
+}
+
+uninstall__tools__docker__devcontainer_cli() {
+  run_task "Removing Devcontainers CLI local installation" \
+    "cd $HOME/.emacs.d/nodejs_tools && npm uninstall @devcontainers/cli 2>/dev/null || true"
+}
+
+register_action "Tools / Docker / Install Devcontainers CLI" "-tools--docker--devcontainer_cli" "standalone"
+#+end_src

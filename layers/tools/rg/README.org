@@ -1,0 +1,101 @@
+#+TITLE: Ripgrep Layer
+#+CATEGORY: tools
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Integrates the ultra-fast Ripgrep search tool with Emacs. Provides buffer
+search, project-wide text searching via transient menus, and auto-saving
+editable grep results via wgrep.
+
+* Emacs Configuration
+** Ripgrep Package Setup
+#+begin_src emacs-lisp
+(use-package rg
+  :config
+  (rg-enable-default-bindings)
+  (rg-enable-menu)
+  (setq wgrep-auto-save-buffer t) ; Save wgrep buffers automatically after editing
+
+  (declare-function project-roots "project")
+  (defun cfg-tools/counsel-rg-project-prompt ()
+    "Prompt for directory, default to project root if available."
+    (interactive)
+    (let* ((proj-root
+            (cond
+             ((fboundp 'projectile-project-root)
+              (projectile-project-root))
+             ((fboundp 'project-current)
+              (let ((proj (project-current)))
+                (when proj
+                  (car (project-roots proj)))))
+             ((fboundp 'vc-root-dir)
+              (vc-root-dir))
+             (t default-directory)))
+           (dir (read-directory-name "Search directory: " proj-root nil t)))
+      (counsel-rg nil dir)))
+
+  (declare-function transient-quit-all "transient")
+  (defun cfg-tools/rg-abort-to-counsel ()
+    "Abort the current transient menu and launch counsel-rg."
+    (interactive)
+    (transient-quit-all)
+    (cfg-tools/counsel-rg-project-prompt))
+
+  (declare-function transient-suffix-object "transient")
+  (declare-function transient-lisp-variable "transient")
+  (declare-function rg-menu-transient-insert "rg")
+  (transient-define-infix cfg-tools/search-case-strategy ()
+    :class 'transient-lisp-variable
+    :variable 'rg-ignore-case
+    :description
+    (lambda ()
+      (let* ((val (oref (transient-suffix-object) value))
+             (shown (if val (symbol-name val) "nil")))
+        (format "Search Case Strategy [%s]" shown)))
+    :reader
+    (lambda (_prompt _initial _history)
+      (let* ((choices '(case-fold-search smart force nil))
+             ;; Safe even if current value isn’t in CHOICES.
+             (pos (or (cl-position rg-ignore-case choices) 0)))
+        (nth (mod (1+ pos) (length choices)) choices))))
+
+  (rg-menu-transient-insert "Search" "z" "Live Search (Counsel)" 'cfg-tools/rg-abort-to-counsel)
+  (rg-menu-transient-insert "Custom" "g" "Search Case Strategy" 'cfg-tools/search-case-strategy)
+
+  (add-to-list 'display-buffer-alist
+               '("\\*rg\\*"
+                 (display-buffer-same-window))))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "s"   '(:ignore t :which-key "+search")
+  "s r" #'rg)
+#+end_src
+
+* System Setup
+#+begin_src sh
+is_installed__tools__rg__ripgrep() {
+  is_system_package_installed "ripgrep"
+}
+
+register_system_package "ripgrep" \
+                        "alpine:ripgrep" \
+                        "fedora:ripgrep" \
+                        "linuxbrew:ripgrep" \
+                        "mac:ripgrep" \
+                        "debian-ubuntu:ripgrep"
+
+install__tools__rg__ripgrep() {
+  log_info "Starting Ripgrep setup..."
+  install_system_packages "ripgrep"
+}
+
+uninstall__tools__rg__ripgrep() {
+  log_skip "Ripgrep" "Ripgrep is system package and will not be uninstalled automatically"
+}
+
+register_action "Tools / RG / Install Ripgrep" "-tools--rg--ripgrep" "utils"
+#+end_src

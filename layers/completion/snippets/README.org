@@ -1,0 +1,46 @@
+#+TITLE: Snippets Layer
+#+CATEGORY: completion
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides template-driven snippet expansion for Emacs via yasnippet and a large
+collection of ready-to-use snippets across various programming languages.
+
+* Emacs Configuration
+** Yasnippet
+#+begin_src emacs-lisp
+(declare-function yas-reload-all "yasnippet")
+(use-package yasnippet
+  :demand t
+  :config
+  (yas-reload-all)
+  (yas-global-mode 1)
+  ;; After an LSP snippet expands (e.g. parseInt(${1:string})), corfu's
+  ;; auto-delay timer fires 0.3 s later, reopens the popup, and corfu-map's
+  ;; TAB binding wins over yas-keymap, making field navigation impossible.
+  ;; We fix this scenario below by disabling corfu-auto locally for the
+  ;; duration of the snippet session.
+  (add-hook 'yas-before-expand-snippet-hook
+            (lambda ()
+              (when (bound-and-true-p corfu-mode)
+		;; Cancel a timer that was already queued before the expansion.
+                (when (and (boundp 'corfu--auto-timer) corfu--auto-timer)
+                  (cancel-timer corfu--auto-timer)
+                  (setq corfu--auto-timer nil)))
+              (setq-local corfu-auto nil)))
+  (add-hook 'yas-after-exit-snippet-hook
+            (lambda ()
+              (kill-local-variable 'corfu-auto))))
+#+end_src
+
+** Community Snippets
+#+begin_src emacs-lisp
+(use-package yasnippet-snippets
+  :after yasnippet)
+#+end_src
+
+* Keybindings
+No keybindings required.
+
+* System Setup
+No system setup required.

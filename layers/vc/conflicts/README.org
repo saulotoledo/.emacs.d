@@ -1,0 +1,74 @@
+#+TITLE: VC Conflicts Layer
+#+CATEGORY: vc
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides merge conflict resolution tools using smerge-mode, clickable action
+buttons via conflict-buttons, and side-by-side buffer diffing via Ediff.
+
+* Emacs Configuration
+** Smerge Mode
+#+begin_src emacs-lisp
+(defvar smerge-auto-refine nil)
+(use-package smerge-mode
+  :ensure nil
+  :defer t
+  :bind (:map smerge-mode-map
+              ("C-c M-s-n" . smerge-next)
+              ("C-c M-s-p" . smerge-prev)
+              ("C-c M-s-u" . smerge-keep-upper)
+              ("C-c M-s-l" . smerge-keep-lower)
+              ("C-c M-s-b" . smerge-keep-base)
+              ("C-c M-s-a" . smerge-keep-all)
+              ("C-c M-s-r" . smerge-resolve)
+              ("C-c M-s-E" . smerge-ediff))
+  :config
+  (defun cfg-vc/smerge-mode-maybe ()
+    "Efficiently check for smerge markers in large files."
+    (save-excursion
+      (goto-char (point-min))
+      (when (re-search-forward "^<<<<<<< " 10000 t)
+        (smerge-mode 1))))
+
+  (set-face-attribute 'smerge-upper nil :background "dark slate blue" :foreground 'unspecified)
+  (set-face-attribute 'smerge-lower nil :background "dark olive green" :foreground 'unspecified)
+  (set-face-attribute 'smerge-base nil :background "dim gray" :foreground 'unspecified)
+  (set-face-attribute 'smerge-refined-removed nil :background "#5a3d3d" :foreground 'unspecified)
+  (set-face-attribute 'smerge-refined-added nil :background "#3d5a5a" :foreground 'unspecified)
+  (set-face-attribute 'smerge-markers nil :background "#2e2e2e" :foreground "orange")
+  (add-hook 'find-file-hook #'cfg-vc/smerge-mode-maybe)
+  (add-hook 'after-revert-hook #'cfg-vc/smerge-mode-maybe)
+  (setq smerge-auto-refine t))
+#+end_src
+
+** Conflict Buttons
+#+begin_src emacs-lisp
+(use-package conflict-buttons
+  :defer t
+  :hook (smerge-mode . conflict-buttons-mode)
+  :init
+  (put 'conflict-buttons--overlays 'permanent-local t)
+  :config
+  (advice-add 'conflict-buttons--install :before
+              (lambda (&rest _)
+                (remove-overlays (point-min) (point-max) 'conflict-buttons t))))
+#+end_src
+
+** Ediff Setup
+#+begin_src emacs-lisp
+(use-package ediff
+  :ensure nil
+  :custom
+  (ediff-window-setup-function 'ediff-setup-windows-plain)
+  (ediff-split-window-function 'split-window-horizontally)
+  :config
+  (setq ediff-combination-pattern '("<<<<<<< HEAD" A "=======" B ">>>>>>> other")))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Keybindings registered in smerge-mode-map above
+#+end_src
+
+* System Setup
+No system setup required.

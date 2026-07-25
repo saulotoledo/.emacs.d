@@ -1,0 +1,53 @@
+#+TITLE: VC Gutter Layer
+#+CATEGORY: vc
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Displays git diff indicators in the fringe using diff-hl and inline git blame
+annotations using blamer.el.
+
+* Emacs Configuration
+** Diff-HL Fringe Indicators
+#+begin_src emacs-lisp
+(use-package diff-hl
+  :defer t
+  :hook ((magit-pre-refresh . ignore)
+         (magit-post-refresh . diff-hl-magit-post-refresh))
+  :config
+  (global-diff-hl-mode 1))
+#+end_src
+
+** Blamer Inline Annotations
+#+begin_src emacs-lisp
+(use-package blamer
+  :demand t
+  :custom
+  (blamer-type 'both)
+  (blamer-idle-time 0.3)
+  (blamer-overlay-priority 1)
+  :custom-face
+  (blamer-face ((t :foreground "#5c6370"
+                   :background unspecified
+                   :height 85)))
+  :config
+  (defun cfg-vc/toggle-blamer ()
+    "Toggle global-blamer-mode on and off."
+    (interactive)
+    (global-blamer-mode 'toggle)))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; --- Global Keybindings via cfg-keys-map ---
+(define-key cfg-keys-map (kbd "s-i") #'blamer-show-commit-info)
+(define-key cfg-keys-map (kbd "C-c i") #'blamer-show-posframe-commit-info)
+(define-key cfg-keys-map (kbd "C-c b") #'cfg-vc/toggle-blamer)
+
+;; --- Leader Bindings ---
+(cfg-keys/leader-def
+  "t"   '(:ignore t :which-key "+toggles")
+  "t b" #'cfg-vc/toggle-blamer)
+#+end_src
+
+* System Setup
+No system setup required.

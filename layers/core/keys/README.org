@@ -1,0 +1,110 @@
+#+TITLE: Keys Layer
+#+CATEGORY: core
+#+LAYER_PRIORITY: 0
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Combines the Spacemacs-style leader-key philosophy with a priority minor mode
+(~cfg-keys-mode~) to manage global shortcuts consistently. Provides core keyboard
+navigation enhancements using avy for fast visual jumping, goto-line-preview for
+interactive line jumping, and mwim for smart home/end line position movement.
+
+* Emacs Configuration
+** Minor Mode & Leader Map Setup
+We define a high-priority global minor mode (~cfg-keys-mode~) and bind ~C-c~ to
+act as the primary leader key prefix via ~cfg-keys-leader-map~.
+
+#+begin_src emacs-lisp
+(defvar cfg-keys-map (make-sparse-keymap)
+  "Keymap used for user custom bindings.")
+
+(define-minor-mode cfg-keys-mode
+  "A minor mode for custom keybindings that override major modes."
+  :global t
+  :group 'keybindings
+  :keymap cfg-keys-map)
+
+(cfg-keys-mode 1)
+(define-prefix-command 'cfg-keys-leader-map)
+(define-key cfg-keys-map (kbd "C-c") 'cfg-keys-leader-map)
+#+end_src
+
+** Leader Definition Macro
+The ~cfg-keys/leader-def~ macro simplifies registering pairs of key sequences
+and interactive functions directly under the leader keymap.
+
+#+begin_src emacs-lisp
+(defmacro cfg-keys/leader-def (&rest keybinds)
+  "Convenience macro to bind keys under `cfg-keys-leader-map`.
+Usage: `(cfg-keys/leader-def \"f f\" #'find-file \"b b\" #'switch-to-buffer)'.
+Prefix labels use `(:ignore t :which-key \"+name\")`. Those install a labeled
+sparse keymap (or label an existing one) instead of a non-prefix binding, so
+nested sequences like \"t f\" remain valid."
+  (declare (indent 0))
+  `(progn
+     ,@(cl-loop
+        for (key fn) on keybinds by #'cddr
+        for form = (if (eq (car-safe fn) 'quote) (cadr fn) fn)
+        for label = (and (eq (car-safe form) :ignore)
+                         (plist-get form :which-key))
+        collect
+        (if label
+            `(let* ((keyseq (kbd ,key))
+                    (existing (lookup-key cfg-keys-leader-map keyseq))
+                    (km (if (keymapp existing)
+                            existing
+                          (make-sparse-keymap))))
+               (define-key cfg-keys-leader-map keyseq (cons ,label km)))
+          `(define-key cfg-keys-leader-map (kbd ,key) ,fn)))))
+#+end_src
+
+** Avy Navigation
+Avy is a fast navigation tool: it lets you jump to any visible character, word,
+or line by typing a short key sequence. It's great for quickly moving the cursor
+anywhere on the screen without using the mouse or arrow keys.
+
+#+begin_src emacs-lisp
+(use-package avy)
+#+end_src
+
+** Goto Line Preview
+A replacement for =goto-line= that shows a preview of the target line when
+typing it on the minibuffer.
+
+#+begin_src emacs-lisp
+(use-package goto-line-preview)
+#+end_src
+
+** MWIM (Move Where I Mean)
+MWIM (Move Where I Mean) is a popular Emacs package that makes your "Home" and
+"End" keys (or =C-a=/=HOME= and =C-e=/=END=) smarter.
+
+Standard Emacs commands are literal: =C-a=/=HOME= goes to the very beginning of
+the line (column 0), and =C-e=/=END= goes to the very end. MWIM changes this to
+behave more like modern IDEs.
+
+#+begin_src emacs-lisp
+(use-package mwim)
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+;; Register top-level leader prefix categories for which-key menu discovery
+(cfg-keys/leader-def
+  "b" '(:ignore t :which-key "+buffers")
+  "f" '(:ignore t :which-key "+files")
+  "g" '(:ignore t :which-key "+git/vcs")
+  "p" '(:ignore t :which-key "+projects")
+  "o" '(:ignore t :which-key "+tools"))
+
+(global-set-key [remap goto-line] 'goto-line-preview)
+
+(define-key cfg-keys-map (kbd "C-:") #'avy-goto-char)
+(define-key cfg-keys-map (kbd "C-a") #'mwim-beginning-of-code-or-line)
+(define-key cfg-keys-map (kbd "<home>") #'mwim-beginning-of-code-or-line)
+(define-key cfg-keys-map (kbd "C-e") #'mwim-end-of-code-or-line)
+(define-key cfg-keys-map (kbd "<end>") #'mwim-end-of-code-or-line)
+#+end_src
+
+* System Setup
+No system setup required.
