@@ -44,15 +44,25 @@ It uses advice-add instead of defadvice."
       (message "The next key will be sent to vterm")
       (vterm-send-next-key)))
 
+  (defun my/vterm-send-current-key ()
+    "Send the key sequence that invoked this command directly to vterm."
+    (interactive)
+    (vterm-send-key (key-description (this-command-keys))))
+
+  (defun my/vterm-setup-key-remaps ()
+    "Remap mwim commands to send native keys in vterm buffers."
+    (local-set-key [remap mwim-beginning-of-code-or-line] #'my/vterm-send-current-key)
+    (local-set-key [remap mwim-end-of-code-or-line]       #'my/vterm-send-current-key))
+
   :config
   (setq vterm-max-scrollback 10000)
   (advice-add 'vterm :around #'cfg-tools/vterm-kill-with-no-query-around))
 
-(add-hook 'vterm-mode-hook (lambda () (setq-local global-hl-line-mode nil)))
-
-(with-eval-after-load 'vterm
-  ;; Here we set the font for vterm to a Nerd Font that supports glyphs.
-  (set-frame-font "JetBrainsMono Nerd Font" nil t))
+(add-hook 'vterm-mode-hook
+          (lambda ()
+            (setq-local global-hl-line-mode nil)
+            (set-frame-font "JetBrainsMono Nerd Font" nil t) ; Nerd Font that supporting glyphs
+            (my/vterm-setup-key-remaps)))
 #+end_src
 
 * Keybindings

@@ -37,8 +37,7 @@ eln-cache
 *undo-tree-history*
 
 # TRAMP files
-*.tramp
-*~
+/tramp
 
 # Org-mode export cache
 *.org~
@@ -63,6 +62,7 @@ ssh_keys/*
 # Other
 *.db
 *.sqlite
+*~
 google-java-format/
 auto-save-list/
 eclipse*/
