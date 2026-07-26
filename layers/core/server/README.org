@@ -23,7 +23,7 @@ This approach is best if you want the Emacs server to listen on a network
 interface, which is useful when running Emacs inside a Docker container that is
 exposed via port forwarding or an SSH tunnel.
 
-#+begin_example emacs-lisp
+#+begin_src emacs-lisp :tangle no
 ;; Configure the Emacs server to listen on a TCP socket
 (setq server-use-tcp t)
 
@@ -35,7 +35,7 @@ exposed via port forwarding or an SSH tunnel.
 ;; connections originating from within the container itself. This relies on the
 ;; external SSH tunnel to securely forward traffic to this local address.
 (setq server-host "127.0.0.1")
-#+end_example
+#+end_src
 
 *** Option 2: File Socket Directory (Active Configuration)
 Using a dedicated socket file location is often simpler for secure connections

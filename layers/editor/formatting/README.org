@@ -40,14 +40,14 @@ Python plugin.
 To add a new formatter, add it to =apheleia-formatters= and map it to the
 appropriate mode in =apheleia-mode-alist=. For example:
 
-#+begin_example
+#+begin_src emacs-lisp :tangle no
 ;; Add a new formatter
 (setf (alist-get 'my-formatter apheleia-formatters)
       '("my-formatter-command" "--option" "value" file))
 
 ;; Map it to a mode
 (setf (alist-get 'my-mode apheleia-mode-alist) 'my-formatter)
-#+end_example
+#+end_src
 
 The package setup:
 

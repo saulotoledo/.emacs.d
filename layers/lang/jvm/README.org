@@ -31,13 +31,13 @@ belong to your codebase, or leave it empty to let the mode auto-detect them from
 Maven (=pom.xml=) or Gradle (=build.gradle= / =build.gradle.kts=) files in the
 current project root:
 
-#+begin_example
+#+begin_src emacs-lisp :tangle no
 ;; Manual override (skips auto-detection when set):
 (setq cfg-lang/java-stack-trace-project-packages '("com.corp" "com.mycompany"))
 
 ;; Auto-detection: just leave the variable empty (the default).
 ;; The mode reads groupId from pom.xml or group = "..." from build.gradle.
-#+end_example
+#+end_src
 
 *Usage*
 

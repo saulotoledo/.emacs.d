@@ -22,7 +22,7 @@ Yascroll provides a vertical scrollbar for Emacs running in terminal mode (tty).
 It is a nice package, but it has a known bug reported at
 [[https://github.com/emacs-evil/yascroll/issues/1]].
 
-#+begin_example emacs-lisp
+#+begin_src emacs-lisp :tangle no
 (use-package yascroll
   :config
   (global-yascroll-bar-mode 1)
@@ -34,12 +34,12 @@ It is a nice package, but it has a known bug reported at
               (lambda ()
                 (yascroll-bar-mode 1)
                  (setq yascroll:delay-to-hide nil)))))
-#+end_example
+#+end_src
 
 Another suggestion is to use ~smart-mode-line~, but that cannot be active
 together with ~doom-modeline~, so we comment it out for now.
 
-#+begin_example emacs-lisp
+#+begin_src emacs-lisp :tangle no
 ;; Smart Mode Line for a clean, informative modeline (works in GUI and terminal)
 (use-package smart-mode-line
   :init
@@ -47,7 +47,7 @@ together with ~doom-modeline~, so we comment it out for now.
   (setq sml/theme 'respectful) ; or 'dark, 'light, 'powerline, etc.
   :config
   (sml/setup))
-#+end_example
+#+end_src
 
 As the packages above did not work as expected, I found another package that
 seems to work nicely: ~mlscroll~. It adds a scrollbar to the mode line, showing

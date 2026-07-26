@@ -317,16 +317,16 @@ the files =m2e= generates.
 
 ~Parent POM properties:~
 
-#+begin_example xml
+#+begin_src xml :tangle no
 <project.build.java.target>1.8</project.build.java.target>
 <maven.compiler.source>${project.build.java.target}</maven.compiler.source>
-#+end_example
+#+end_xml
 
 ~Child POM override:~
 
-#+begin_example xml
+#+begin_src xml :tangle no
 <project.build.java.target>25</project.build.java.target>
-#+end_example
+#+end_src
 
 Follows the implementation of the workaround:
 

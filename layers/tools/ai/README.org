@@ -109,7 +109,7 @@ Emacs directory to =~/.config/eca/config.json=. It supports overriding the
 2. **Local override variable**: You can set ~cfg-tools/eca-default-model~ in
    =local.el= to override the default model for your machine:
 
-#+begin_example
+#+begin_src emacs-lisp :tangle no
 ;;; -*- lexical-binding: t -*-
 ;;; local.el - Local configuration that doesn't need to be in version control
 ;;;
@@ -121,7 +121,7 @@ Emacs directory to =~/.config/eca/config.json=. It supports overriding the
 ;; If nil or not set, uses copilot from eca-config.json
 ;; Example: (setq cfg-tools/eca-default-model "mistral/devstral-2512")
 (setq cfg-tools/eca-default-model "openrouter/openrouter/free")
-#+end_example
+#+end_src
 
 3. **Replacement process**: When ~cfg-tools/eca-install-config~ runs:
    - It reads the source =eca-config.json= file
@@ -709,7 +709,7 @@ Examples of how =rtk rewrite= works:
 - =htop= -> no rewrite (exits 1, passed through unchanged)
 - Already-RTK commands -> no rewrite (idempotent)
 
-#+begin_example
+#+begin_src json :tangle no
 "hooks": {
   "rtk-shell-command": {
     "oype": "preToolCall",
@@ -723,7 +723,7 @@ Examples of how =rtk rewrite= works:
     ]
   }
 }
-#+end_example
+#+end_src
 
 The full hook is already embedded in ~eca-config.json~ and gets deployed to the
 global ECA config path automatically by ~cfg-tools/eca-install-config~.
