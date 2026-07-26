@@ -92,9 +92,9 @@ You can trigger the retangling process in three ways:
 
 - *Interactively:* Run ~M-x cfg-core/retangle-init~ (use a prefix argument to
   also native-compile).
-- *Automatically:* Saving ~init.org~, [[file:setup-script.org][setup-script.org]], any layer
-  ~README.org~ (not ~layers/README.org~), or any ~layers/**/PRIORITY~ file
-  triggers an ~after-save-hook~ that retangles and compiles automatically.
+- *Automatically:* Saving ~init.org~, [[file:setup-script.org][setup-script.org]], any layer ~README.org~
+  (not ~layers/README.org~), or any ~layers/**/PRIORITY~ file triggers an
+  ~after-save-hook~ that retangles and compiles automatically.
 - *From a terminal:*
 
 #+begin_src sh :tangle no
@@ -350,16 +350,16 @@ The current version of the script requires =bash= to run: =bash setup.sh=.
 * Layer Discovery
 The ~cfg-core/discover-layers~ function (in [[file:retangle.el][retangle.el]]) scans all layer
 documentation at ~layers/**/README.org~, sorts the layers using category
-~PRIORITY~ and ~#+LAYER_PRIORITY~ tags, and rebuilds [[file:layers/README.org][layers/README.org]] (~*
-Index~ and ~* Includes~).
+~PRIORITY~ and ~#+LAYER_PRIORITY~ tags, and rebuilds [[file:layers/README.org][layers/README.org]] (the
+layer index) and ~layers/includes.org~ (the ~#+INCLUDE~ list consumed below).
 
 When ~cfg-core/retangle-init~ runs, it executes this discovery process first to
 ensure the layer list is up to date before expanding includes. Below, we pull in
-just the dynamically generated ~* Includes~ block:
+the dynamically generated include list:
 
 See [[file:layers/README.org][Layer index]].
 
-#+INCLUDE: "layers/README.org::* Includes" :only-contents
+#+INCLUDE: "layers/includes.org"
 
 * TRAMP Debugging
 If you experience slowdowns, lockups, or unexpected behavior when using TRAMP
