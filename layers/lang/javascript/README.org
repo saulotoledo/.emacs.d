@@ -335,5 +335,5 @@ uninstall__lang__javascript__vtsls_language_server() {
   uninstall_nodejs_tools
 }
 
-register_action "Lang / JavaScript / Install vtsls Language Server" "-lang--javascript--vtsls-language-server" "node"
+register_action "Lang" "JavaScript" "Install vtsls Language Server" "-lang--javascript--vtsls-language-server" "node"
 #+end_src

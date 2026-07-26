@@ -42,5 +42,5 @@ uninstall__tools__semgrep__semgrep() {
   run_task "Uninstalling Semgrep" "pipx uninstall semgrep 2>/dev/null || true"
 }
 
-register_action "Tools / Semgrep / Install Semgrep" "-tools--semgrep--semgrep" "standalone"
+register_action "Tools" "Semgrep" "Install Semgrep" "-tools--semgrep--semgrep" "standalone"
 #+end_src

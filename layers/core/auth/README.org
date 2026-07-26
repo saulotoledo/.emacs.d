@@ -461,5 +461,5 @@ uninstall__core__auth__list_of_secrets() {
   log_skip "Encrypted secrets vault"
 }
 
-register_action "Core / Auth / Manage GPG-encrypted authinfo secrets" "-core--auth--list-of-secrets" "secrets"
+register_action "Core" "Auth" "Manage GPG-encrypted authinfo secrets" "-core--auth--list-of-secrets" "secrets"
 #+end_src

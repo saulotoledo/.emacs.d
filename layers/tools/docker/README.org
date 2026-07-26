@@ -161,5 +161,5 @@ uninstall__tools__docker__devcontainer_cli() {
     "cd $HOME/.emacs.d/nodejs_tools && npm uninstall @devcontainers/cli 2>/dev/null || true"
 }
 
-register_action "Tools / Docker / Install Devcontainers CLI" "-tools--docker--devcontainer_cli" "standalone"
+register_action "Tools" "Docker" "Install Devcontainers CLI" "-tools--docker--devcontainer_cli" "standalone"
 #+end_src

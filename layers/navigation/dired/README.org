@@ -484,5 +484,5 @@ uninstall__tools__dired__dirvish_utilities_bundle() {
   log_skip "Dirvish utilities" "The packages used with Dirvish are system packages and will not be uninstalled automatically"
 }
 
-register_action "Tools / Dired / Install Dirvish utilities" "-tools--dired--dirvish_utilities_bundle" "utils"
+register_action "Tools" "Dired" "Install Dirvish utilities" "-tools--dired--dirvish_utilities_bundle" "utils"
 #+end_src

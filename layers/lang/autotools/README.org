@@ -51,5 +51,5 @@ uninstall__tools__autotools__language_server() {
   run_task "Uninstalling Autotools LS" "pipx uninstall autotools-language-server 2>/dev/null || true"
 }
 
-register_action "Tools / Autotools / Install Autotools Language Server" "-tools--autotools--language-server" "standalone"
+register_action "Tools" "Autotools" "Install Autotools Language Server" "-tools--autotools--language-server" "standalone"
 #+end_src

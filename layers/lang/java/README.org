@@ -1880,7 +1880,7 @@ uninstall__lang__java__google_java_format() {
   fi
 }
 
-register_action "Lang / Java / Install Google Java Format" "-lang--java--google-java-format" "jvm"
+register_action "Lang" "Java" "Install Google Java Format" "-lang--java--google-java-format" "jvm"
 
 #+end_src
 
@@ -1920,5 +1920,5 @@ uninstall__lang__java__java() {
   log_skip "Java SDKs (SDKMAN!)."
 }
 
-register_action "Lang / Java / Install Java" "-lang--java--java" "jvm"
+register_action "Lang" "Java" "Install Java" "-lang--java--java" "jvm"
 #+end_src

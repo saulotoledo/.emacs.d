@@ -1002,7 +1002,7 @@ uninstall__tools__ai__copilot() {
   uninstall_nodejs_tools
 }
 
-register_action "Tools / AI / Install GitHub Copilot" "-tools--ai--copilot" "node"
+register_action "Tools" "AI" "Install GitHub Copilot" "-tools--ai--copilot" "node"
 
 # RTK installation requirements
 register_system_package "jq" \
@@ -1042,5 +1042,5 @@ uninstall__tools__ai__rtk() {
   log_skip "RTK" "RTK might be in use by another tool in the system. If required, please uninstall it manually."
 }
 
-register_action "Tools / AI / Install Rust Token Killer (rtk)" "-tools--ai--rtk" "standalone"
+register_action "Tools" "AI" "Install Rust Token Killer (rtk)" "-tools--ai--rtk" "standalone"
 #+end_src

@@ -23,6 +23,7 @@ log_skip()    {
 # --- Global Registry ---
 TOOLS=()
 MENU_INDICES=()
+MENU_DISPLAY_INDICES=()
 MENU_SELECTED_INDICES=()
 INSTALLED_ITEMS=()
 
@@ -134,13 +135,15 @@ fi
 
 # --- Registration Function ---
 register_action() {
-  local name="$1"
-  local id="$2"
-  local group="${3:-standalone}" # Default to standalone if not provided
+  local group="$1"
+  local layer="$2"
+  local action="$3"
+  local id="$4"
+  local exec_group="${5:-standalone}" # Default to standalone if not provided
   local func_id="${id//-/_}"
 
-  # Format: name | flag | checker | installer | uninstaller | group
-  TOOLS+=("$name|--install-$id|is_installed_$func_id|install_$func_id|uninstall_$func_id|$group")
+  # Format: group | layer | action | flag | checker | installer | uninstaller | exec_group
+  TOOLS+=("$group|$layer|$action|--install-$id|is_installed_$func_id|install_$func_id|uninstall_$func_id|$exec_group")
 }
 
 # --- UI Helpers ---
@@ -177,7 +180,7 @@ sort_tools_by_group() {
     IFS='|' read -r g_key _ <<< "$entry"
 
     for tool in "${TOOLS[@]}"; do
-      IFS='|' read -r _ _ _ _ _ t_group <<< "$tool"
+      IFS='|' read -r _ _ _ _ _ _ _ t_group <<< "$tool"
 
       if [[ "$t_group" == "$g_key" ]]; then
         sorted+=("$tool")
@@ -187,7 +190,7 @@ sort_tools_by_group() {
 
   # Catch-all for tools registered with a group not in INSTALLER_GROUPS
   for tool in "${TOOLS[@]}"; do
-    IFS='|' read -r _ _ _ _ _ t_group <<< "$tool"
+    IFS='|' read -r _ _ _ _ _ _ _ t_group <<< "$tool"
     local found=false
     for entry in "${INSTALLER_GROUPS[@]}"; do
       [[ "${entry%%|*}" == "$t_group" ]] && found=true && break
@@ -252,18 +255,31 @@ menu_select_actions() {
     local frame=""
     print_titled_header "Select the actions to perform"
 
+    local last_group="" last_layer=""
     for i in "${!_indices[@]}"; do
       local idx=${_indices[$i]}
-      IFS='|' read -r name _ _ _ _ <<< "${TOOLS[$idx]}"
+      IFS='|' read -r group layer action _ _ _ _ _ <<< "${TOOLS[$idx]}"
+
+      if [[ "$group" != "$last_group" ]]; then
+        [[ -n "$last_group" ]] && frame+="$(tput el)\n"
+        frame+="  ${TITLE_COLOR}[$group]${NC}$(tput el)\n"
+        last_group="$group"
+        last_layer=""
+      fi
+
+      local layer_label="            "
+      [[ "$layer" != "$last_layer" ]] && layer_label=$(printf "(%s)" "$layer")
+      last_layer="$layer"
+
       local pointer="  "
       local bracket="[ ]"
       [[ $i -eq $cursor ]] && pointer="${TITLE_COLOR}> ${NC}"
       [[ ${selected[$i]} -eq 1 ]] && bracket="${CHECK_COLOR}[✓]${NC}"
 
       if [[ $i -eq $cursor ]]; then
-        frame+="  ${pointer}${bracket} ${TITLE_COLOR}${name}${NC}$(tput el)\n"
+        frame+="  ${pointer}$(printf "%-13s" "$layer_label")${bracket} ${TITLE_COLOR}${action}${NC}$(tput el)\n"
       else
-        frame+="    ${bracket} ${name}$(tput el)\n"
+        frame+="    $(printf "%-13s" "$layer_label")${bracket} ${action}$(tput el)\n"
       fi
     done
 
@@ -338,6 +354,13 @@ menu_select_actions() {
       MENU_SELECTED_INDICES+=("${_indices[$i]}")
     fi
   done
+
+  # _indices may be presented in display (Group/Layer) order, which can differ
+  # from the TOOLS array's exec-group order that execute_installers/uninstallers
+  # rely on for contiguous phase headers. Restore ascending TOOLS index order.
+  if [[ ${#MENU_SELECTED_INDICES[@]} -gt 1 ]]; then
+    readarray -t MENU_SELECTED_INDICES < <(printf '%s\n' "${MENU_SELECTED_INDICES[@]}" | sort -n)
+  fi
 }
 
 # --- Logic Functions ---
@@ -345,9 +368,9 @@ build_menu_lists() {
   MENU_INDICES=()
   INSTALLED_ITEMS=()
   for i in "${!TOOLS[@]}"; do
-    IFS='|' read -r name _ checker _ _ <<< "${TOOLS[$i]}"
+    IFS='|' read -r group layer action _ checker _ _ _ <<< "${TOOLS[$i]}"
     if [[ "$FORCE_REINSTALL" == "false" ]] && "$checker"; then
-      INSTALLED_ITEMS+=("$name")
+      INSTALLED_ITEMS+=("$group / $layer / $action")
     else
       MENU_INDICES+=("$i")
     fi
@@ -366,12 +389,42 @@ display_installed_tools() {
   fi
 }
 
+# Reorders MENU_INDICES into MENU_DISPLAY_INDICES grouped by display Group,
+# then Layer, so the menu can print each header once instead of interleaving
+# them in exec_group (install-phase) order. Groups/layers keep first-seen order.
+build_menu_display_order() {
+  MENU_DISPLAY_INDICES=()
+  local seen_groups=() idx group layer
+
+  for idx in "${MENU_INDICES[@]}"; do
+    IFS='|' read -r group _ _ _ _ _ _ _ <<< "${TOOLS[$idx]}"
+    [[ " ${seen_groups[*]} " == *" $group "* ]] || seen_groups+=("$group")
+  done
+
+  for group in "${seen_groups[@]}"; do
+    local seen_layers=()
+    for idx in "${MENU_INDICES[@]}"; do
+      IFS='|' read -r g layer _ _ _ _ _ _ <<< "${TOOLS[$idx]}"
+      [[ "$g" == "$group" ]] || continue
+      [[ " ${seen_layers[*]} " == *" $layer "* ]] || seen_layers+=("$layer")
+    done
+
+    for layer in "${seen_layers[@]}"; do
+      for idx in "${MENU_INDICES[@]}"; do
+        IFS='|' read -r g l _ _ _ _ _ _ <<< "${TOOLS[$idx]}"
+        [[ "$g" == "$group" && "$l" == "$layer" ]] && MENU_DISPLAY_INDICES+=("$idx")
+      done
+    done
+  done
+}
+
 run_menu() {
   if [ ${#MENU_INDICES[@]} -eq 0 ]; then
     log_success "All tools are already installed."
     exit 0
   fi
-  menu_select_actions MENU_INDICES
+  build_menu_display_order
+  menu_select_actions MENU_DISPLAY_INDICES
 }
 
 get_safe_key() {
@@ -615,13 +668,13 @@ execute_uninstallers() {
   LAST_GROUP_PRINTED=""
 
   for idx in "${MENU_SELECTED_INDICES[@]}"; do
-    IFS='|' read -r name _ checker installer uninstaller group <<< "${TOOLS[$idx]}"
+    IFS='|' read -r _ _ _ _ checker installer uninstaller exec_group <<< "${TOOLS[$idx]}"
 
-    if [[ "$group" != "$LAST_GROUP_PRINTED" ]]; then
+    if [[ "$exec_group" != "$LAST_GROUP_PRINTED" ]]; then
       local group_title
-      group_title=$(get_group_title "$group")
+      group_title=$(get_group_title "$exec_group")
       log_uninstalling "$group_title"
-      LAST_GROUP_PRINTED="$group"
+      LAST_GROUP_PRINTED="$exec_group"
     fi
 
     if declare -f "$uninstaller" > /dev/null; then
@@ -638,15 +691,15 @@ execute_installers() {
   LAST_GROUP_PRINTED=""
 
   for idx in "${MENU_SELECTED_INDICES[@]}"; do
-    IFS='|' read -r name _ checker installer uninstaller group <<< "${TOOLS[$idx]}"
+    IFS='|' read -r _ _ _ _ checker installer uninstaller exec_group <<< "${TOOLS[$idx]}"
 
-    if [[ "$group" != "$LAST_GROUP_PRINTED" ]]; then
+    if [[ "$exec_group" != "$LAST_GROUP_PRINTED" ]]; then
       # We use the helper function to find the friendly name in our unified array
       local group_title
-      group_title=$(get_group_title "$group")
+      group_title=$(get_group_title "$exec_group")
 
       log_installing "$group_title"
-      LAST_GROUP_PRINTED="$group"
+      LAST_GROUP_PRINTED="$exec_group"
     fi
 
     if declare -f "$installer" > /dev/null; then
@@ -1123,7 +1176,7 @@ uninstall__core__auth__list_of_secrets() {
   log_skip "Encrypted secrets vault"
 }
 
-register_action "Core / Auth / Manage GPG-encrypted authinfo secrets" "-core--auth--list-of-secrets" "secrets"
+register_action "Core" "Auth" "Manage GPG-encrypted authinfo secrets" "-core--auth--list-of-secrets" "secrets"
 
 is_installed__cloud__terraform__terraformls() {
   is_system_package_installed "terraformls"
@@ -1175,7 +1228,7 @@ uninstall__cloud__terraform__terraformls() {
   log_skip "Terraform Language Server" "Terraform Language Server is system package and will not be uninstalled automatically"
 }
 
-register_action "Cloud / Terraform / Install Terraform Language Server" "-cloud--terraform--terraformls" "cloud"
+register_action "Cloud" "Terraform" "Install Terraform Language Server" "-cloud--terraform--terraformls" "cloud"
 
 is_installed__editor__formatting__prettier() {
   [ -f "$TOOLS_DIR/node_modules/.bin/prettier" ] || command -v prettier >/dev/null 2>&1
@@ -1189,7 +1242,7 @@ uninstall__editor__formatting__prettier() {
   uninstall_nodejs_tools
 }
 
-register_action "Editor / Formatting / Install Prettier" "-editor--formatting--prettier" "node"
+register_action "Editor" "Formatting" "Install Prettier" "-editor--formatting--prettier" "node"
 
 is_installed__tools__autotools__language_server() {
   command -v autotools-language-server >/dev/null 2>&1
@@ -1203,7 +1256,7 @@ uninstall__tools__autotools__language_server() {
   run_task "Uninstalling Autotools LS" "pipx uninstall autotools-language-server 2>/dev/null || true"
 }
 
-register_action "Tools / Autotools / Install Autotools Language Server" "-tools--autotools--language-server" "standalone"
+register_action "Tools" "Autotools" "Install Autotools Language Server" "-tools--autotools--language-server" "standalone"
 
 CPP_MIN_DEV_PACKAGES=(
   "gcc-c++" "gdb" "cmake" "make" "clang-tools-extra" "bear"
@@ -1319,7 +1372,7 @@ uninstall__lang__cpp__cpp_dev_bundle() {
   log_skip "C++ dev bundle" "The packages used for C++ development are system packages and will not be uninstalled automatically"
 }
 
-register_action "Lang / CPP / Install C++ dev tools" "-lang--cpp--cpp-dev-bundle" "cpp"
+register_action "Lang" "CPP" "Install C++ dev tools" "-lang--cpp--cpp-dev-bundle" "cpp"
 
 # Update PlantUML version as needed:
 PLANTUML_VERSION="1.2026.6"
@@ -1344,7 +1397,7 @@ uninstall__lang__diagrams__plantuml() {
   run_task "Removing PlantUML" "rm -Rf $PLANTUML_DIR"
 }
 
-register_action "Lang / Diagrams / Install PlantUML" "-lang--diagrams--plantuml" "standalone"
+register_action "Lang" "Diagrams" "Install PlantUML" "-lang--diagrams--plantuml" "standalone"
 
 JDTLS_VERSION="1.60.0"
 JDTLS_DATE="202606262232"
@@ -1406,7 +1459,7 @@ uninstall__lang__java__google_java_format() {
   fi
 }
 
-register_action "Lang / Java / Install Google Java Format" "-lang--java--google-java-format" "jvm"
+register_action "Lang" "Java" "Install Google Java Format" "-lang--java--google-java-format" "jvm"
 
 is_installed__lang__java__java() {
   return 1
@@ -1434,7 +1487,7 @@ uninstall__lang__java__java() {
   log_skip "Java SDKs (SDKMAN!)."
 }
 
-register_action "Lang / Java / Install Java" "-lang--java--java" "jvm"
+register_action "Lang" "Java" "Install Java" "-lang--java--java" "jvm"
 
 is_installed__lang__javascript__vtsls_language_server() {
   [ -f "$TOOLS_DIR/node_modules/.bin/vtsls" ] || command -v vtsls >/dev/null 2>&1
@@ -1448,7 +1501,7 @@ uninstall__lang__javascript__vtsls_language_server() {
   uninstall_nodejs_tools
 }
 
-register_action "Lang / JavaScript / Install vtsls Language Server" "-lang--javascript--vtsls-language-server" "node"
+register_action "Lang" "JavaScript" "Install vtsls Language Server" "-lang--javascript--vtsls-language-server" "node"
 
 IS_SDKMAN_INITIALIZED=false
 
@@ -1529,7 +1582,7 @@ uninstall__lang__kotlin__kotlin() {
   log_skip "Kotlin SDKs (SDKMAN!)"
 }
 
-register_action "Lang / Kotlin / Install Kotlin" "-lang--kotlin--kotlin" "jvm"
+register_action "Lang" "Kotlin" "Install Kotlin" "-lang--kotlin--kotlin" "jvm"
 
 LSP_BASH_LANGUAGE_SERVER_PATH="$HOME/.emacs.d/.cache/lsp/npm/bash-language-server"
 
@@ -1549,7 +1602,7 @@ uninstall__lang__shell__bash_language_server() {
   run_task "Cleaning Bash LS cache" "rm -Rf $LSP_BASH_LANGUAGE_SERVER_PATH"
 }
 
-register_action "Lang / Shell / Install Bash Language Server" "-lang--shell--bash-language-server" "node"
+register_action "Lang" "Shell" "Install Bash Language Server" "-lang--shell--bash-language-server" "node"
 
 is_installed__lang__shell__shellcheck() {
   command -v shellcheck >/dev/null 2>&1
@@ -1570,7 +1623,7 @@ uninstall__lang__shell__shellcheck() {
   log_skip "ShellCheck" "ShellCheck is a system package and will not be uninstalled automatically"
 }
 
-register_action "Lang / Shell / Install ShellCheck" "-lang--shell--shellcheck" "standalone"
+register_action "Lang" "Shell" "Install ShellCheck" "-lang--shell--shellcheck" "standalone"
 
 is_installed__lang__web__tailwindcss_language_server() {
   [ -f "$TOOLS_DIR/node_modules/.bin/tailwindcss-language-server" ]
@@ -1584,165 +1637,7 @@ uninstall__lang__web__tailwindcss_language_server() {
   uninstall_nodejs_tools
 }
 
-register_action "Lang / Web / Install Tailwind CSS Language Server" "-lang--web--tailwindcss-language-server" "node"
-
-DIRVISH_UTILITIES=(
-  "fd" "git"
-  "mediainfo" "imagemagick" "ffmpegthumbnailer" "vipsthumbnail"
-  "poppler" "unzip" "glow" "pandoc"
-)
-
-is_installed__navigation__dired__dirvish_utilities_bundle() {
-  are_these_system_packages_installed "${DIRVISH_UTILITIES[@]}"
-}
-
-# --- Core Performance & Navigation ---
-register_system_package "fd" \
-                        "alpine:fd" \
-                        "fedora:fd-find" \
-                        "linuxbrew:fd" \
-                        "mac:fd" \
-                        "debian-ubuntu:fd-find"
-
-register_system_package "git" \
-                        "alpine:git" \
-                        "fedora:git" \
-                        "linuxbrew:git" \
-                        "mac:git" \
-                        "debian-ubuntu:git"
-
-# --- Media Metadata & Previews ---
-register_system_package "mediainfo" \
-                        "alpine:mediainfo" \
-                        "fedora:mediainfo" \
-                        "linuxbrew:mediainfo" \
-                        "mac:mediainfo" \
-                        "debian-ubuntu:mediainfo"
-
-register_system_package "imagemagick" \
-                        "alpine:imagemagick" \
-                        "fedora:ImageMagick" \
-                        "linuxbrew:imagemagick" \
-                        "mac:imagemagick" \
-                        "debian-ubuntu:imagemagick"
-
-register_system_package "ffmpegthumbnailer" \
-                        "alpine:ffmpegthumbnailer" \
-                        "fedora:ffmpegthumbnailer" \
-                        "linuxbrew:ffmpegthumbnailer" \
-                        "mac:ffmpegthumbnailer" \
-                        "debian-ubuntu:ffmpegthumbnailer"
-
-register_system_package "vipsthumbnail" \
-                        "alpine:vips-tools" \
-                        "fedora:vips-tools" \
-                        "linuxbrew:vips" \
-                        "mac:vips" \
-                        "debian-ubuntu:libvips-tools"
-
-# --- Document & Archive Parsing ---
-register_system_package "poppler" \
-                        "alpine:poppler-utils" \
-                        "fedora:poppler" \
-                        "linuxbrew:poppler" \
-                        "mac:poppler" \
-                        "debian-ubuntu:poppler-utils"
-
-register_system_package "unzip" \
-                        "alpine:unzip" \
-                        "fedora:unzip" \
-                        "linuxbrew:unzip" \
-                        "mac:unzip" \
-                        "debian-ubuntu:unzip"
-
-register_system_package "glow" \
-                        "alpine:glow" \
-                        "fedora:glow" \
-                        "linuxbrew:glow" \
-                        "mac:glow" \
-                        "debian-ubuntu:glow"
-
-register_system_package "pandoc" \
-                        "alpine:pandoc" \
-                        "fedora:pandoc" \
-                        "linuxbrew:pandoc" \
-                        "mac:pandoc" \
-                        "debian-ubuntu:pandoc"
-
-install__navigation__dired__dirvish_utilities_bundle() {
-  log_info "Starting Dirvish utilities setup..."
-
-  if [ -f /etc/debian_version ]; then
-    sudo mkdir -p /etc/apt/keyrings
-    if [ ! -f /etc/apt/keyrings/charm.gpg ]; then
-      curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
-    fi
-    echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
-  fi
-
-  install_system_packages "${DIRVISH_UTILITIES[@]}"
-}
-
-uninstall__navigation__dired__dirvish_utilities_bundle() {
-  log_skip "Dirvish utilities" "The packages used with Dirvish are system packages and will not be uninstalled automatically"
-}
-
-register_action "Navigation / Dired / Install Dirvish utilities" "-navigation--dired--dirvish_utilities_bundle" "utils"
-
-# Copilot installation requirements
-is_installed__tools__ai__copilot() {
-  [ -f "$TOOLS_DIR/node_modules/.bin/copilot-language-server" ] || command -v copilot-language-server >/dev/null 2>&1
-}
-
-install__tools__ai__copilot() {
-  install_nodejs_tools
-}
-
-uninstall__tools__ai__copilot() {
-  uninstall_nodejs_tools
-}
-
-register_action "Tools / AI / Install GitHub Copilot" "-tools--ai--copilot" "node"
-
-# RTK installation requirements
-register_system_package "jq" \
-                        "alpine:jq" \
-                        "fedora:jq" \
-                        "linuxbrew:jq" \
-                        "mac:jq" \
-                        "debian-ubuntu:jq"
-
-is_installed__tools__ai__jq() {
-  command -v jq >/dev/null 2>&1
-}
-
-is_installed__tools__ai__rtk() {
-  command -v rtk >/dev/null 2>&1
-}
-
-install__tools__ai__rtk() {
-  if ! is_installed__tools__ai__jq; then
-    install_system_packages "jq"
-  else
-    log_skip "jq is already installed."
-  fi
-  if ! is_installed__tools__ai__rtk; then
-    if curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh; then
-      return 0
-    else
-      log_error "RTK installation failed."
-      return 1
-    fi
-  else
-    log_skip "RTK is already installed."
-  fi
-}
-
-uninstall__tools__ai__rtk() {
-  log_skip "RTK" "RTK might be in use by another tool in the system. If required, please uninstall it manually."
-}
-
-register_action "Tools / AI / Install Rust Token Killer (rtk)" "-tools--ai--rtk" "standalone"
+register_action "Lang" "Web" "Install Tailwind CSS Language Server" "-lang--web--tailwindcss-language-server" "node"
 
 DIRVISH_UTILITIES=(
   "fd" "git"
@@ -1850,7 +1745,62 @@ uninstall__tools__dired__dirvish_utilities_bundle() {
   log_skip "Dirvish utilities" "The packages used with Dirvish are system packages and will not be uninstalled automatically"
 }
 
-register_action "Tools / Dired / Install Dirvish utilities" "-tools--dired--dirvish_utilities_bundle" "utils"
+register_action "Tools" "Dired" "Install Dirvish utilities" "-tools--dired--dirvish_utilities_bundle" "utils"
+
+# Copilot installation requirements
+is_installed__tools__ai__copilot() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/copilot-language-server" ] || command -v copilot-language-server >/dev/null 2>&1
+}
+
+install__tools__ai__copilot() {
+  install_nodejs_tools
+}
+
+uninstall__tools__ai__copilot() {
+  uninstall_nodejs_tools
+}
+
+register_action "Tools" "AI" "Install GitHub Copilot" "-tools--ai--copilot" "node"
+
+# RTK installation requirements
+register_system_package "jq" \
+                        "alpine:jq" \
+                        "fedora:jq" \
+                        "linuxbrew:jq" \
+                        "mac:jq" \
+                        "debian-ubuntu:jq"
+
+is_installed__tools__ai__jq() {
+  command -v jq >/dev/null 2>&1
+}
+
+is_installed__tools__ai__rtk() {
+  command -v rtk >/dev/null 2>&1
+}
+
+install__tools__ai__rtk() {
+  if ! is_installed__tools__ai__jq; then
+    install_system_packages "jq"
+  else
+    log_skip "jq is already installed."
+  fi
+  if ! is_installed__tools__ai__rtk; then
+    if curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh; then
+      return 0
+    else
+      log_error "RTK installation failed."
+      return 1
+    fi
+  else
+    log_skip "RTK is already installed."
+  fi
+}
+
+uninstall__tools__ai__rtk() {
+  log_skip "RTK" "RTK might be in use by another tool in the system. If required, please uninstall it manually."
+}
+
+register_action "Tools" "AI" "Install Rust Token Killer (rtk)" "-tools--ai--rtk" "standalone"
 
 is_installed__tools__docker__devcontainer_cli() {
   command -v devcontainer >/dev/null 2>&1
@@ -1866,7 +1816,7 @@ uninstall__tools__docker__devcontainer_cli() {
     "cd $HOME/.emacs.d/nodejs_tools && npm uninstall @devcontainers/cli 2>/dev/null || true"
 }
 
-register_action "Tools / Docker / Install Devcontainers CLI" "-tools--docker--devcontainer_cli" "standalone"
+register_action "Tools" "Docker" "Install Devcontainers CLI" "-tools--docker--devcontainer_cli" "standalone"
 
 is_installed__tools__rg__ripgrep() {
   is_system_package_installed "ripgrep"
@@ -1888,7 +1838,7 @@ uninstall__tools__rg__ripgrep() {
   log_skip "Ripgrep" "Ripgrep is system package and will not be uninstalled automatically"
 }
 
-register_action "Tools / RG / Install Ripgrep" "-tools--rg--ripgrep" "utils"
+register_action "Tools" "RG" "Install Ripgrep" "-tools--rg--ripgrep" "utils"
 
 is_installed__tools__semgrep__semgrep() {
   command -v semgrep >/dev/null 2>&1
@@ -1902,7 +1852,7 @@ uninstall__tools__semgrep__semgrep() {
   run_task "Uninstalling Semgrep" "pipx uninstall semgrep 2>/dev/null || true"
 }
 
-register_action "Tools / Semgrep / Install Semgrep" "-tools--semgrep--semgrep" "standalone"
+register_action "Tools" "Semgrep" "Install Semgrep" "-tools--semgrep--semgrep" "standalone"
 
 VTERM_BUILD_PACKAGES=(
   "libvterm" "cmake" "build-essential"
@@ -1942,7 +1892,7 @@ uninstall__tools__vterm__vterm_build_bundle() {
   log_skip "vterm build bundle" "The packages used for vterm builds are system packages and will not be uninstalled automatically"
 }
 
-register_action "Tools / VTerm / Install vterm build bundle" "-tools--vterm--vterm_build_bundle" "utils"
+register_action "Tools" "VTerm" "Install vterm build bundle" "-tools--vterm--vterm_build_bundle" "utils"
 
 # --- Runtime Logic ---
 sort_tools_by_group

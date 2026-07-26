@@ -64,7 +64,7 @@ uninstall__lang__shell__bash_language_server() {
   run_task "Cleaning Bash LS cache" "rm -Rf $LSP_BASH_LANGUAGE_SERVER_PATH"
 }
 
-register_action "Lang / Shell / Install Bash Language Server" "-lang--shell--bash-language-server" "node"
+register_action "Lang" "Shell" "Install Bash Language Server" "-lang--shell--bash-language-server" "node"
 #+end_src
 
 ** ShellCheck
@@ -88,5 +88,5 @@ uninstall__lang__shell__shellcheck() {
   log_skip "ShellCheck" "ShellCheck is a system package and will not be uninstalled automatically"
 }
 
-register_action "Lang / Shell / Install ShellCheck" "-lang--shell--shellcheck" "standalone"
+register_action "Lang" "Shell" "Install ShellCheck" "-lang--shell--shellcheck" "standalone"
 #+end_src

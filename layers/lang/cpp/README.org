@@ -287,5 +287,5 @@ uninstall__lang__cpp__cpp_dev_bundle() {
   log_skip "C++ dev bundle" "The packages used for C++ development are system packages and will not be uninstalled automatically"
 }
 
-register_action "Lang / CPP / Install C++ dev tools" "-lang--cpp--cpp-dev-bundle" "cpp"
+register_action "Lang" "CPP" "Install C++ dev tools" "-lang--cpp--cpp-dev-bundle" "cpp"
 #+end_src

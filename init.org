@@ -337,6 +337,8 @@ REPO-NAME is an optional repository directory name if it differs from PACKAGE."
 To facilitate setting up the external tools needed by our Emacs environment, we
 provide a setup script that should be executed before starting Emacs.
 
+#+HTML: <p align="center"><img src="images/setup-preview.png" width="550" /></p>
+
 Ideally, all tools in the script should be installed or configured for you to
 have a proper environment in place, but the script allows you to select the
 tools you want to install.
@@ -369,6 +371,7 @@ log_skip()    {
 # --- Global Registry ---
 TOOLS=()
 MENU_INDICES=()
+MENU_DISPLAY_INDICES=()
 MENU_SELECTED_INDICES=()
 INSTALLED_ITEMS=()
 
@@ -480,13 +483,15 @@ fi
 
 # --- Registration Function ---
 register_action() {
-  local name="$1"
-  local id="$2"
-  local group="${3:-standalone}" # Default to standalone if not provided
+  local group="$1"
+  local layer="$2"
+  local action="$3"
+  local id="$4"
+  local exec_group="${5:-standalone}" # Default to standalone if not provided
   local func_id="${id//-/_}"
 
-  # Format: name | flag | checker | installer | uninstaller | group
-  TOOLS+=("$name|--install-$id|is_installed_$func_id|install_$func_id|uninstall_$func_id|$group")
+  # Format: group | layer | action | flag | checker | installer | uninstaller | exec_group
+  TOOLS+=("$group|$layer|$action|--install-$id|is_installed_$func_id|install_$func_id|uninstall_$func_id|$exec_group")
 }
 
 # --- UI Helpers ---
@@ -523,7 +528,7 @@ sort_tools_by_group() {
     IFS='|' read -r g_key _ <<< "$entry"
 
     for tool in "${TOOLS[@]}"; do
-      IFS='|' read -r _ _ _ _ _ t_group <<< "$tool"
+      IFS='|' read -r _ _ _ _ _ _ _ t_group <<< "$tool"
 
       if [[ "$t_group" == "$g_key" ]]; then
         sorted+=("$tool")
@@ -533,7 +538,7 @@ sort_tools_by_group() {
 
   # Catch-all for tools registered with a group not in INSTALLER_GROUPS
   for tool in "${TOOLS[@]}"; do
-    IFS='|' read -r _ _ _ _ _ t_group <<< "$tool"
+    IFS='|' read -r _ _ _ _ _ _ _ t_group <<< "$tool"
     local found=false
     for entry in "${INSTALLER_GROUPS[@]}"; do
       [[ "${entry%%|*}" == "$t_group" ]] && found=true && break
@@ -598,18 +603,31 @@ menu_select_actions() {
     local frame=""
     print_titled_header "Select the actions to perform"
 
+    local last_group="" last_layer=""
     for i in "${!_indices[@]}"; do
       local idx=${_indices[$i]}
-      IFS='|' read -r name _ _ _ _ <<< "${TOOLS[$idx]}"
+      IFS='|' read -r group layer action _ _ _ _ _ <<< "${TOOLS[$idx]}"
+
+      if [[ "$group" != "$last_group" ]]; then
+        [[ -n "$last_group" ]] && frame+="$(tput el)\n"
+        frame+="  ${TITLE_COLOR}[$group]${NC}$(tput el)\n"
+        last_group="$group"
+        last_layer=""
+      fi
+
+      local layer_label="            "
+      [[ "$layer" != "$last_layer" ]] && layer_label=$(printf "(%s)" "$layer")
+      last_layer="$layer"
+
       local pointer="  "
       local bracket="[ ]"
       [[ $i -eq $cursor ]] && pointer="${TITLE_COLOR}> ${NC}"
       [[ ${selected[$i]} -eq 1 ]] && bracket="${CHECK_COLOR}[✓]${NC}"
 
       if [[ $i -eq $cursor ]]; then
-        frame+="  ${pointer}${bracket} ${TITLE_COLOR}${name}${NC}$(tput el)\n"
+        frame+="  ${pointer}$(printf "%-13s" "$layer_label")${bracket} ${TITLE_COLOR}${action}${NC}$(tput el)\n"
       else
-        frame+="    ${bracket} ${name}$(tput el)\n"
+        frame+="    $(printf "%-13s" "$layer_label")${bracket} ${action}$(tput el)\n"
       fi
     done
 
@@ -684,6 +702,13 @@ menu_select_actions() {
       MENU_SELECTED_INDICES+=("${_indices[$i]}")
     fi
   done
+
+  # _indices may be presented in display (Group/Layer) order, which can differ
+  # from the TOOLS array's exec-group order that execute_installers/uninstallers
+  # rely on for contiguous phase headers. Restore ascending TOOLS index order.
+  if [[ ${#MENU_SELECTED_INDICES[@]} -gt 1 ]]; then
+    readarray -t MENU_SELECTED_INDICES < <(printf '%s\n' "${MENU_SELECTED_INDICES[@]}" | sort -n)
+  fi
 }
 
 # --- Logic Functions ---
@@ -691,9 +716,9 @@ build_menu_lists() {
   MENU_INDICES=()
   INSTALLED_ITEMS=()
   for i in "${!TOOLS[@]}"; do
-    IFS='|' read -r name _ checker _ _ <<< "${TOOLS[$i]}"
+    IFS='|' read -r group layer action _ checker _ _ _ <<< "${TOOLS[$i]}"
     if [[ "$FORCE_REINSTALL" == "false" ]] && "$checker"; then
-      INSTALLED_ITEMS+=("$name")
+      INSTALLED_ITEMS+=("$group / $layer / $action")
     else
       MENU_INDICES+=("$i")
     fi
@@ -712,12 +737,42 @@ display_installed_tools() {
   fi
 }
 
+# Reorders MENU_INDICES into MENU_DISPLAY_INDICES grouped by display Group,
+# then Layer, so the menu can print each header once instead of interleaving
+# them in exec_group (install-phase) order. Groups/layers keep first-seen order.
+build_menu_display_order() {
+  MENU_DISPLAY_INDICES=()
+  local seen_groups=() idx group layer
+
+  for idx in "${MENU_INDICES[@]}"; do
+    IFS='|' read -r group _ _ _ _ _ _ _ <<< "${TOOLS[$idx]}"
+    [[ " ${seen_groups[*]} " == *" $group "* ]] || seen_groups+=("$group")
+  done
+
+  for group in "${seen_groups[@]}"; do
+    local seen_layers=()
+    for idx in "${MENU_INDICES[@]}"; do
+      IFS='|' read -r g layer _ _ _ _ _ _ <<< "${TOOLS[$idx]}"
+      [[ "$g" == "$group" ]] || continue
+      [[ " ${seen_layers[*]} " == *" $layer "* ]] || seen_layers+=("$layer")
+    done
+
+    for layer in "${seen_layers[@]}"; do
+      for idx in "${MENU_INDICES[@]}"; do
+        IFS='|' read -r g l _ _ _ _ _ _ <<< "${TOOLS[$idx]}"
+        [[ "$g" == "$group" && "$l" == "$layer" ]] && MENU_DISPLAY_INDICES+=("$idx")
+      done
+    done
+  done
+}
+
 run_menu() {
   if [ ${#MENU_INDICES[@]} -eq 0 ]; then
     log_success "All tools are already installed."
     exit 0
   fi
-  menu_select_actions MENU_INDICES
+  build_menu_display_order
+  menu_select_actions MENU_DISPLAY_INDICES
 }
 
 get_safe_key() {
@@ -961,13 +1016,13 @@ execute_uninstallers() {
   LAST_GROUP_PRINTED=""
 
   for idx in "${MENU_SELECTED_INDICES[@]}"; do
-    IFS='|' read -r name _ checker installer uninstaller group <<< "${TOOLS[$idx]}"
+    IFS='|' read -r _ _ _ _ checker installer uninstaller exec_group <<< "${TOOLS[$idx]}"
 
-    if [[ "$group" != "$LAST_GROUP_PRINTED" ]]; then
+    if [[ "$exec_group" != "$LAST_GROUP_PRINTED" ]]; then
       local group_title
-      group_title=$(get_group_title "$group")
+      group_title=$(get_group_title "$exec_group")
       log_uninstalling "$group_title"
-      LAST_GROUP_PRINTED="$group"
+      LAST_GROUP_PRINTED="$exec_group"
     fi
 
     if declare -f "$uninstaller" > /dev/null; then
@@ -984,15 +1039,15 @@ execute_installers() {
   LAST_GROUP_PRINTED=""
 
   for idx in "${MENU_SELECTED_INDICES[@]}"; do
-    IFS='|' read -r name _ checker installer uninstaller group <<< "${TOOLS[$idx]}"
+    IFS='|' read -r _ _ _ _ checker installer uninstaller exec_group <<< "${TOOLS[$idx]}"
 
-    if [[ "$group" != "$LAST_GROUP_PRINTED" ]]; then
+    if [[ "$exec_group" != "$LAST_GROUP_PRINTED" ]]; then
       # We use the helper function to find the friendly name in our unified array
       local group_title
-      group_title=$(get_group_title "$group")
+      group_title=$(get_group_title "$exec_group")
 
       log_installing "$group_title"
-      LAST_GROUP_PRINTED="$group"
+      LAST_GROUP_PRINTED="$exec_group"
     fi
 
     if declare -f "$installer" > /dev/null; then

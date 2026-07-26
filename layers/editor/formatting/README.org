@@ -145,5 +145,5 @@ uninstall__editor__formatting__prettier() {
   uninstall_nodejs_tools
 }
 
-register_action "Editor / Formatting / Install Prettier" "-editor--formatting--prettier" "node"
+register_action "Editor" "Formatting" "Install Prettier" "-editor--formatting--prettier" "node"
 #+end_src

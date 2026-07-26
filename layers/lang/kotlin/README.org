@@ -100,5 +100,5 @@ uninstall__lang__kotlin__kotlin() {
   log_skip "Kotlin SDKs (SDKMAN!)"
 }
 
-register_action "Lang / Kotlin / Install Kotlin" "-lang--kotlin--kotlin" "jvm"
+register_action "Lang" "Kotlin" "Install Kotlin" "-lang--kotlin--kotlin" "jvm"
 #+end_src

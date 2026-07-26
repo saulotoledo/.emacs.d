@@ -97,5 +97,5 @@ uninstall__tools__rg__ripgrep() {
   log_skip "Ripgrep" "Ripgrep is system package and will not be uninstalled automatically"
 }
 
-register_action "Tools / RG / Install Ripgrep" "-tools--rg--ripgrep" "utils"
+register_action "Tools" "RG" "Install Ripgrep" "-tools--rg--ripgrep" "utils"
 #+end_src

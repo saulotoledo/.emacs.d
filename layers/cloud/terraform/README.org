@@ -78,5 +78,5 @@ uninstall__cloud__terraform__terraformls() {
   log_skip "Terraform Language Server" "Terraform Language Server is system package and will not be uninstalled automatically"
 }
 
-register_action "Cloud / Terraform / Install Terraform Language Server" "-cloud--terraform--terraformls" "cloud"
+register_action "Cloud" "Terraform" "Install Terraform Language Server" "-cloud--terraform--terraformls" "cloud"
 #+end_src

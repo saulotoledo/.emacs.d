@@ -86,5 +86,5 @@ uninstall__lang__web__tailwindcss_language_server() {
   uninstall_nodejs_tools
 }
 
-register_action "Lang / Web / Install Tailwind CSS Language Server" "-lang--web--tailwindcss-language-server" "node"
+register_action "Lang" "Web" "Install Tailwind CSS Language Server" "-lang--web--tailwindcss-language-server" "node"
 #+end_src

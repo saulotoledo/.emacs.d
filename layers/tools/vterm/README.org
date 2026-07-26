@@ -118,5 +118,5 @@ uninstall__tools__vterm__vterm_build_bundle() {
   log_skip "vterm build bundle" "The packages used for vterm builds are system packages and will not be uninstalled automatically"
 }
 
-register_action "Tools / VTerm / Install vterm build bundle" "-tools--vterm--vterm_build_bundle" "utils"
+register_action "Tools" "VTerm" "Install vterm build bundle" "-tools--vterm--vterm_build_bundle" "utils"
 #+end_src
