@@ -50,6 +50,10 @@ Prevents after-save recursion if a layer/manifest write retriggers the hook.")
   "Return the absolute path of init.org."
   (expand-file-name "init.org" (cfg-core/--emacs-dir)))
 
+(defun cfg-core/--setup-script-org ()
+  "Return the absolute path of setup-script.org."
+  (expand-file-name "setup-script.org" (cfg-core/--emacs-dir)))
+
 (defun cfg-core/--retangle-work-org ()
   "Return a work-buffer path used only during expand/tangle.
 Same directory as init.org (for relative #+INCLUDE resolution) but never
@@ -330,13 +334,15 @@ in a throwaway buffer that never visits init.org."
 
 (defun cfg-core/--retangle-source-p (file)
   "Return non-nil if FILE feeds the init.org tangle.
-Matches init.org, layer README.org files (not layers/README.org), and
-category PRIORITY files."
+Matches init.org, setup-script.org, layer README.org files (not
+layers/README.org), and category PRIORITY files."
   (let* ((init-org (cfg-core/--init-org))
+         (setup-script-org (cfg-core/--setup-script-org))
          (layers-dir (cfg-core/--layers-dir))
          (manifest (cfg-core/--layers-manifest))
          (name (file-name-nondirectory file)))
     (or (file-equal-p file init-org)
+        (file-equal-p file setup-script-org)
         (and (file-in-directory-p file layers-dir)
              (not (file-equal-p file manifest))
              (or (string= name "PRIORITY")

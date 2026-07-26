@@ -1,5 +1,5 @@
 #!/bin/bash
-
+#
 # --- Styling ---
 TITLE_COLOR='\033[1;34m'
 CHECK_COLOR='\033[1;32m'
