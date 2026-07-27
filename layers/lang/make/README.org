@@ -35,7 +35,7 @@ If DEBUG-P is non-nil (e.g., via `\\[universal-argument]'), validate that
 the Makefile contains the `DEBUG' variable, as well as `clean' and `build'
 targets before attempting a debug build. If any are missing, alert the user
 and fall back to a manual prompt. Standard builds (non-debug) proceed with
-`make -k' if a Makefile exists."
+`make -k compile' if the `compile' target exists, otherwise `make -k'."
   (interactive "P")
   (let* ((m-file-dir (locate-dominating-file default-directory "Makefile"))
          (m-file (when m-file-dir (expand-file-name "Makefile" m-file-dir)))
@@ -60,8 +60,16 @@ and fall back to a manual prompt. Standard builds (non-debug) proceed with
           (call-interactively 'compile))))
      ;; Standard build (No prefix arg) with a Makefile:
      ((and (not debug-p) has-makefile)
-      (let ((default-directory m-file-dir))
-        (compile "make -k")))
+      (let* ((has-compile-target
+              (with-temp-buffer
+                (insert-file-contents m-file)
+                (re-search-forward "^compile[ \t]*:" nil t)))
+             (make-cmd (if has-compile-target
+                           "make -k compile"
+                         "make -k"))
+             (default-directory m-file-dir))
+        (compile make-cmd)))
+
      ;; Fallback (No Makefile found or other cases):
      (t (call-interactively 'compile)))))
 
