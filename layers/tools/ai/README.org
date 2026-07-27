@@ -884,6 +884,11 @@ Defers activation to ensure Copilot server is ready."
                   (when (featurep 'copilot)
                     (message "Copilot activation failed: %S" err)))))))))))
 
+  (defun cfg-tools/copilot-chat-yank-pop-previous ()
+    "Pop the previous yanked code block from `copilot-chat` history."
+    (interactive)
+    (copilot-chat-yank-pop -1))
+
   :hook ((prog-mode . cfg-tools/safe-copilot-mode)
          (text-mode . cfg-tools/safe-copilot-mode)
          (markdown-mode . cfg-tools/safe-copilot-mode)
@@ -980,8 +985,8 @@ Registers keybindings for AI tools, ECA chat sessions, Copilot, and Copilot Chat
   "a P i" '(copilot-chat-ask-and-insert :which-key "Ask & Insert")
   "a P m" '(copilot-chat-transient :which-key "Transient Menu")
   "a P y" '(copilot-chat-yank :which-key "Yank Code Block")
-  "a P M-y" #'copilot-chat-yank-pop
-  "a P C-y" (lambda () (interactive) (copilot-chat-yank-pop -1)))
+  "a P M-y" '(copilot-chat-yank-pop :which-key "Yank Pop Next")
+  "a P C-y" '(cfg-tools/copilot-chat-yank-pop-previous :which-key "Yank Pop Prev"))
 #+end_src
 
 * System Setup
