@@ -203,7 +203,7 @@ a 4-space or 8-space offset relative to the statement start."
   (add-hook 'java-ts-mode-hook
             (lambda ()
               (setq-local cfg-lang/dap-check-requirements #'cfg-lang/dap-java--check-requirements)
-              (setq-local cfg-lang/dap-start-debug #'cfg-lang/dap-java--start-debug)
+              (setq-local cfg-lsp/dap-start-debug #'cfg-lang/dap-java--start-debug)
               (setq-local cfg-lang/dap-force-stop #'cfg-lang/dap-java--force-stop)))
 
   :hook

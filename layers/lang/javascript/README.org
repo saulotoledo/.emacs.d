@@ -296,7 +296,7 @@ pwa-node launch for the current file otherwise."
 
 (defun cfg-lang/js-ts-dap-setup ()
   "Set local DAP launcher for JavaScript and TypeScript modes."
-  (setq-local cfg-lang/dap-start-debug #'cfg-lang/dap-js--start-debug))
+  (setq-local cfg-lsp/dap-start-debug #'cfg-lang/dap-js--start-debug))
 
 (add-hook 'typescript-ts-mode-hook #'cfg-lang/js-ts-dap-setup)
 (add-hook 'js-ts-mode-hook #'cfg-lang/js-ts-dap-setup)

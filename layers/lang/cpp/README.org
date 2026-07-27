@@ -163,7 +163,7 @@ Otherwise, use our custom configuration string."
             (require 'dap-gdb-lldb)
             (declare-function dap-gdb-lldb-setup "dap-gdb-lldb")
             (dap-gdb-lldb-setup)
-            (setq-local cfg-lang/dap-start-debug #'cfg-lang/dap-cpp-launch)))
+            (setq-local cfg-lsp/dap-start-debug #'cfg-lang/dap-cpp-launch)))
 #+end_src
 
 * Keybindings
