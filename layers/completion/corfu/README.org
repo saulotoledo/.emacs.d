@@ -134,7 +134,7 @@ or blocking behavior.
 (cfg-keys/leader-def
   "c"   '(:ignore t :which-key "+code")
   "c c" '(cfg-completion/corfu-reset-completion-cache :which-key "Reset Completion Cache")
-  "c a" '(completion-at-point :which-key "Complete at Point"))
+  "c p" '(completion-at-point :which-key "Complete at Point"))
 #+end_src
 
 * System Setup

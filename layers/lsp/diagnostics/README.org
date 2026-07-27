@@ -134,11 +134,11 @@ of tree-sitter (external package).
 (define-key cfg-keys-map (kbd "C-c ! l") #'flycheck-list-errors)
 
 (cfg-keys/leader-def
-  "e"   '(:ignore t :which-key "+errors/diagnostics")
-  "e n" '(flycheck-next-error :which-key "Next Error")
-  "e p" '(flycheck-previous-error :which-key "Previous Error")
-  "e l" '(flycheck-list-errors :which-key "List Errors")
-  "e c" '(flycheck-buffer :which-key "Check Buffer"))
+  "E"   '(:ignore t :which-key "+errors/diagnostics")
+  "E n" '(flycheck-next-error :which-key "Next Error")
+  "E p" '(flycheck-previous-error :which-key "Previous Error")
+  "E l" '(flycheck-list-errors :which-key "List Errors")
+  "E c" '(flycheck-buffer :which-key "Check Buffer"))
 #+end_src
 
 * System Setup

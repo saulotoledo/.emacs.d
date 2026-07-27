@@ -1,4 +1,4 @@
-#+TITLE: Yaml Layer
+#+TITLE: JSON Layer
 #+CATEGORY: lang
 #+PROPERTY: header-args:emacs-lisp :tangle yes
 
@@ -14,34 +14,7 @@ Configure JSON support.
 #+end_src
 
 * Keybindings
-Registers keybindings for YAML structural navigation and features.
-
-#+begin_src emacs-lisp
-;; Mode-specific bindings inside yaml-pro buffers
-(with-eval-after-load 'yaml-pro
-  (define-key yaml-pro-mode-map (kbd "C-c v k") #'yaml-pro-move-up)
-  (define-key yaml-pro-mode-map (kbd "C-c v j") #'yaml-pro-move-down)
-  (define-key yaml-pro-mode-map (kbd "C-c v h") #'yaml-pro-up-level)
-  (define-key yaml-pro-mode-map (kbd "C-c v l") #'yaml-pro-down-level)
-  (define-key yaml-pro-mode-map (kbd "C-c v c") #'yaml-pro-convolute-tree)
-  (define-key yaml-pro-mode-map (kbd "C-c v a") #'cfg-lang/yaml-pro-toggle-anchors)
-  (define-key yaml-pro-mode-map (kbd "C-c v t") #'cfg-lang/yaml-pro-toggle-tags))
-
-;; Static Leader Keybindings under +code/language -> +yaml
-(cfg-keys/leader-def
-  "l"     '(:ignore t :which-key "+code/lang")
-  "l y"   '(:ignore t :which-key "+yaml")
-  ;; Structural Movement
-  "l y k" #'yaml-pro-move-up
-  "l y j" #'yaml-pro-move-down
-  "l y h" #'yaml-pro-up-level
-  "l y l" #'yaml-pro-down-level
-  ;; Folding & Magic:
-  "l y c" #'yaml-pro-convolute-tree
-  ;; Toggles:
-  "l y a" #'cfg-lang/yaml-pro-toggle-anchors
-  "l y t" #'cfg-lang/yaml-pro-toggle-tags)
-#+end_src
+No keybindings required.
 
 * System Setup
 No system setup required.

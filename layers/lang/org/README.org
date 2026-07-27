@@ -136,9 +136,9 @@ Registers keybindings for table of contents and structure editing in
 Org buffers.
 
 #+begin_src emacs-lisp
-;; Leader keybindings under +code/lang -> +org
+;; Leader keybindings under +lang/code -> +org
 (cfg-keys/leader-def
-  "l"     '(:ignore t :which-key "+code/lang")
+  "l"     '(:ignore t :which-key "+lang/code")
   "l o"   '(:ignore t :which-key "+org")
   "l o t" #'toc-org-insert-toc)
 #+end_src

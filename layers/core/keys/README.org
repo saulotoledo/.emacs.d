@@ -31,9 +31,72 @@ act as the primary leader key prefix via ~cfg-keys-leader-map~.
 
 ** Leader Definition Macro
 The ~cfg-keys/leader-def~ macro simplifies registering pairs of key sequences
-and interactive functions directly under the leader keymap.
+and interactive functions directly under the leader keymap. Each binding case
+delegates to its own small helper function, so keymap-conflict detection
+lives in one place per case instead of inline in the macro expansion.
+
+Conflicts are detected dynamically:
+1. Exact same prefix label re-declaration: skipped silently.
+2. Conflicting prefix label re-declaration: logged to ~*Messages*~, keymap kept.
+3. Overwriting a non-prefix shortcut: logged to ~*Messages*~, new binding skipped.
 
 #+begin_src emacs-lisp
+(defun cfg-keys--log-conflict (key existing target)
+  "Log to `*Messages*' that KEY is already bound to EXISTING, skipping TARGET."
+  (message "[cfg-keys] Conflict detected! Key sequence \"%s\" already bound to `%s`. Skipping registration of `%s`."
+           key existing target))
+
+(defun cfg-keys--raw-binding (map key)
+  "Return the raw (EVENT LABEL? . DEF) alist cell for KEY's final event in MAP.
+`lookup-key' strips the LABEL string off a `(LABEL . KEYMAP)' prefix binding
+before returning it, so label comparisons must read the keymap alist
+directly instead."
+  (let* ((keyseq (kbd key))
+         (n (length keyseq)))
+    (when (> n 0)
+      (let* ((last-event (aref keyseq (1- n)))
+             (parent (if (> n 1) (lookup-key map (substring keyseq 0 (1- n))) map)))
+        (and (keymapp parent) (assq last-event (cdr parent)))))))
+
+(defun cfg-keys--bind-prefix-label (key label)
+  "Bind KEY as a prefix keymap labeled LABEL under `cfg-keys-leader-map'.
+Reuses an existing keymap at KEY when present. Logs to `*Messages*' when
+LABEL differs from a prefix label already installed at KEY."
+  (let* ((keyseq (kbd key))
+         (raw-entry (cfg-keys--raw-binding cfg-keys-leader-map key))
+         (existing-label (and raw-entry (stringp (cadr raw-entry)) (cadr raw-entry)))
+         (existing-target (cond (existing-label (cddr raw-entry))
+                                 (raw-entry (cdr raw-entry))
+                                 (t nil)))
+         (km (if (keymapp existing-target) existing-target (make-sparse-keymap))))
+    (cond
+     ((and (keymapp existing-target) (equal existing-label label))
+      nil)
+     ((and (keymapp existing-target) existing-label (not (equal existing-label label)))
+      (message "[cfg-keys] Prefix label conflict for key \"%s\": changing \"%s\" -> \"%s\""
+                key existing-label label)
+      (define-key cfg-keys-leader-map keyseq (cons label km)))
+     (t
+      (define-key cfg-keys-leader-map keyseq (cons label km))))))
+
+(defun cfg-keys--bind-labeled-command (key label cmd)
+  "Bind CMD to KEY under `cfg-keys-leader-map' with which-key LABEL.
+Skips the binding when KEY already carries a conflicting non-prefix binding."
+  (let* ((keyseq (kbd key))
+         (existing (lookup-key cfg-keys-leader-map keyseq)))
+    (if (and existing (not (numberp existing)))
+        (cfg-keys--log-conflict key existing cmd)
+      (define-key cfg-keys-leader-map keyseq (cons label cmd)))))
+
+(defun cfg-keys--bind-plain (key def)
+  "Bind DEF to KEY under `cfg-keys-leader-map'.
+Skips the binding when KEY already carries a conflicting non-prefix binding."
+  (let* ((keyseq (kbd key))
+         (existing (lookup-key cfg-keys-leader-map keyseq)))
+    (if (and existing (not (numberp existing)))
+        (cfg-keys--log-conflict key existing def)
+      (define-key cfg-keys-leader-map keyseq def))))
+
 (defmacro cfg-keys/leader-def (&rest keybinds)
   "Convenience macro to bind keys under `cfg-keys-leader-map`.
 Usage: `(cfg-keys/leader-def \"f f\" #'find-file \"b b\" #'switch-to-buffer)'.
@@ -41,7 +104,13 @@ Prefix labels use `(:ignore t :which-key \"+name\")`. Those install a labeled
 sparse keymap (or label an existing one) instead of a non-prefix binding, so
 nested sequences like \"t f\" remain valid.
 Commands may also carry a which-key description via `(command :which-key
-\"desc\")`, which binds COMMAND with DESC as its which-key label."
+\"desc\")`, which binds COMMAND with DESC as its which-key label.
+
+Detects conflicts dynamically via `cfg-keys--bind-prefix-label',
+`cfg-keys--bind-labeled-command', and `cfg-keys--bind-plain':
+1. Exact same prefix label re-declaration: skipped silently.
+2. Conflicting prefix label re-declaration: logged to `*Messages*'.
+3. Overwriting non-ignore shortcut: logged to `*Messages*' and skipped."
   (declare (indent 0))
   `(progn
      ,@(cl-loop
@@ -57,17 +126,11 @@ Commands may also carry a which-key description via `(command :which-key
         collect
         (cond
          (ignore-label
-          `(let* ((keyseq (kbd ,key))
-                  (existing (lookup-key cfg-keys-leader-map keyseq))
-                  (km (if (keymapp existing)
-                          existing
-                        (make-sparse-keymap))))
-             (define-key cfg-keys-leader-map keyseq (cons ,ignore-label km))))
+          `(cfg-keys--bind-prefix-label ,key ,ignore-label))
          (cmd-label
-          `(define-key cfg-keys-leader-map (kbd ,key)
-             (cons ,cmd-label #',(car form))))
+          `(cfg-keys--bind-labeled-command ,key ,cmd-label #',(car form)))
          (t
-          `(define-key cfg-keys-leader-map (kbd ,key) ,fn))))))
+          `(cfg-keys--bind-plain ,key ,fn))))))
 #+end_src
 
 ** Keybindings Tree Printer

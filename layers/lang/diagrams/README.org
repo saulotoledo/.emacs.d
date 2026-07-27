@@ -48,9 +48,9 @@ Registers keybindings for previewing and editing diagrams.
 (with-eval-after-load 'plantuml-mode
   (define-key plantuml-mode-map (kbd "C-c C-c") #'plantuml-preview))
 
-;; Leader keybindings under +code/lang -> +diagrams
+;; Leader keybindings under +lang/code -> +diagrams
 (cfg-keys/leader-def
-  "l"     '(:ignore t :which-key "+code/lang")
+  "l"     '(:ignore t :which-key "+lang/code")
   "l d"   '(:ignore t :which-key "+diagrams")
   "l d p" #'plantuml-preview)
 #+end_src

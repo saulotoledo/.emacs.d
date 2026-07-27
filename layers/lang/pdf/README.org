@@ -51,13 +51,13 @@ Registers navigation and header toggling shortcuts for PDF buffers.
   (define-key pdf-view-mode-map (kbd "j") #'pdf-view-next-line-or-next-page)
   (define-key pdf-view-mode-map (kbd "k") #'pdf-view-previous-line-or-previous-page))
 
-;; Leader keybindings under +code/lang -> +pdf
+;; Leader keybindings under +lang/code -> +pdf
 (cfg-keys/leader-def
-  "l"     '(:ignore t :which-key "+code/lang")
-  "l p"   '(:ignore t :which-key "+pdf")
-  "l p c" #'cfg-lang/pdf-view-toggle-header-line
-  "l p j" #'pdf-view-next-line-or-next-page
-  "l p k" #'pdf-view-previous-line-or-previous-page)
+  "l"     '(:ignore t :which-key "+lang/code")
+  "l P"   '(:ignore t :which-key "+pdf")
+  "l P c" #'cfg-lang/pdf-view-toggle-header-line
+  "l P j" #'pdf-view-next-line-or-next-page
+  "l P k" #'pdf-view-previous-line-or-previous-page)
 #+end_src
 
 * System Setup
