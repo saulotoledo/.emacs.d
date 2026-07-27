@@ -311,10 +311,10 @@ pwa-node launch for the current file otherwise."
 (cfg-keys/leader-def
   "m"     '(:ignore t :which-key "+major-mode")
   "m j"   '(:ignore t :which-key "+javascript")
-  "m j n" '(npm :whichkey "NPM Menu")
-  "m j y" '(cfg-lang/yarn-run-script :whichkey "Yarn script")
-  "m j r" '(cfg-lang/nodejs-repl-with-manager :whichkey "Node REPL")
-  "m j d" '(cfg-lang/dap-js--start-debug :whichkey "Debug JS/TS"))
+  "m j n" '(npm :which-key "NPM Menu")
+  "m j y" '(cfg-lang/yarn-run-script :which-key "Yarn script")
+  "m j r" '(cfg-lang/nodejs-repl-with-manager :which-key "Node REPL")
+  "m j d" '(cfg-lang/dap-js--start-debug :which-key "Debug JS/TS"))
 #+end_src
 
 * System Setup

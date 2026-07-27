@@ -39,23 +39,35 @@ and interactive functions directly under the leader keymap.
 Usage: `(cfg-keys/leader-def \"f f\" #'find-file \"b b\" #'switch-to-buffer)'.
 Prefix labels use `(:ignore t :which-key \"+name\")`. Those install a labeled
 sparse keymap (or label an existing one) instead of a non-prefix binding, so
-nested sequences like \"t f\" remain valid."
+nested sequences like \"t f\" remain valid.
+Commands may also carry a which-key description via `(command :which-key
+\"desc\")`, which binds COMMAND with DESC as its which-key label."
   (declare (indent 0))
   `(progn
      ,@(cl-loop
         for (key fn) on keybinds by #'cddr
         for form = (if (eq (car-safe fn) 'quote) (cadr fn) fn)
-        for label = (and (eq (car-safe form) :ignore)
-                         (plist-get form :which-key))
+        for ignore-label = (and (eq (car-safe form) :ignore)
+                                (plist-get form :which-key))
+        for cmd-label = (and (consp form)
+                              (not (eq (car form) :ignore))
+                              (not (eq (car form) 'function))
+                              (not (eq (car form) 'lambda))
+                              (plist-get (cdr form) :which-key))
         collect
-        (if label
-            `(let* ((keyseq (kbd ,key))
-                    (existing (lookup-key cfg-keys-leader-map keyseq))
-                    (km (if (keymapp existing)
-                            existing
-                          (make-sparse-keymap))))
-               (define-key cfg-keys-leader-map keyseq (cons ,label km)))
-          `(define-key cfg-keys-leader-map (kbd ,key) ,fn)))))
+        (cond
+         (ignore-label
+          `(let* ((keyseq (kbd ,key))
+                  (existing (lookup-key cfg-keys-leader-map keyseq))
+                  (km (if (keymapp existing)
+                          existing
+                        (make-sparse-keymap))))
+             (define-key cfg-keys-leader-map keyseq (cons ,ignore-label km))))
+         (cmd-label
+          `(define-key cfg-keys-leader-map (kbd ,key)
+             (cons ,cmd-label #',(car form))))
+         (t
+          `(define-key cfg-keys-leader-map (kbd ,key) ,fn))))))
 #+end_src
 
 ** Avy Navigation

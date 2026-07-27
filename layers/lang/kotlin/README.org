@@ -43,7 +43,7 @@ Provides IDE capabilities for Kotlin development using Kotlin Language Server (K
 (cfg-keys/leader-def
   "m"     '(:ignore t :which-key "+major-mode")
   "m k"   '(:ignore t :which-key "+kotlin")
-  "m k d" '(dap-debug :whichkey "Debug Kotlin"))
+  "m k d" '(dap-debug :which-key "Debug Kotlin"))
 #+end_src
 
 * System Setup

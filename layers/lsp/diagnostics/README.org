@@ -135,10 +135,10 @@ of tree-sitter (external package).
 
 (cfg-keys/leader-def
   "e"   '(:ignore t :which-key "+errors/diagnostics")
-  "e n" '(flycheck-next-error :whichkey "Next Error")
-  "e p" '(flycheck-previous-error :whichkey "Previous Error")
-  "e l" '(flycheck-list-errors :whichkey "List Errors")
-  "e c" '(flycheck-buffer :whichkey "Check Buffer"))
+  "e n" '(flycheck-next-error :which-key "Next Error")
+  "e p" '(flycheck-previous-error :which-key "Previous Error")
+  "e l" '(flycheck-list-errors :which-key "List Errors")
+  "e c" '(flycheck-buffer :which-key "Check Buffer"))
 #+end_src
 
 * System Setup

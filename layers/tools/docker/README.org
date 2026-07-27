@@ -131,12 +131,12 @@ container should have Node.js and language server extensions installed.
 ;; Leader bindings under Devcontainer / Docker
 (cfg-keys/leader-def
   "d"   '(:ignore t :which-key "+devcontainer/docker")
-  "d u" '(devcontainer-up :whichkey "Up / Start")
-  "d r" '(devcontainer-restart :whichkey "Restart")
-  "d R" '(devcontainer-rebuild-and-restart :whichkey "Rebuild & Restart")
-  "d e" '(devcontainer-execute-command :whichkey "Execute Command")
-  "d t" '(devcontainer-term :whichkey "Open Terminal")
-  "d d" '(devcontainer-tramp-dired :whichkey "Open Dired in Container"))
+  "d u" '(devcontainer-up :which-key "Up / Start")
+  "d r" '(devcontainer-restart :which-key "Restart")
+  "d R" '(devcontainer-rebuild-and-restart :which-key "Rebuild & Restart")
+  "d e" '(devcontainer-execute-command :which-key "Execute Command")
+  "d t" '(devcontainer-term :which-key "Open Terminal")
+  "d d" '(devcontainer-tramp-dired :which-key "Open Dired in Container"))
 #+end_src
 
 * System Setup

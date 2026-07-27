@@ -26,10 +26,10 @@ helpful.
 ;; Leader bindings
 (cfg-keys/leader-def
   "h"   '(:ignore t :which-key "+help")
-  "h f" '(counsel-describe-function :whichkey "Describe Function")
-  "h v" '(counsel-describe-variable :whichkey "Describe Variable")
-  "h k" '(helpful-key :whichkey "Describe Key")
-  "h c" '(helpful-command :whichkey "Describe Command"))
+  "h f" '(counsel-describe-function :which-key "Describe Function")
+  "h v" '(counsel-describe-variable :which-key "Describe Variable")
+  "h k" '(helpful-key :which-key "Describe Key")
+  "h c" '(helpful-command :which-key "Describe Command"))
 #+end_src
 
 * System Setup

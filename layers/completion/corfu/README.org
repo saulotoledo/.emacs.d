@@ -133,8 +133,8 @@ or blocking behavior.
 ;; Leader bindings
 (cfg-keys/leader-def
   "c"   '(:ignore t :which-key "+code/completion")
-  "c c" '(cfg-completion/corfu-reset-completion-cache :whichkey "Reset Completion Cache")
-  "c a" '(completion-at-point :whichkey "Complete at Point"))
+  "c c" '(cfg-completion/corfu-reset-completion-cache :which-key "Reset Completion Cache")
+  "c a" '(completion-at-point :which-key "Complete at Point"))
 #+end_src
 
 * System Setup

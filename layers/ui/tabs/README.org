@@ -92,13 +92,13 @@ system buffers to keep the editing workspace clutter-free.
 ;; Leader toggles and tab actions
 (cfg-keys/leader-def
   "t"   '(:ignore t :which-key "+toggles")
-  "t t" '(centaur-tabs-mode :whichkey "Toggle Tabs")
+  "t t" '(centaur-tabs-mode :which-key "Toggle Tabs")
 
   "b"   '(:ignore t :which-key "+buffers")
-  "b ]" '(centaur-tabs-forward :whichkey "Next Tab")
-  "b [" '(centaur-tabs-backward :whichkey "Previous Tab")
-  "b }" '(centaur-tabs-forward-group :whichkey "Next Tab Group")
-  "b {" '(centaur-tabs-backward-group :whichkey "Previous Tab Group"))
+  "b ]" '(centaur-tabs-forward :which-key "Next Tab")
+  "b [" '(centaur-tabs-backward :which-key "Previous Tab")
+  "b }" '(centaur-tabs-forward-group :which-key "Next Tab Group")
+  "b {" '(centaur-tabs-backward-group :which-key "Previous Tab Group"))
 #+end_src
 
 * System Setup

@@ -136,7 +136,7 @@ you interact with them.
 
 ;; --- Leader Bindings ---
 (cfg-keys/leader-def
-  "s r" '(ivy-resume :whichkey "Resume last search"))
+  "s r" '(ivy-resume :which-key "Resume last search"))
 
 ;; --- Context-Specific Keymaps ---
 (with-eval-after-load 'counsel

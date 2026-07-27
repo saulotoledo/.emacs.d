@@ -373,7 +373,7 @@ making the buffer much easier to read.
   (define-key dired-mode-map (kbd "C-c s") #'cfg-navigation/rg-search-in-subtree))
 
 (cfg-keys/leader-def
-  "f d" '(dired :whichkey "Open Dired"))
+  "f d" '(dired :which-key "Open Dired"))
 #+end_src
 
 * System Setup

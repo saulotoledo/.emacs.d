@@ -40,7 +40,7 @@ Key capabilities:
 ;; Major mode leader bindings for Shell scripts
 (cfg-keys/leader-def
   "m"   '(:ignore t :which-key "+major-mode")
-  "m c" '(bash-completion-mode :whichkey "Toggle Bash Completion"))
+  "m c" '(bash-completion-mode :which-key "Toggle Bash Completion"))
 #+end_src
 
 * System Setup

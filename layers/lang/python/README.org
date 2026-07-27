@@ -28,7 +28,7 @@ shell interpreter and resolves syntax/sexp navigation issues in Python mode.
 (cfg-keys/leader-def
   "m"   '(:ignore t :which-key "+major-mode")
   "m p" '(:ignore t :which-key "+python")
-  "m p z" '(run-python :whichkey "Start REPL"))
+  "m p z" '(run-python :which-key "Start REPL"))
 #+end_src
 
 * System Setup
