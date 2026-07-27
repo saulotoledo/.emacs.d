@@ -18,29 +18,12 @@ editable grep results via wgrep.
   (setq wgrep-auto-save-buffer t) ; Save wgrep buffers automatically after editing
 
   (declare-function project-roots "project")
-  (defun cfg-tools/counsel-rg-project-prompt ()
-    "Prompt for directory, default to project root if available."
-    (interactive)
-    (let* ((proj-root
-            (cond
-             ((fboundp 'projectile-project-root)
-              (projectile-project-root))
-             ((fboundp 'project-current)
-              (let ((proj (project-current)))
-                (when proj
-                  (car (project-roots proj)))))
-             ((fboundp 'vc-root-dir)
-              (vc-root-dir))
-             (t default-directory)))
-           (dir (read-directory-name "Search directory: " proj-root nil t)))
-      (counsel-rg nil dir)))
-
   (declare-function transient-quit-all "transient")
   (defun cfg-tools/rg-abort-to-counsel ()
     "Abort the current transient menu and launch counsel-rg."
     (interactive)
     (transient-quit-all)
-    (cfg-tools/counsel-rg-project-prompt))
+    (cfg-tools/counsel-rg-dir))
 
   (declare-function transient-suffix-object "transient")
   (declare-function transient-lisp-variable "transient")
@@ -50,13 +33,10 @@ editable grep results via wgrep.
     :variable 'rg-ignore-case
     :description
     (lambda ()
-      (let* ((val (oref (transient-suffix-object) value))
-             (shown (if val (symbol-name val) "nil")))
-        (format "Search Case Strategy [%s]" shown)))
+      (format "Search Case Strategy [%s]" (or rg-ignore-case "nil")))
     :reader
     (lambda (_prompt _initial _history)
       (let* ((choices '(case-fold-search smart force nil))
-             ;; Safe even if current value isn’t in CHOICES.
              (pos (or (cl-position rg-ignore-case choices) 0)))
         (nth (mod (1+ pos) (length choices)) choices))))
 
@@ -66,13 +46,63 @@ editable grep results via wgrep.
   (add-to-list 'display-buffer-alist
                '("\\*rg\\*"
                  (display-buffer-same-window))))
+
+(defun cfg-tools/counsel-rg (&optional prompt-dir hidden)
+  "Run `counsel-rg'.
+If PROMPT-DIR is non-nil (or called interactively with a prefix arg \\[universal-argument]),
+prompt for the directory instead of defaulting to project root.
+If HIDDEN is non-nil, search hidden and ignored files/folders."
+  (interactive "P")
+  (let* ((proj-root
+          (cond
+           ((fboundp 'projectile-project-root)
+            (projectile-project-root))
+           ((fboundp 'project-current)
+            (let ((proj (project-current)))
+              (when proj
+                (if (fboundp 'project-root)
+                    (project-root proj)
+                  (car (project-roots proj))))))
+           ((fboundp 'vc-root-dir)
+            (vc-root-dir))
+           (t default-directory)))
+         (dir (if prompt-dir
+                  (read-directory-name "Search directory: " proj-root nil t)
+                proj-root))
+         (counsel-rg-base-command
+          (if hidden
+              "rg -M 240 --with-filename --no-heading --line-number --color never --hidden --no-ignore %s"
+            (or (bound-and-true-p counsel-rg-base-command)
+                "rg -M 240 --with-filename --no-heading --line-number --color never %s"))))
+    ;; Call counsel-rg inside the let* block so counsel-rg-base-command is properly scoped
+    (counsel-rg nil dir)))
+
+(defun cfg-tools/counsel-rg-dir ()
+  "Run counsel-rg with directory prompt."
+  (interactive)
+  (cfg-tools/counsel-rg t nil))
+
+(defun cfg-tools/counsel-rg-hidden ()
+  "Run counsel-rg with hidden files enabled."
+  (interactive)
+  (cfg-tools/counsel-rg nil t))
+
+(defun cfg-tools/counsel-rg-dir-hidden ()
+  "Run counsel-rg with directory prompt AND hidden files enabled."
+  (interactive)
+  (cfg-tools/counsel-rg t t))
 #+end_src
 
 * Keybindings
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
   "s"   '(:ignore t :which-key "+search")
-  "s r" #'rg)
+  "s c" '(cfg-tools/counsel-rg :which-key "Counsel RG (Project)")
+  "s f" '(cfg-tools/counsel-rg-dir :which-key "Counsel RG (Dir Prompt)")
+  "s h" '(cfg-tools/counsel-rg-hidden :which-key "Counsel RG (Hidden)")
+  "s H" '(cfg-tools/counsel-rg-dir-hidden :which-key "Counsel RG (Dir + Hidden)")
+  "s m" '(rg-menu :which-key "Ripgrep Menu")
+  "s r" '(rg :which-key "Ripgrep Buffer"))
 #+end_src
 
 * System Setup
