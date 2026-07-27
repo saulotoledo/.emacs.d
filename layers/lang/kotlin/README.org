@@ -39,11 +39,10 @@ Provides IDE capabilities for Kotlin development using Kotlin Language Server (K
 
 * Keybindings
 #+begin_src emacs-lisp
-;; Major mode leader bindings for Kotlin
 (cfg-keys/leader-def
-  "m"     '(:ignore t :which-key "+major-mode")
-  "m k"   '(:ignore t :which-key "+kotlin")
-  "m k d" '(dap-debug :which-key "Debug Kotlin"))
+  "l"     '(:ignore t :which-key "+code/lang")
+  "l k"   '(:ignore t :which-key "+kotlin")
+  "l k d" '(dap-debug :which-key "Debug Kotlin"))
 #+end_src
 
 * System Setup

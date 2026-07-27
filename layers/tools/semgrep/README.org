@@ -19,12 +19,7 @@ logical flaws in your local environment that typical linters often overlook.
 We use Semgrep through LSP. We just need it to be available in the system.
 
 * Keybindings
-#+begin_src emacs-lisp
-;; Leader bindings for static analysis
-(cfg-keys/leader-def
-  "c"   '(:ignore t :which-key "+code")
-  "c s" '(:ignore t :which-key "+semgrep"))
-#+end_src
+No keybindings required.
 
 * System Setup
 First we need to install Semgrep on our system using pipx:

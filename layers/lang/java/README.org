@@ -1798,11 +1798,11 @@ the newly selected JAVA_HOME. Aborts the build step if no build file is found."
 #+begin_src emacs-lisp
 ;; Major mode leader bindings for Java
 (cfg-keys/leader-def
-  "m"     '(:ignore t :which-key "+major-mode")
-  "m j"   '(:ignore t :which-key "+java")
-  "m j v" '(cfg-lang/java-switch-version :which-key "Switch Java Version")
-  "m j c" '(cfg-lang/clean-jdtls-full :which-key "Clean JDTLS Cache")
-  "m j d" '(cfg-lang/dap-java--start-debug :which-key "Debug Java Program"))
+  "l"     '(:ignore t :which-key "+lang/code")
+  "l j"   '(:ignore t :which-key "+java")
+  "l j v" '(cfg-lang/java-switch-version :which-key "Switch Java Version")
+  "l j c" '(cfg-lang/clean-jdtls-full :which-key "Clean JDTLS Cache")
+  "l j d" '(cfg-lang/dap-java--start-debug :which-key "Debug Java Program"))
 #+end_src
 
 * System Setup

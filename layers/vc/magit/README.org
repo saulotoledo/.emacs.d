@@ -5,6 +5,7 @@
 * Description
 Provides full Git integration using Magit and Forge, supporting repository
 inspection, commit staging, PR/issue management, and real-time ANSI process output styling.
+Also integrates Git status icons into the Treemacs sidebar via ~treemacs-magit~.
 
 * Emacs Configuration
 ** Compat Dependency
@@ -48,6 +49,12 @@ dependency like `compat' and `transient' above.
 #+begin_src emacs-lisp
 (use-package magit
   :commands magit-status)
+#+end_src
+
+** Treemacs Integration
+#+begin_src emacs-lisp
+(use-package treemacs-magit
+  :after (treemacs magit))
 #+end_src
 
 ** ANSI Color Support in Magit Process Buffer

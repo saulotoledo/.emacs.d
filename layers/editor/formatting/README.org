@@ -128,6 +128,7 @@ your settings. It is especially useful for JavaScript and TypeScript projects.
 * Keybindings
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
+  "c"   '(:ignore t :which-key "+code/lang")
   "c a" '(apheleia-format-buffer :which-key "Format buffer with Apheleia"))
 #+end_src
 

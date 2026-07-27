@@ -877,13 +877,14 @@ errors, references, and more.
   (define-key lsp-mode-map (kbd "M-s M-s") #'lsp-signature-activate)) ; Manual trigger since :on-trigger-char is disabled
 
 (cfg-keys/leader-def
-  "l"   '(:ignore t :which-key "+lsp")
-  "l d" #'lsp-find-definition
-  "l r" #'lsp-find-references
-  "l R" #'lsp-rename
-  "l a" #'lsp-execute-code-action
-  "l f" #'lsp-format-buffer
-  "l s" #'cfg-lsp/ui-show-doc-helper)
+  "c"     '(:ignore t :which-key "+code")
+  "c l"   '(:ignore t :which-key "+lsp")
+  "c l d" #'lsp-find-definition
+  "c l r" #'lsp-find-references
+  "c l R" #'lsp-rename
+  "c l a" #'lsp-execute-code-action
+  "c l f" #'lsp-format-buffer
+  "c l s" #'cfg-lsp/ui-show-doc-helper)
 #+end_src
 
 * System Setup

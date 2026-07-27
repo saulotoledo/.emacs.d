@@ -133,7 +133,6 @@ a couple of convenient keybindings.
 Registers direct global shortcuts and leader bindings for move-text + multiple-cursors.
 
 #+begin_src emacs-lisp
-;; --- Global Keybindings via cfg-keys-map ---
 (define-key cfg-keys-map (kbd "C-=") #'er/expand-region)
 (define-key cfg-keys-map (kbd "C--") #'er/contract-region)
 (define-key cfg-keys-map (kbd "C-M-<down>") #'move-text-down)
@@ -141,13 +140,6 @@ Registers direct global shortcuts and leader bindings for move-text + multiple-c
 (define-key cfg-keys-map (kbd "C->") #'mc/mark-next-like-this)
 (define-key cfg-keys-map (kbd "C-<") #'mc/mark-previous-like-this)
 (define-key cfg-keys-map (kbd "C-M-#") #'mc/mark-all-dwim)
-
-;; --- Leader Bindings ---
-(cfg-keys/leader-def
-  "e"   '(:ignore t :which-key "+editor")
-  "e n" #'mc/mark-next-like-this
-  "e p" #'mc/mark-previous-like-this
-  "e a" #'mc/mark-all-dwim)
 #+end_src
 
 * System Setup
