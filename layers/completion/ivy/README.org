@@ -86,11 +86,19 @@ search for the item at point, type =M-n= with Swiper open.
 This ensures that starting a new search or finding a file
 never \"piles up\" on an old session."
   (if (> (minibuffer-depth) 0)
-      (progn
-        (run-at-time 0 nil (lambda (cmd)
-                             (let ((this-command cmd))
-                               (call-interactively cmd)))
-                     command)
+      (let ((target-win (selected-window))
+            (target-pt  (point)))
+        ;; (top-level) resets the Lisp execution state back to
+        ;; the outermost command loop, changing the buffer back.
+        ;; We need to restore the original Emacs configuration.
+        (run-at-time 0 nil
+                     (lambda (win pt cmd)
+                       (when (window-live-p win)
+                         (select-window win)
+                         (goto-char pt)
+                         (let ((this-command cmd))
+                           (call-interactively cmd))))
+                     target-win target-pt command)
         (top-level))
     (call-interactively command)))
 
