@@ -460,7 +460,7 @@ breakpoint if `dap-mode' is active in the current buffer."
 * Keybindings
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
-  "d"   '(:ignore t :which-key "+debug")
+  "d"   '(:ignore t :which-key "debug")
   "d d" #'cfg-lsp/dap-run-continue-dispatch
   "d b" #'dap-breakpoint-toggle
   "d q" #'cfg-lsp/dap-force-quit

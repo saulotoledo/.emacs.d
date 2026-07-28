@@ -26,8 +26,8 @@ diagnostics for build system scripts.
 #+begin_src emacs-lisp
 ;; Major mode leader bindings for Autotools files
 (cfg-keys/leader-def
-  "m"   '(:ignore t :which-key "+major-mode")
-  "m a" '(:ignore t :which-key "+autotools"))
+  "m"   '(:ignore t :which-key "major-mode")
+  "m a" '(:ignore t :which-key "autotools"))
 #+end_src
 
 * System Setup

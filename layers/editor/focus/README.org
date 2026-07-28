@@ -30,7 +30,7 @@ Registers leader keybindings to toggle focus mode and olivetti on demand.
 
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
-  "t"   '(:ignore t :which-key "+toggles")
+  "t"   '(:ignore t :which-key "toggles")
   "t f" #'focus-mode
   "t o" #'olivetti-mode)
 #+end_src

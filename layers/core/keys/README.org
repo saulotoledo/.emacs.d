@@ -100,7 +100,7 @@ Skips the binding when KEY already carries a conflicting non-prefix binding."
 (defmacro cfg-keys/leader-def (&rest keybinds)
   "Convenience macro to bind keys under `cfg-keys-leader-map`.
 Usage: `(cfg-keys/leader-def \"f f\" #'find-file \"b b\" #'switch-to-buffer)'.
-Prefix labels use `(:ignore t :which-key \"+name\")`. Those install a labeled
+Prefix labels use `(:ignore t :which-key \"name\")`. Those install a labeled
 sparse keymap (or label an existing one) instead of a non-prefix binding, so
 nested sequences like \"t f\" remain valid.
 Commands may also carry a which-key description via `(command :which-key

@@ -86,7 +86,7 @@ PROC is the process object for the magit-process buffer."
 
 ;; --- Leader Bindings ---
 (cfg-keys/leader-def
-  "g"   '(:ignore t :which-key "+git")
+  "g"   '(:ignore t :which-key "git")
   "g s" #'magit-status)
 #+end_src
 

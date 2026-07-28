@@ -25,7 +25,7 @@ helpful.
 
 ;; Leader bindings
 (cfg-keys/leader-def
-  "h"   '(:ignore t :which-key "+help")
+  "h"   '(:ignore t :which-key "help")
   "h f" '(counsel-describe-function :which-key "Describe Function")
   "h v" '(counsel-describe-variable :which-key "Describe Variable")
   "h k" '(helpful-key :which-key "Describe Key")

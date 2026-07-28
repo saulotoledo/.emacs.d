@@ -53,8 +53,8 @@ Registers navigation and header toggling shortcuts for PDF buffers.
 
 ;; Leader keybindings under +lang/code -> +pdf
 (cfg-keys/leader-def
-  "L"     '(:ignore t :which-key "+lang/code")
-  "L P"   '(:ignore t :which-key "+pdf")
+  "L"     '(:ignore t :which-key "lang/code")
+  "L P"   '(:ignore t :which-key "pdf")
   "L P c" #'cfg-lang/pdf-view-toggle-header-line
   "L P j" #'pdf-view-next-line-or-next-page
   "L P k" #'pdf-view-previous-line-or-previous-page)

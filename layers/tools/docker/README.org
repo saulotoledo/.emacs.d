@@ -130,8 +130,8 @@ container should have Node.js and language server extensions installed.
 #+begin_src emacs-lisp
 ;; Leader bindings under Devcontainer / Docker
 (cfg-keys/leader-def
-  "C"     '(:ignore t :which-key "+containers")
-  "C D"   '(:ignore t :which-key "+devcontainers")
+  "C"     '(:ignore t :which-key "containers")
+  "C D"   '(:ignore t :which-key "devcontainers")
   "C D u" '(devcontainer-up :which-key "Up / Start")
   "C D r" '(devcontainer-restart :which-key "Restart")
   "C D R" '(devcontainer-rebuild-and-restart :which-key "Rebuild & Restart")

@@ -61,7 +61,7 @@ Skip entirely when indicators are not active in this buffer."
 #+begin_src emacs-lisp
 (keymap-global-set "C-<tab>" #'treesit-fold-toggle)
 (cfg-keys/leader-def
-  "e"   '(:ignore t :which-key "+editor")
+  "e"   '(:ignore t :which-key "editor")
   "e f" #'treesit-fold-toggle
   "e F" #'cfg-editor/treesit-fold-toggle-all)
 #+end_src

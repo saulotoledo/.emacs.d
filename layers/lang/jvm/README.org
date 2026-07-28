@@ -363,7 +363,7 @@ Set `cfg-jvm/java-stack-trace-project-packages' to skip auto-detection:
 * Keybindings
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
-  "c"   '(:ignore t :which-key "+code")
+  "c"   '(:ignore t :which-key "code")
   "c j" '(cfg-lang/java-stack-trace-jump-at-point :which-key "Jump to Stack Trace Source"))
 #+end_src
 

@@ -30,7 +30,7 @@ Provides utilities for buffer manipulation, cleanups, and window management.
 * Keybindings
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
-  "b"   '(:ignore t :which-key "+buffers")
+  "b"   '(:ignore t :which-key "buffers")
   "b K" '(cfg-editor/clear-buffer :which-key "Erase Buffer Content"))
 #+end_src
 

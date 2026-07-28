@@ -121,8 +121,8 @@ and fall back to a manual prompt. Standard builds (non-debug) proceed with
 
 ;; Leader bindings under Major Mode / Build
 (cfg-keys/leader-def
-  "m"     '(:ignore t :which-key "+major-mode")
-  "m m"   '(:ignore t :which-key "+make")
+  "m"     '(:ignore t :which-key "major-mode")
+  "m m"   '(:ignore t :which-key "make")
   "m m e" '(cfg-lang/makefile-executor-smart-run :which-key "Run Target (Executor)")
   "m m c" '(cfg-lang/smart-compile :which-key "Smart Compile")
   "m m d" '(cfg-lang/smart-compile-debug :which-key "Smart Compile (Debug)"))

@@ -194,7 +194,7 @@ Custom keybindings:
 
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
-  "t"   '(:ignore t :which-key "+toggles")
+  "t"   '(:ignore t :which-key "toggles")
   "t t" '(cfg-navigation/treemacs-toggle :which-key "Toggle Treemacs sidebar")
   "t T" '(treemacs-select-window :which-key "Focus Treemacs window"))
 

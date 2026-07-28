@@ -104,7 +104,7 @@ If HIDDEN is non-nil, search hidden and ignored files/folders."
 * Keybindings
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
-  "s"   '(:ignore t :which-key "+search")
+  "s"   '(:ignore t :which-key "search")
   "s c" '(cfg-tools/counsel-rg :which-key "Counsel RG (Project)")
   "s f" '(cfg-tools/counsel-rg-dir :which-key "Counsel RG (Dir Prompt)")
   "s h" '(cfg-tools/counsel-rg-hidden :which-key "Counsel RG (Hidden)")

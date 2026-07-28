@@ -57,8 +57,8 @@ The server is installed via =nodejs_tools= and pointed to via
 * Keybindings
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
-  "m"     '(:ignore t :which-key "+major-mode")
-  "m w"   '(:ignore t :which-key "+web")
+  "m"     '(:ignore t :which-key "major-mode")
+  "m w"   '(:ignore t :which-key "web")
   "m w h" '(web-mode-element-highlight-min :which-key "Highlight Element")
   "m w e" '(web-mode-element-close :which-key "Close Tag")
   "m w r" '(web-mode-element-rename :which-key "Rename Tag"))

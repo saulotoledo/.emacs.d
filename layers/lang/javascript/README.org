@@ -309,8 +309,8 @@ pwa-node launch for the current file otherwise."
 (define-key cfg-keys-map (kbd "C-c y") #'cfg-lang/yarn-run-script)
 
 (cfg-keys/leader-def
-  "L"     '(:ignore t :which-key "+lang/code")
-  "L J"   '(:ignore t :which-key "+javascript")
+  "L"     '(:ignore t :which-key "lang/code")
+  "L J"   '(:ignore t :which-key "javascript")
   "L J n" '(npm :which-key "NPM Menu")
   "L J y" '(cfg-lang/yarn-run-script :which-key "Yarn script")
   "L J r" '(cfg-lang/nodejs-repl-with-manager :which-key "Node REPL")

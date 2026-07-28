@@ -50,8 +50,8 @@ Registers keybindings for previewing and editing diagrams.
 
 ;; Leader keybindings under +lang/code -> +diagrams
 (cfg-keys/leader-def
-  "L"     '(:ignore t :which-key "+lang/code")
-  "L d"   '(:ignore t :which-key "+diagrams")
+  "L"     '(:ignore t :which-key "lang/code")
+  "L d"   '(:ignore t :which-key "diagrams")
   "L d p" #'plantuml-preview)
 #+end_src
 
