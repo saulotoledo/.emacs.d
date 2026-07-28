@@ -65,7 +65,7 @@ Registers leader keybindings to toggle focus mode and olivetti on demand.
 
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
-  "C-M-r" #'restart-emacs)
+  "C-M-r" '(restart-emacs :which-key "Restart Emacs"))
 #+end_src
 
 * System Setup

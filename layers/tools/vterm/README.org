@@ -78,11 +78,12 @@ It uses advice-add instead of defadvice."
 (define-key cfg-keys-map (kbd "M-7") (lambda () (interactive) (cfg-tools/toggle-vterm 7)))
 (define-key cfg-keys-map (kbd "M-8") (lambda () (interactive) (cfg-tools/toggle-vterm 8)))
 (define-key cfg-keys-map (kbd "M-9") (lambda () (interactive) (cfg-tools/toggle-vterm 9)))
-(define-key cfg-keys-map (kbd "C-c C-x") #'cfg-tools/vterm-send-next-key)
 
-;; --- Leader Bindings ---
-(cfg-keys/leader-def
-  "'"   #'cfg-tools/toggle-vterm)
+(with-eval-after-load 'vterm
+  (define-key vterm-mode-map (kbd "C-c C-q") #'cfg-tools/vterm-send-next-key)
+  (with-eval-after-load 'which-key
+    (which-key-add-keymap-based-replacements vterm-mode-map
+      "C-c C-q" "VTerm Send Next Key")))
 #+end_src
 
 * System Setup

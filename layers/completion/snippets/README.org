@@ -40,7 +40,16 @@ collection of ready-to-use snippets across various programming languages.
 #+end_src
 
 * Keybindings
-No keybindings required.
+#+begin_src emacs-lisp
+(with-eval-after-load 'yasnippet
+  (with-eval-after-load 'which-key
+    (which-key-add-key-based-replacements
+      "C-c &" "yasnippet")))
+
+(cfg-keys/leader-def
+  ;; "l" is already a prefix for lsp-command-map, we do not ned to repeat it here
+  "l u" '(cfg-lsp/ui-show-doc-toggle :which-key "Toggle LSP UI Doc"))
+#+end_src
 
 * System Setup
 No system setup required.

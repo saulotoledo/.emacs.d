@@ -460,11 +460,36 @@ breakpoint if `dap-mode' is active in the current buffer."
 * Keybindings
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
-  "d"   '(:ignore t :which-key "debug")
-  "d d" #'cfg-lsp/dap-run-continue-dispatch
-  "d b" #'dap-breakpoint-toggle
-  "d q" #'cfg-lsp/dap-force-quit
-  "d s" #'dap-switch-session)
+  "d"     '(:ignore t :which-key "debug")
+
+  ;; Execution / Control
+  "d d"   '(cfg-lsp/dap-run-continue-dispatch :which-key "Continue/Start")
+  "d q"   '(cfg-lsp/dap-force-quit            :which-key "Force Quit")
+  "d r"   '(dap-restart-frame                 :which-key "Restart Frame")
+  "d s"   '(dap-switch-session                :which-key "Switch Session")
+
+  ;; Stepping
+  "d n"   '(dap-next                         :which-key "Step Over")
+  "d i"   '(dap-step-in                      :which-key "Step In")
+  "d o"   '(dap-step-out                     :which-key "Step Out")
+
+  ;; Breakpoints
+  "d b"   '(dap-breakpoint-toggle            :which-key "Toggle Breakpoint")
+  "d B"   '(dap-breakpoint-condition         :which-key "Conditional Breakpoint")
+  "d C"   '(dap-breakpoint-delete-all        :which-key "Clear All Breakpoints")
+
+  ;; Inspection & UI Views
+  "d e"   '(dap-eval-at-point                :which-key "Eval at Point")
+  "d v"   '(dap-ui-inspect                   :which-key "Inspect Variable")
+  "d h"   '(dap-hydra                        :which-key "DAP Hydra")
+
+  ;; UI Windows Sub-prefix
+  "d u"   '(:ignore t :which-key "ui/views")
+  "d u u" '(dap-ui-mode                      :which-key "Toggle DAP UI")
+  "d u l" '(dap-ui-locals                    :which-key "Locals")
+  "d u s" '(dap-ui-sessions                  :which-key "Sessions")
+  "d u b" '(dap-ui-breakpoints               :which-key "Breakpoints List")
+  "d u f" '(dap-ui-stack-frame               :which-key "Stack Frame"))
 #+end_src
 
 * System Setup

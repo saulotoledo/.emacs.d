@@ -194,9 +194,10 @@ Custom keybindings:
 
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
+  "f"   '(:ignore t :which-key "file")
+  "f t" '(treemacs-select-window :which-key "Focus Treemacs window")
   "t"   '(:ignore t :which-key "toggles")
-  "t t" '(cfg-navigation/treemacs-toggle :which-key "Toggle Treemacs sidebar")
-  "t T" '(treemacs-select-window :which-key "Focus Treemacs window"))
+  "t t" '(cfg-navigation/treemacs-toggle :which-key "Toggle Treemacs sidebar"))
 
 (with-eval-after-load 'treemacs
   (define-key treemacs-mode-map (kbd "<delete>") #'treemacs-delete-file))

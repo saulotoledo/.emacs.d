@@ -334,8 +334,9 @@ behave more like modern IDEs.
 (define-key cfg-keys-map (kbd "<end>") #'mwim-end-of-code-or-line)
 
 (cfg-keys/leader-def
-  "k" '(cfg-keys/print-tree :which-key "Print Leading Keybindings")
-  "K" '(cfg-keys/print-tree-all :which-key "Print All Keybindings"))
+  "k"   '(:ignore t :which-key "keybindings")
+  "k a" '(cfg-keys/print-tree-all :which-key "Print All Keybindings")
+  "k l" '(cfg-keys/print-tree :which-key "Print Leading Keybindings"))
 #+end_src
 
 * System Setup

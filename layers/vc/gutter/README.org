@@ -38,15 +38,13 @@ annotations using blamer.el.
 
 * Keybindings
 #+begin_src emacs-lisp
-;; --- Global Keybindings via cfg-keys-map ---
-(define-key cfg-keys-map (kbd "s-i") #'blamer-show-commit-info)
-(define-key cfg-keys-map (kbd "C-c i") #'blamer-show-posframe-commit-info)
-(define-key cfg-keys-map (kbd "C-c b") #'cfg-vc/toggle-blamer)
-
-;; --- Leader Bindings ---
 (cfg-keys/leader-def
-  "t"   '(:ignore t :which-key "toggles")
-  "t b" #'cfg-vc/toggle-blamer)
+  "g"     '(:ignore t :which-key "git")
+  "g b"   '(:ignore t :which-key "blamer")
+  "g b i" '(blamer-show-commit-info :which-key "Show Commit Info")
+  "g b i" '(blamer-show-posframe-commit-info :which-key "Show Commit Info in Posframe")
+  "t"     '(:ignore t :which-key "toggles")
+  "t b"   '(cfg-vc/toggle-blamer :which-key "Blamer Inline Annotations"))
 #+end_src
 
 * System Setup

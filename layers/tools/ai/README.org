@@ -957,7 +957,7 @@ Registers keybindings for AI tools, ECA chat sessions, Copilot, and Copilot Chat
 
 ;; Leader Bindings
 (cfg-keys/leader-def
-  "a"   '(:ignore t :which-key "AI")
+  "a"   '(:ignore t :which-key "ai")
 
   ;; --- ECA ---
   "a e"   '(cfg-tools/eca-toggle :which-key "Toggle ECA")
