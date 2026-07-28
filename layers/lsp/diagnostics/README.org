@@ -129,16 +129,12 @@ of tree-sitter (external package).
 
 * Keybindings
 #+begin_src emacs-lisp
-(define-key cfg-keys-map (kbd "C-c ! n") #'flycheck-next-error)
-(define-key cfg-keys-map (kbd "C-c ! p") #'flycheck-previous-error)
-(define-key cfg-keys-map (kbd "C-c ! l") #'flycheck-list-errors)
-
 (cfg-keys/leader-def
-  "E"   '(:ignore t :which-key "errors/diagnostics")
-  "E n" '(flycheck-next-error :which-key "Next Error")
-  "E p" '(flycheck-previous-error :which-key "Previous Error")
-  "E l" '(flycheck-list-errors :which-key "List Errors")
-  "E c" '(flycheck-buffer :which-key "Check Buffer"))
+  "!"   '(:ignore t :which-key "errors/diagnostics")
+  "! c" '(flycheck-buffer :which-key "Flycheck Check Buffer")
+  "! l" '(flycheck-list-errors :which-key "Flycheck List Errors")
+  "! n" '(flycheck-next-error :which-key "Flycheck Next Error")
+  "! p" '(flycheck-previous-error :which-key "Flycheck Previous Error"))
 #+end_src
 
 * System Setup
