@@ -138,9 +138,9 @@ Org buffers.
 #+begin_src emacs-lisp
 ;; Leader keybindings under +lang/code -> +org
 (cfg-keys/leader-def
-  "l"     '(:ignore t :which-key "+lang/code")
-  "l o"   '(:ignore t :which-key "+org")
-  "l o t" #'toc-org-insert-toc)
+  "L"     '(:ignore t :which-key "+lang/code")
+  "L o"   '(:ignore t :which-key "+org")
+  "L o t" #'toc-org-insert-toc)
 #+end_src
 
 * System Setup

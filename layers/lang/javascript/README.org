@@ -309,12 +309,12 @@ pwa-node launch for the current file otherwise."
 (define-key cfg-keys-map (kbd "C-c y") #'cfg-lang/yarn-run-script)
 
 (cfg-keys/leader-def
-  "l"     '(:ignore t :which-key "+lang/code")
-  "l J"   '(:ignore t :which-key "+javascript")
-  "l J n" '(npm :which-key "NPM Menu")
-  "l J y" '(cfg-lang/yarn-run-script :which-key "Yarn script")
-  "l J r" '(cfg-lang/nodejs-repl-with-manager :which-key "Node REPL")
-  "l J d" '(cfg-lang/dap-js--start-debug :which-key "Debug JS/TS"))
+  "L"     '(:ignore t :which-key "+lang/code")
+  "L J"   '(:ignore t :which-key "+javascript")
+  "L J n" '(npm :which-key "NPM Menu")
+  "L J y" '(cfg-lang/yarn-run-script :which-key "Yarn script")
+  "L J r" '(cfg-lang/nodejs-repl-with-manager :which-key "Node REPL")
+  "L J d" '(cfg-lang/dap-js--start-debug :which-key "Debug JS/TS"))
 #+end_src
 
 * System Setup

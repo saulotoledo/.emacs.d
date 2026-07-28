@@ -90,18 +90,18 @@ Registers keybindings for YAML structural navigation and features.
 
 ;; Static Leader Keybindings under +lang/code -> +yaml
 (cfg-keys/leader-def
-  "l"     '(:ignore t :which-key "+lang/code")
-  "l y"   '(:ignore t :which-key "+yaml")
+  "L"     '(:ignore t :which-key "+lang/code")
+  "L y"   '(:ignore t :which-key "+yaml")
   ;; Structural Movement
-  "l y k" #'yaml-pro-move-up
-  "l y j" #'yaml-pro-move-down
-  "l y h" #'yaml-pro-up-level
-  "l y l" #'yaml-pro-down-level
+  "L y k" #'yaml-pro-move-up
+  "L y j" #'yaml-pro-move-down
+  "L y h" #'yaml-pro-up-level
+  "L y l" #'yaml-pro-down-level
   ;; Folding & Magic:
-  "l y c" #'yaml-pro-convolute-tree
+  "L y c" #'yaml-pro-convolute-tree
   ;; Toggles:
-  "l y a" #'cfg-lang/yaml-pro-toggle-anchors
-  "l y t" #'cfg-lang/yaml-pro-toggle-tags)
+  "L y a" #'cfg-lang/yaml-pro-toggle-anchors
+  "L y t" #'cfg-lang/yaml-pro-toggle-tags)
 #+end_src
 
 * System Setup

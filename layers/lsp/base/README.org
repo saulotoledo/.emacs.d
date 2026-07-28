@@ -824,7 +824,7 @@ documentation popup:
 (declare-function lsp-ui-doc-hide "lsp-ui")
 (declare-function lsp-ui-doc--visible-p "lsp-ui")
 
-(defun cfg-lsp/ui-show-doc-helper ()
+(defun cfg-lsp/ui-show-doc-toggle ()
   "Toggle the visibility of the lsp-ui documentation popup."
   (interactive)
   (if (lsp-ui-doc--visible-p)
@@ -873,18 +873,26 @@ errors, references, and more.
 * Keybindings
 #+begin_src emacs-lisp
 (with-eval-after-load 'lsp-mode
-  (define-key lsp-mode-map (kbd "M-s M-d") #'cfg-lsp/ui-show-doc-helper)
-  (define-key lsp-mode-map (kbd "M-s M-s") #'lsp-signature-activate)) ; Manual trigger since :on-trigger-char is disabled
+  (define-key lsp-mode-map (kbd "M-s M-d") #'cfg-lsp/ui-show-doc-toggle)
+  (define-key lsp-mode-map (kbd "M-s M-s") #'lsp-signature-activate) ; Manual trigger since :on-trigger-char is disabled
+
+  (with-eval-after-load 'which-key
+    (which-key-add-key-based-replacements
+      "C-c l" "lsp")
+    (which-key-add-keymap-based-replacements lsp-command-map
+      "=" "format"
+      "F" "folders"
+      "G" "peek"
+      "T" "toggle"
+      "a" "actions"
+      "g" "goto"
+      "h" "help/doc"
+      "r" "refactor"
+      "w" "workspace")))
 
 (cfg-keys/leader-def
-  "c"     '(:ignore t :which-key "+code")
-  "c l"   '(:ignore t :which-key "+lsp")
-  "c l d" #'lsp-find-definition
-  "c l r" #'lsp-find-references
-  "c l R" #'lsp-rename
-  "c l a" #'lsp-execute-code-action
-  "c l f" #'lsp-format-buffer
-  "c l s" #'cfg-lsp/ui-show-doc-helper)
+  ;; "l" is already a prefix for lsp-command-map, we do not ned to repeat it here
+  "l u" '(cfg-lsp/ui-show-doc-toggle :which-key "Toggle LSP UI Doc"))
 #+end_src
 
 * System Setup
