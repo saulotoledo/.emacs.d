@@ -1402,9 +1402,24 @@ register_action "Lang" "Diagrams" "Install PlantUML" "-lang--diagrams--plantuml"
 JDTLS_VERSION="1.60.0"
 JDTLS_DATE="202606262232"
 JDTLS_TARGET_DIR="$HOME/.emacs.d/lsp_language_servers/eclipse.jdt.ls"
+JDTLS_TEST_RUNNER_VERSION="1.9.0"
+JDTLS_TEST_RUNNER_DIR="$JDTLS_TARGET_DIR/test-runner"
+JDTLS_TEST_RUNNER_JAR="$JDTLS_TEST_RUNNER_DIR/junit-platform-console-standalone.jar"
+JDTLS_TEST_RUNNER_URL="https://repo.maven.apache.org/maven2/org/junit/platform/junit-platform-console-standalone/${JDTLS_TEST_RUNNER_VERSION}/junit-platform-console-standalone-${JDTLS_TEST_RUNNER_VERSION}.jar"
 
 is_installed__lang__java__jdtls() {
   [ -f "$JDTLS_TARGET_DIR/bin/jdtls" ]
+}
+
+is_installed__lang__java__jdtls_test_runner() {
+  [ -s "$JDTLS_TEST_RUNNER_JAR" ]
+}
+
+install__lang__java__jdtls_test_runner() {
+  if ! is_installed__lang__java__jdtls_test_runner; then
+    mkdir -p "$JDTLS_TEST_RUNNER_DIR"
+    run_task "Downloading JUnit test runner v${JDTLS_TEST_RUNNER_VERSION}" "curl --fail --location --retry 3 --output $JDTLS_TEST_RUNNER_JAR $JDTLS_TEST_RUNNER_URL"
+  fi
 }
 
 install__lang__java__jdtls() {
@@ -1412,10 +1427,11 @@ install__lang__java__jdtls() {
     local JDTLS_TMP_DIR
     JDTLS_TMP_DIR=$(mktemp -d)
     mkdir -p "$JDTLS_TARGET_DIR"
-    run_task "Downloading JDTLS" "curl -L -o $JDTLS_TMP_DIR/jdtls.tar.gz https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/jdt-language-server-${JDTLS_VERSION}-${JDTLS_DATE}.tar.gz"
+    run_task "Downloading JDTLS v${JDTLS_VERSION}" "curl -L -o $JDTLS_TMP_DIR/jdtls.tar.gz https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/jdt-language-server-${JDTLS_VERSION}-${JDTLS_DATE}.tar.gz"
     run_task "Extracting JDTLS" "tar -xzf $JDTLS_TMP_DIR/jdtls.tar.gz -C $JDTLS_TARGET_DIR"
     rm -rf "$JDTLS_TMP_DIR"
   fi
+  install__lang__java__jdtls_test_runner
 }
 
 uninstall__lang__java__jdtls() {
