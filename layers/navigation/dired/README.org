@@ -116,6 +116,10 @@ Dirvish subtrees do not populate. We therefore fall back to
   :init
   (dirvish-override-dired-mode)
   :config
+  ;; =========================================================================
+  ;;  Subtree & Navigation Functions (Cache Independent)
+  ;; =========================================================================
+
   (defun cfg-navigation/dirvish-toggle-git-msg ()
     "Toggle 'vc-state' and 'git-msg' attributes for Dirvish."
     (interactive)
@@ -248,6 +252,14 @@ exactly one direct child and that child is a directory."
           (when was-expanded
             (cfg-navigation/dirvish-subtree-right))))))
 
+  ;; =========================================================================
+  ;;  Cache Management Functions
+  ;;
+  ;;  NOTE: The functions and hooks in this section are ONLY relevant if
+  ;;        Dirvish cache is ENABLED. If caching is disabled (e.g. via
+  ;;        `setq dirvish-reuse-copies nil`), these can remain unused.
+  ;; =========================================================================
+
   (defun cfg-navigation/dirvish-refresh-preview-cache ()
     "Clear text preview cache + buffers; force re-read from disk.
 Runs on `dirvish-after-revert-hook' so `g' reloads externally changed files."
@@ -278,9 +290,15 @@ Runs on `dirvish-after-revert-hook' so `g' reloads externally changed files."
                    (remhash buffer-file-name (dv-preview-hash dv)))
                  dirvish--sessions))))
 
+  ;; Attach Cache Invalidation Hooks
   (add-hook 'dirvish-after-revert-hook #'cfg-navigation/dirvish-refresh-preview-cache)
   (add-hook 'after-save-hook #'cfg-navigation/dirvish-invalidate-saved-preview)
 
+  ;; =========================================================================
+  ;;  General Settings & Options
+  ;; =========================================================================
+
+  (setq dirvish-reuse-copies nil) ; Disable cached preview buffers when navigating -- solves issue with stale files
   (setq dirvish-mode-line-format '(:left (path) :right (file-size)))
   (setq dirvish-attributes '(subtree-state nerd-icons file-size))
   (setq dirvish-preview-dispatchers '(dired image gif audio epub archive font pdf video))
@@ -292,7 +310,7 @@ Runs on `dirvish-after-revert-hook' so `g' reloads externally changed files."
   ;; Configuring Auto Revert mode for Dirvish/Dired buffers
   (setq global-auto-revert-non-file-buffers t) ; Allow Auto Revert monitor Dired/Dirvish buffers
   (setq auto-revert-verbose nil) ; Stop Emacs from printing "Reverting buffer..." in the echo area every time it updates
-  (add-hook 'dired-mode-hook #'auto-revert-mode)) ; Automatically turn on Auto Revert mode on Dirvish/Dired buffers
+  (add-hook 'dired-mode-hook #'auto-revert-mode))
 #+end_src
 
 ** Dired Faces
