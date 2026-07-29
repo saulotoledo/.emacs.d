@@ -1794,9 +1794,156 @@ the newly selected JAVA_HOME. Aborts the build step if no build file is found."
   :hook (java-ts-mode . yas-minor-mode))
 #+end_src
 
+** Package Rename Prototype
+This section is a small, self-contained prototype for a package rename for
+~lsp-java~. The package rename is implemented as a single batch resource move
+over all Java files in the package subtree.
+
+#+begin_src emacs-lisp
+(defun cfg-lang/lsp-java--buffer-package-name ()
+  "Return the Java package declared in the current buffer."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward "^package[ \t]+\\([[:alnum:]_.]+\\)[ \t]*;" nil t)
+      (match-string-no-properties 1))))
+
+(defun cfg-lang/lsp-java--package-rename-default (package-name)
+  "Return a conservative default rename target for PACKAGE-NAME."
+  (if (string-match "\\`\\(.+\\)\\.\\([^.]+\\)\\'" package-name)
+      (format "%s.%s_renamed" (match-string 1 package-name) (match-string 2 package-name))
+    (concat package-name "_renamed")))
+
+(defun cfg-lang/lsp-java--package-root-dir ()
+  "Return the directory that acts as the package subtree root."
+  (unless buffer-file-name
+    (user-error "Package rename requires a file-visiting buffer"))
+  (file-name-as-directory (file-name-directory buffer-file-name)))
+
+(defun cfg-lang/lsp-java--project-source-root ()
+  "Return the source root containing the current Java package tree.
+This strips the current package path from variable `buffer-file-name' so package
+destinations can be built relative to the source root instead of the current
+leaf package directory."
+  (let* ((package-name (or (cfg-lang/lsp-java--buffer-package-name)
+                           (user-error "Current buffer does not declare a Java package")))
+         (package-root (cfg-lang/lsp-java--package-root-dir))
+         (package-path (file-name-as-directory
+                        (replace-regexp-in-string "\\." "/" package-name))))
+    (if (and (string-suffix-p package-path package-root)
+             (> (length package-root) (length package-path)))
+        (substring package-root 0 (- (length package-root) (length package-path)))
+      (user-error "Cannot derive Java source root from %s" package-root))))
+
+(defun cfg-lang/lsp-java--package-java-files (root-dir)
+  "Return every Java source file underneath ROOT-DIR."
+  (seq-filter #'file-regular-p
+              (directory-files-recursively root-dir "\\.java\\'")))
+
+(defun cfg-lang/lsp-java--package-destination-dir (source-root new-package)
+  "Return the destination directory for NEW-PACKAGE.
+SOURCE-ROOT is the Java source root that contains the package subtree."
+  (expand-file-name (replace-regexp-in-string "\\." "/" new-package)
+                    (file-name-as-directory source-root)))
+
+(defun cfg-lang/lsp-java--save-modified-project-buffers (project-root)
+  "Save modified file buffers below PROJECT-ROOT after a JDTLS workspace edit."
+  (dolist (buffer (buffer-list))
+    (with-current-buffer buffer
+      (when-let* ((file (buffer-file-name))
+                  ((string-prefix-p project-root file))
+                  ((buffer-modified-p)))
+        (save-buffer)))))
+
+(defun cfg-lang/lsp-java--retarget-package-buffers (old-root new-root)
+  "Update visited Java buffers after OLD-ROOT has moved to NEW-ROOT."
+  (let ((old-root (file-name-as-directory old-root))
+        (new-root (file-name-as-directory new-root)))
+    (dolist (buffer (buffer-list))
+      (with-current-buffer buffer
+        (when-let* ((file (buffer-file-name))
+                    ((string-prefix-p old-root file)))
+          (set-visited-file-name
+           (expand-file-name (string-remove-prefix old-root file) new-root) t t))))))
+
+(defun cfg-lang/lsp-java--ensure-workspace ()
+  "Return a live JDTLS workspace for the current buffer.
+Wait briefly for the workspace that is already starting from the current
+buffer's `lsp-deferred' hook."
+  (let ((buffer-path (buffer-file-name))
+        workspace)
+    (unless buffer-path
+      (user-error "Package rename requires a file-visiting buffer"))
+    (cl-labels ((current-jdtls-workspace ()
+                  (or (lsp-find-workspace 'jdtls buffer-path)
+                      (lsp-find-workspace 'jdtls)
+                      (when (fboundp 'lsp-workspaces)
+                        (seq-find (lambda (ws)
+                                    (eq (lsp--workspace-server-id ws) 'jdtls))
+                                  (lsp-workspaces))))))
+      (setq workspace (current-jdtls-workspace))
+      (let ((deadline (+ (float-time) 10)))
+        (while (and (not (and workspace
+                               (eq (lsp--workspace-status workspace) 'initialized)))
+                    (< (float-time) deadline))
+          (accept-process-output nil 0.1)
+          (setq workspace (current-jdtls-workspace))))
+      (if (and workspace (eq (lsp--workspace-status workspace) 'initialized))
+          workspace
+        (user-error "JDTLS is still initializing. Wait for LSP to finish and try again")))))
+
+(defun cfg-lang/lsp-java-move-package (new-package)
+  "Move the current Java package subtree to NEW-PACKAGE.
+The filesystem move is performed through `rename-file' so lsp-mode asks JDTLS
+to update package declarations and references before the directory moves."
+  (interactive
+   (let* ((package-name (or (cfg-lang/lsp-java--buffer-package-name)
+                            (user-error "Current buffer does not declare a Java package")))
+          (default (cfg-lang/lsp-java--package-rename-default package-name)))
+     (list (read-string (format "Rename package %s to: " package-name) default))))
+  (message "JDTLS package rename: collecting files...")
+  (let* ((package-root (cfg-lang/lsp-java--package-root-dir))
+         (source-root (cfg-lang/lsp-java--project-source-root))
+         (source-files (cfg-lang/lsp-java--package-java-files package-root)))
+    (unless source-files
+      (user-error "No Java files found under %s" package-root))
+    (message "JDTLS package rename: waiting for workspace...")
+    (let* ((jdtls-ws (cfg-lang/lsp-java--ensure-workspace))
+           (destination-dir (cfg-lang/lsp-java--package-destination-dir source-root new-package)))
+      (when (string= package-root destination-dir)
+        (user-error "Package is already named %s" new-package))
+      (when (file-exists-p destination-dir)
+        (user-error "Destination package already exists: %s" destination-dir))
+      (with-lsp-workspace jdtls-ws
+        (message "JDTLS package rename: %s -> %s" package-root destination-dir)
+        (condition-case err
+            (progn
+              (make-directory (file-name-directory (directory-file-name destination-dir)) t)
+              (message "JDTLS package rename: moving directory and requesting edits...")
+              ;; lsp-mode's `rename-file' advice asks JDTLS for edits before
+              ;; moving the directory.  Those edits are applied to buffers.
+              (rename-file package-root destination-dir)
+              (cfg-lang/lsp-java--retarget-package-buffers package-root destination-dir)
+              (message "JDTLS package rename: saving package and reference edits...")
+              (cfg-lang/lsp-java--save-modified-project-buffers source-root)
+              (message "JDTLS package rename: moved %d Java file%s to %s"
+                       (length source-files)
+                       (if (= (length source-files) 1) "" "s")
+                       new-package))
+          (error
+           (message "JDTLS package rename failed: %S" err)
+           (signal (car err) (cdr err))))))))
+#+end_src
+
 * Keybindings
 #+begin_src emacs-lisp
-;; Major mode leader bindings for Java
+(with-eval-after-load 'lsp-java
+  (with-eval-after-load 'which-key
+    (which-key-add-keymap-based-replacements lsp-command-map
+      "j" "java"
+      "j p" "package rename"))
+
+  (define-key lsp-command-map (kbd "j p") #'cfg-lang/lsp-java-move-package))
+
 (cfg-keys/leader-def
   "L"     '(:ignore t :which-key "lang/code")
   "L j"   '(:ignore t :which-key "java")
