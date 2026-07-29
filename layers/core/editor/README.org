@@ -170,26 +170,115 @@ comments in code buffers while enforcing strict wrapping for documentation.
     (auto-fill-mode 1)))
 #+end_src
 
-** Line Numbering & Whitespace Visualization
-Enable line numbers across development modes and highlight trailing whitespace
-with styled wave underlines. Custom display mappings are assigned for tab
-characters.
+** General Whitespace and Special Characters Visualization
+Highlight tabs + non-ASCII spaces only. Normal ASCII spaces and newlines stay
+plain. Trailing whitespace uses a wave underline. Unicode homoglyphs + fancy
+spaces use a high-contrast warning face.
 
 #+begin_src emacs-lisp
-(setq-default whitespace-style '(face tabs tab-mark))
-(setq-default whitespace-display-mappings
-              '((tab-mark 9 [8594 32] [92 9])))
-(global-whitespace-mode 1)
+(defface cfg-core/homoglyph-face
+  '((t :foreground "yellow"
+       :background "darkred"
+       :weight bold
+       :box (:line-width (3 . -1) :color "darkred")
+       :underline (:style wave :color "yellow")))
+  "High-visibility face for Unicode homoglyphs and non-ASCII spaces.")
+
+(use-package whitespace
+  :ensure nil ; built-in
+  :config
+  (global-whitespace-mode 1))
+
+(use-package unicode-whitespace
+  :after whitespace
+  :config
+  (unicode-whitespace-setup 'subdued-faces)
+  ;; unicode-whitespace-setup overwrites whitespace-style + maps ASCII Space ->
+  ;; Middle Dot, and re-enables newline-mark when truncate-lines/word-wrap is
+  ;; on (even if newline-mark-modes is empty). Reassert: tabs + non-ASCII
+  ;; spaces only; no normal spaces; no newlines.
+  (setq unicode-whitespace-newline-mark-modes nil)
+  (setq whitespace-style
+        '(face
+          tabs
+          tab-mark
+          space-before-tab
+          space-after-tab
+          spaces
+          space-mark))
+  ;; Drop ordinary Space (U+0020) from soft-space recognition + glyph mapping.
+  (setq whitespace-space-regexp
+        (replace-regexp-in-string " " "" whitespace-space-regexp))
+  (setq whitespace-display-mappings
+        (seq-filter (lambda (m)
+                      (and (not (eq (car m) 'newline-mark))
+                           (not (eq (nth 1 m) ?\s))))
+                    whitespace-display-mappings))
+  ;; Restore tab arrow (unicode-whitespace skips ordinary TAB mappings).
+  (add-to-list 'whitespace-display-mappings
+               '(tab-mark ?\t [?\u2192 ?\t] [?\t]))
+  ;; whitespace applies space faces with override `t`, so point them at
+  ;; cfg-core/homoglyph-face -- troll-stopper prepend cannot win on spaces.
+  (dolist (face '(unicode-whitespace-subdued-space
+                  unicode-whitespace-subdued-hspace
+                  whitespace-space
+                  whitespace-hspace))
+    (when (facep face)
+      (set-face-attribute face nil :inherit 'cfg-core/homoglyph-face
+                          :foreground 'unspecified
+                          :background 'unspecified
+                          :weight 'unspecified
+                          :underline 'unspecified)))
+  ;; Kill newline marks if unicode-whitespace hook re-adds newline-mark.
+  (add-hook 'whitespace-mode-hook
+            (lambda ()
+              (when whitespace-mode
+                (setq-local whitespace-active-style
+                            (remq 'newline-mark
+                                  (remq 'newline
+                                        (copy-sequence
+                                         (or whitespace-active-style
+                                             whitespace-style)))))
+                (whitespace-display-char-off)
+                (whitespace-display-char-on)))
+            100)
+  (global-whitespace-mode 0)
+  (global-whitespace-mode 1))
 
 (dolist (hook '(prog-mode-hook text-mode-hook))
-  (add-hook hook #'display-line-numbers-mode)
   (add-hook hook
             (lambda ()
               (setq-local show-trailing-whitespace t)
               (face-remap-add-relative
                'trailing-whitespace
                `(:background ,(face-background 'default)
-                 :underline (:style wave :color ,(face-foreground 'error)))))))
+                             :underline (:style wave :color ,(face-foreground 'error)))))))
+
+(use-package unicode-troll-stopper
+  :after unicode-whitespace
+  :hook ((prog-mode . unicode-troll-stopper-mode)
+         (text-mode . unicode-troll-stopper-mode))
+  :config
+  ;; Package bug: (regexp-opt STRINGS 'words) wraps the pattern in \<...\>. That
+  ;; only matches word-syntax chars. Leading Unicode spaces (NBSP, EN/EM
+  ;; QUAD/SPACE, ...; syntax class " ") and several others never match. Strip
+  ;; the  word-boundary anchors. Use override `t` so this wins over other
+  ;; font-lock faces on non-spaces.
+  (let ((re (caar unicode-troll-stopper--keywords)))
+    (when (string-prefix-p "\\<" re)
+      (setq re (substring re 2)))
+    (when (string-suffix-p "\\>" re)
+      (setq re (substring re 0 -2)))
+    (setq unicode-troll-stopper--keywords
+          `((,re 1 'cfg-core/homoglyph-face t)))))
+#+end_src
+
+** Line Numbering and Trailing Whitespace Visualization
+Enable line numbers across development modes.
+
+#+begin_src emacs-lisp
+(dolist (hook '(prog-mode-hook text-mode-hook))
+  (add-hook hook #'display-line-numbers-mode))
 #+end_src
 
 ** Modes configuration
