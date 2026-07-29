@@ -20,9 +20,8 @@ buffer and it works the same as in a ~dap-server-log~ window.
   underlined face so they stand out immediately.
 - *External library* classes are rendered in a muted face to reduce noise.
 - Each ~File.java:42~ reference becomes clickable (=mouse-1=) and is also
-  reachable from the keyboard with =C-c C-j=. The mode uses ~project-current~ /
-  ~directory-files-recursively~ to locate the source file inside the active
-  project tree.
+  reachable from the keyboard with =C-c C-j=. The mode uses declared source
+  roots for project files, then source JARs and class JARs for libraries.
 
 *Configuration*
 
@@ -63,6 +62,26 @@ all others use `cfg-jvm/java-stack-trace-external-face'."
   :type '(repeat string)
   :group 'cfg-lang/java-stack-trace)
 
+(defcustom cfg-lang/java-stack-trace-source-roots
+  '("src/main/java" "src/test/java" "src/main/kotlin" "src/test/kotlin")
+  "Relative project directories searched for stack-trace source files.
+
+Only these directories are searched.  This keeps generated LSP caches and
+build output from being mistaken for editable project source."
+  :type '(repeat string)
+  :group 'cfg-lang/java-stack-trace)
+
+(defcustom cfg-lang/java-stack-trace-library-search-paths
+  (delq nil
+        (list (expand-file-name ".m2/repository" (getenv "HOME"))
+              (expand-file-name ".gradle/caches/modules-2/files-2.1" (getenv "HOME"))))
+  "Directories or JAR files searched for external library classes.
+
+Source archives are preferred. A class-only archive is opened read-only when
+no source archive contains the requested entry."
+  :type '(repeat file)
+  :group 'cfg-lang/java-stack-trace)
+
 (defface cfg-lang/java-stack-trace-project-face
   '((((background dark))  :foreground "#7ec8e3" :weight bold :underline t)
     (((background light)) :foreground "#0070a8" :weight bold :underline t))
@@ -95,6 +114,9 @@ all others use `cfg-jvm/java-stack-trace-external-face'."
 (defvar cfg-lang/java-stack-trace--auto-packages-cache (make-hash-table :test 'equal)
   "Cache mapping project roots to their auto-detected package prefixes.
 Populated lazily by `cfg-jvm/java-stack-trace--auto-detect-packages'.")
+
+(defvar cfg-lang/java-stack-trace--jar-entry-cache (make-hash-table :test 'equal)
+  "Cache of archive entries found beneath library search paths.")
 
 (defun cfg-lang/java-stack-trace--extract-pom-packages (pom-file)
   "Return a list of package prefixes from POM-FILE.
@@ -211,35 +233,104 @@ Example: \"com.foo.Bar.method\" + \"Bar.java\" -> \"com/foo/Bar.java\"."
          (ext   (file-name-extension source-file)))
     (concat (replace-regexp-in-string "\\." "/" class) "." ext)))
 
+(defun cfg-lang/java-stack-trace--display-buffer (buffer)
+  "Display BUFFER without replacing the stack-trace buffer."
+  (display-buffer buffer
+                  '((display-buffer-reuse-window
+                     display-buffer-use-some-window
+                     display-buffer-pop-up-window)
+                    (inhibit-same-window . t))))
+
+(defun cfg-lang/java-stack-trace--project-source (root rel)
+  "Return the project source file for REL beneath ROOT, if it exists."
+  (cl-find-if #'file-regular-p
+              (mapcar (lambda (source-root)
+                        (expand-file-name rel (expand-file-name source-root root)))
+                      cfg-lang/java-stack-trace-source-roots)))
+
+(defun cfg-lang/java-stack-trace--library-jars ()
+  "Return configured library JARs without traversing the project tree."
+  (delete-dups
+   (cl-mapcan (lambda (path)
+                (cond
+                 ((and (file-regular-p path) (string-suffix-p ".jar" path))
+                  (list path))
+                 ((file-directory-p path)
+                  (directory-files-recursively path "\\.jar\\'"))
+                 (t nil)))
+              cfg-lang/java-stack-trace-library-search-paths)))
+
+(defun cfg-lang/java-stack-trace--jar-has-entry-p (jar entry)
+  "Return non-nil when JAR contains ENTRY."
+  (with-temp-buffer
+    (eq 0 (process-file "unzip" nil (current-buffer) nil "-Z1" jar entry))))
+
+(defun cfg-lang/java-stack-trace--find-jar-entry (entry source-p)
+  "Find ENTRY in a source or class JAR according to SOURCE-P."
+  (let ((key (cons source-p entry)))
+    (or (gethash key cfg-lang/java-stack-trace--jar-entry-cache)
+        (let ((jar (cl-find-if
+                    (lambda (candidate)
+                      (and (eq source-p (string-suffix-p "-sources.jar" candidate))
+                           (cfg-lang/java-stack-trace--jar-has-entry-p candidate entry)))
+                    (cfg-lang/java-stack-trace--library-jars))))
+          (when jar
+            (puthash key jar cfg-lang/java-stack-trace--jar-entry-cache))
+          jar))))
+
+(defun cfg-lang/java-stack-trace--open-archive-entry (jar entry line source-p)
+  "Open ENTRY from JAR read-only, moving to LINE when SOURCE-P is non-nil."
+  (require 'arc-mode)
+  (let ((archive-buffer (find-file-noselect jar)))
+    (with-current-buffer archive-buffer
+      (unless (derived-mode-p 'archive-mode)
+        (archive-mode))
+      (if (not (archive-goto-file entry))
+          (message "java-stack-trace: %s is not present in %s" entry jar)
+        (let ((archive-read-only t))
+          (archive-extract 'display))
+        (let ((member (cl-find-if
+                       (lambda (buffer)
+                         (and (eq (buffer-local-value 'archive-superior-buffer buffer)
+                                  archive-buffer)
+                              (string-suffix-p (concat ":" entry)
+                                                   (or (buffer-file-name buffer) ""))))
+                       (buffer-list))))
+          (when member
+            (with-current-buffer member
+              ;; Archive member names are synthetic paths; never autosave them.
+              (auto-save-mode -1)
+              (setq buffer-read-only t)
+              (when source-p
+                (goto-char (point-min))
+                (forward-line (1- line))))
+            (cfg-lang/java-stack-trace--display-buffer member)))))))
+
 (defun cfg-lang/java-stack-trace--jump (fqcn file line)
-  "Open the source file for FQCN at LINE in a side window.
-FILE is the short filename (e.g. \"WebClientConfig.java\").
-Uses `cfg-jvm/java-stack-trace--effective-root' to discover the root, then
-searches recursively. Always opens in a separate window so DAP/log
-buffers are not replaced."
-  (let* ((rel  (cfg-lang/java-stack-trace--rel-path fqcn file))
-         (root (cfg-lang/java-stack-trace--effective-root)))
+  "Open the project source or library archive entry for FQCN at LINE.
+Project source takes precedence over source JARs, which take precedence over
+class-only JARs."
+  (let* ((rel (cfg-lang/java-stack-trace--rel-path fqcn file))
+         (class-entry (concat (file-name-sans-extension rel) ".class"))
+         (root (cfg-lang/java-stack-trace--effective-root))
+         (project-source (and root (cfg-lang/java-stack-trace--project-source root rel)))
+         (source-jar (cfg-lang/java-stack-trace--find-jar-entry rel t))
+         (class-jar (and (not source-jar)
+                         (cfg-lang/java-stack-trace--find-jar-entry class-entry nil))))
     (cond
-     ((not root)
-      (message "java-stack-trace: no project root found; cannot locate %s" file))
+     (project-source
+      (let ((buffer (find-file-noselect project-source)))
+        (with-current-buffer buffer
+          (goto-char (point-min))
+          (forward-line (1- line)))
+        (cfg-lang/java-stack-trace--display-buffer buffer)))
+     (source-jar
+      (cfg-lang/java-stack-trace--open-archive-entry source-jar rel line t))
+     (class-jar
+      (message "java-stack-trace: no source archive; opening binary class entry")
+      (cfg-lang/java-stack-trace--open-archive-entry class-jar class-entry line nil))
      (t
-      (let* ((candidates (directory-files-recursively root (regexp-quote file)))
-             ;; Prefer the candidate whose path ends with the package-derived suffix
-             (best       (cl-find-if (lambda (f) (string-suffix-p rel f)) candidates))
-             (chosen     (or best (car candidates))))
-        (if (not chosen)
-            (message "java-stack-trace: %s not found under %s" file root)
-          (let ((buf (find-file-noselect chosen)))
-            (with-current-buffer buf
-              (goto-char (point-min))
-              (forward-line (1- line)))
-            ;; Open in another window, reusing an existing one if available,
-            ;; but never replacing the log/DAP buffer we came from.
-            (display-buffer buf
-                            '((display-buffer-reuse-window
-                               display-buffer-use-some-window
-                               display-buffer-pop-up-window)
-                              (inhibit-same-window . t))))))))))
+      (message "java-stack-trace: %s not found in project source or configured libraries" file)))))
 
 (defun cfg-lang/java-stack-trace-jump-at-point ()
   "Jump to the source location referenced by the stack trace entry at point."
