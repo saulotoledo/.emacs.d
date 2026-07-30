@@ -40,20 +40,20 @@ being excessive.
 #+end_src
 
 *** Flycheck limitations over TRAMP
-Running Flycheck within TRAMP currently involves a few known friction points.
-The technical challenges and specific limitations are well-documented in the
-following pull requests, and the maintainers are planning to address these
-through a future redesign of the system:
-- [[https://github.com/flycheck/flycheck/pull/1842][Flycheck PR #1842]]
-- [[https://github.com/flycheck/flycheck/pull/1922][Flycheck PR #1922]]
+TRAMP support for Flyway was added to version 38 (See PR 2191 at
+flycheck/flycheck).
 
 #+begin_src emacs-lisp
 (defun cfg-lsp--flycheck-maybe-enable ()
-  "Enable flycheck-mode only if the file is local (not a TRAMP file).
-This is important because Flycheck does not support TRAMP yet."
-  (when (and (buffer-file-name)
-             (not (tramp-tramp-file-p (buffer-file-name))))
-    (flycheck-mode 1)))
+  "Enable flycheck when properly supported.
+Always enable for local files. For TRAMP files, enable only if Flycheck is v38+,
+because TRAMP support was added to that version."
+  (when (buffer-file-name)
+    (if (not (tramp-tramp-file-p (buffer-file-name)))
+        (flycheck-mode 1)
+      (when (and (boundp 'flycheck-version)
+                 (version<= "38" flycheck-version))
+        (flycheck-mode 1)))))
 #+end_src
 
 ** Cognitive Complexity: Code Metrics
