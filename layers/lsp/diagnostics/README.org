@@ -25,14 +25,63 @@ being excessive.
 #+begin_src emacs-lisp
 (use-package flycheck
   :custom
-  (flycheck-indication-mode nil)
   (flycheck-highlighting-mode 'symbols)
+  (flycheck-indication-mode nil)
   (flycheck-overlay-margin-spec nil)
   ;; Raise the error threshold to avoid missing diagnostics from language servers.
   (flycheck-checker-error-threshold 9999)
   ;; Flycheck behavior:
   (flycheck-check-syntax-automatically '(save mode-enabled idle-change))
   (flycheck-idle-change-delay 2)
+
+  :config
+  ;; Available only on Flycheck 38+:
+  (when (fboundp 'global-flycheck-annotate-mode)
+    (global-flycheck-annotate-mode 1)
+
+    ;; Source-code highlight faces
+    (set-face-attribute 'flycheck-error nil
+                        :underline '(:style wave :color "#c0392b")
+                        :background 'unspecified)
+    (set-face-attribute 'flycheck-warning nil
+                        :underline '(:style wave :color "#e67e22")
+                        :background 'unspecified)
+    (set-face-attribute 'flycheck-info nil
+                        :underline '(:style wave :color "#7f8c8d")
+                        :background 'unspecified)
+
+    ;; Inline annotation faces
+    (set-face-attribute 'flycheck-annotate-error nil
+                        :foreground "#922b21"
+                        :slant 'italic
+                        :weight 'normal)
+    (set-face-attribute 'flycheck-annotate-warning nil
+                        :foreground "#935116"
+                        :slant 'italic
+                        :weight 'normal)
+    (set-face-attribute 'flycheck-annotate-info nil
+                        :foreground "#626567"
+                        :slant 'italic
+                        :weight 'normal)
+
+    ;; The annotation overlay spans the same newline as the source (flycheck-info
+    ;; etc.) overlay, so Emacs merges their faces and the wave underline bleeds
+    ;; into the annotation text. Setting :underline nil on the face definition
+    ;; alone doesn't work because face merging can't suppress a property from a
+    ;; co-located overlay.
+    ;;
+    ;; Fix: prepend (:underline nil) to the existing face text property on the
+    ;; before-string using `add-face-text-property' (append=nil -> front of list
+    ;; -> highest priority). This preserves the colors from flycheck-annotate-* and
+    ;; overrides the underline from any co-located buffer overlay.
+    (advice-add 'flycheck-annotate--make-overlay :filter-return
+                (lambda (ov)
+                  (when-let* ((s (overlay-get ov 'before-string)))
+                    (let ((new-s (copy-sequence s)))
+                      (add-face-text-property 0 (length new-s) '(:underline nil) nil new-s)
+                      (overlay-put ov 'before-string new-s)))
+                  ov)
+                '((name . cfg-lsp--annotate-no-underline))))
 
   ;; Enable Flycheck globally. Disabled for now. I am trying prog-mode hook instead.
   ;; (global-flycheck-mode t)
