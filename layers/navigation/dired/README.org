@@ -22,6 +22,7 @@ and integrated searching via ripgrep.
   ;; via coreutils) and not the BSD ls that comes with macOS, as the latter
   ;; may not support the required options for dired to work properly.
   (dired-listing-switches "-ahl --group-directories-first")
+  (dired-clean-confirm-killing-deleted-buffers nil) ; No confirmation prompt
   :config
   (defun cfg-navigation/refresh-dired-and-children (&rest _)
     "Force-refresh the current Dired buffer and any related child buffers.
