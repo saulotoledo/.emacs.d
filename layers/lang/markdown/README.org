@@ -13,8 +13,61 @@ Configure markdown-mode for Emacs.
   :hook (markdown-mode . (lambda () (setq fill-column 72))))
 #+end_src
 
+** Grip mode
+Instant Github-flavored Markdown/Org preview using Grip (GitHub Readme Instant
+Preview), mdopen or go-grip.
+
+#+begin_src emacs-lisp
+(use-package ox-gfm
+  :after org)
+
+(use-package grip-mode
+  :pin "MELPA Unstable" ; Stable version (2.5.0) sends invalid theme param to go-grip
+  :config
+  (setq grip-command 'go-grip))
+#+end_src
+
 * Keybindings
-No keybindings required.
+#+begin_src emacs-lisp
+(with-eval-after-load 'markdown-mode
+  (define-key markdown-mode-command-map (kbd "g") #'grip-mode))
+(cfg-keys/leader-def
+  "L"     '(:ignore t :which-key "lang/code")
+  "L m"   '(:ignore t :which-key "markdown")
+  "L m g" #'grip-mode)
+#+end_src
 
 * System Setup
-No system setup required.
+We need to install ~go-grip~ on our system:
+
+#+begin_src sh
+is_installed__lang__markdown__gogrip() {
+  command -v go-grip >/dev/null 2>&1
+}
+
+install__lang__markdown__gogrip() {
+  install_via_go "Go-grip" "github.com/chrishrb/go-grip"
+}
+
+uninstall__lang__markdown__gogrip() {
+  BINARY_NAME="go-grip"
+  GOBIN_PATH=$(go env GOBIN)
+  GOPATH_PATH=$(go env GOPATH)
+
+  if [ -z "$GOBIN_PATH" ]; then
+    TARGET_DIR="$GOPATH_PATH/bin"
+  else
+    TARGET_DIR="$GOBIN_PATH"
+  fi
+
+  TARGET_FILE="$TARGET_DIR/$BINARY_NAME"
+
+  if [ -f "$TARGET_FILE" ]; then
+    rm "$TARGET_FILE"
+  fi
+
+  run_task "Uninstalling Go-grip" "true"
+}
+
+register_action "Lang" "Markdown" "Install Go-grip" "-lang--markdown--gogrip" "standalone"
+#+end_src

@@ -1662,6 +1662,36 @@ uninstall__lang__kotlin__kotlin() {
 
 register_action "Lang" "Kotlin" "Install Kotlin" "-lang--kotlin--kotlin" "jvm"
 
+is_installed__lang__markdown__gogrip() {
+  command -v go-grip >/dev/null 2>&1
+}
+
+install__lang__markdown__gogrip() {
+  install_via_go "Go-grip" "github.com/chrishrb/go-grip"
+}
+
+uninstall__lang__markdown__gogrip() {
+  BINARY_NAME="go-grip"
+  GOBIN_PATH=$(go env GOBIN)
+  GOPATH_PATH=$(go env GOPATH)
+
+  if [ -z "$GOBIN_PATH" ]; then
+    TARGET_DIR="$GOPATH_PATH/bin"
+  else
+    TARGET_DIR="$GOBIN_PATH"
+  fi
+
+  TARGET_FILE="$TARGET_DIR/$BINARY_NAME"
+
+  if [ -f "$TARGET_FILE" ]; then
+    rm "$TARGET_FILE"
+  fi
+
+  run_task "Uninstalling Go-grip" "true"
+}
+
+register_action "Lang" "Markdown" "Install Go-grip" "-lang--markdown--gogrip" "standalone"
+
 LSP_BASH_LANGUAGE_SERVER_PATH="$HOME/.emacs.d/.cache/lsp/npm/bash-language-server"
 
 is_installed__lang__shell__bash_language_server() {
