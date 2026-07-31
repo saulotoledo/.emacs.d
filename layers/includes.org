@@ -39,6 +39,7 @@
 #+INCLUDE: "lang/pdf/README.org"
 #+INCLUDE: "lang/python/README.org"
 #+INCLUDE: "lang/shell/README.org"
+#+INCLUDE: "lang/sql/README.org"
 #+INCLUDE: "lang/terraform/README.org"
 #+INCLUDE: "lang/treesitter/README.org"
 #+INCLUDE: "lang/web/README.org"

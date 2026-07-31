@@ -44,6 +44,19 @@ Run once if you see wrong-type-argument hash-table-p when flycheck runs LSP diag
 code completion, go-to-definition, diagnostics, and more.
 
 #+begin_src emacs-lisp
+(defvar cfg-lsp/deferred-start-predicate-functions nil
+  "Predicates that must allow deferred LSP startup in the current buffer.")
+
+(defun cfg-lsp/deferred-start-p ()
+  "Return non-nil when the current buffer is eligible for deferred LSP startup."
+  (seq-every-p (lambda (predicate) (funcall predicate))
+               cfg-lsp/deferred-start-predicate-functions))
+
+(defun cfg-lsp/defer-maybe ()
+  "Start deferred LSP only when all registered predicates allow it."
+  (when (cfg-lsp/deferred-start-p)
+    (lsp-deferred)))
+
 (use-package lsp-mode
   :pin "MELPA Unstable"
   :init
@@ -65,7 +78,7 @@ code completion, go-to-definition, diagnostics, and more.
   (:map lsp-mode-map ("M-RET" . lsp-execute-code-action))
 
   :hook
-  (prog-mode . lsp-deferred)
+  (prog-mode . cfg-lsp/defer-maybe)
 
   :custom
   (lsp-response-timeout 20) ; Increase timeout for slow language servers

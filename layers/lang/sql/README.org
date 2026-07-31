@@ -1,0 +1,273 @@
+#+TITLE: SQL Layer
+#+CATEGORY: lang
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Provides SQL editing support through =sql-mode= and =sql-language-server=.
+
+* Emacs Configuration
+** SQL Language Server
+The npm package exposes =sql-language-server=, while ~lsp-sql~ first checks for
+=sql-ls=. Pinning the shared Node installation prevents lsp-mode from trying to
+install a second copy. The server only supports schema connections for MySQL,
+PostgreSQL, SQLite, BigQuery, and JSON. It is therefore started only when the
+project resolves one of those adapters from its =.sqllsrc.json= configuration.
+
+#+begin_src emacs-lisp
+(setq lsp-sql-server-path
+      (expand-file-name "nodejs_tools/node_modules/.bin/sql-language-server"
+                        user-emacs-directory))
+
+(with-eval-after-load 'lsp-mode
+  ;; sql-language-server emits this non-standard notification after setup.
+  (puthash "sqlLanguageServer.finishSetup" #'ignore lsp--default-notification-handlers))
+
+(defconst cfg-lang/sql-lsp-supported-adapters
+  '("mysql" "postgres" "postgresql" "sqlite3" "bigquery" "json"))
+
+(defun cfg-lang/sql--json-file (file)
+  "Return FILE parsed as JSON, or nil when it does not exist."
+  (when (file-readable-p file)
+    (with-temp-buffer
+      (insert-file-contents file)
+      (json-parse-buffer :object-type 'alist :array-type 'list
+                         :null-object nil :false-object nil))))
+
+(defun cfg-lang/sql--json-value (key object)
+  "Return string KEY from JSON alist OBJECT."
+  (cdr (assoc-string key object)))
+
+(defun cfg-lang/sql--project-root ()
+  "Return the current SQL buffer's project root or its directory."
+  (or (when-let* ((project (project-current nil)))
+        (project-root project))
+      (locate-dominating-file default-directory ".git")
+      default-directory))
+
+(defun cfg-lang/sql--connection-for-project (root)
+  "Resolve sql-language-server connection configuration for ROOT."
+  (let* ((project-config (cfg-lang/sql--json-file
+                          (expand-file-name ".sqllsrc.json" root)))
+         (personal-config (cfg-lang/sql--json-file
+                           (expand-file-name ".config/sql-language-server/.sqllsrc.json"
+                                             (getenv "HOME"))))
+         (connections (cfg-lang/sql--json-value "connections" personal-config))
+         (project-name (cfg-lang/sql--json-value "name" project-config))
+         (named-connection (and project-name
+                                (seq-find (lambda (connection)
+                                            (equal project-name
+                                                   (cfg-lang/sql--json-value
+                                                    "name" connection)))
+                                          connections)))
+         (path-connection (seq-find
+                           (lambda (connection)
+                             (member root
+                                     (cfg-lang/sql--json-value "projectPaths"
+                                                               connection)))
+                           connections)))
+    (or (and (cfg-lang/sql--json-value "adapter" project-config)
+             project-config)
+        named-connection
+        path-connection)))
+
+(defun cfg-lang/sql-lsp-supported-p ()
+  "Return non-nil unless this SQL buffer lacks a supported LSP adapter."
+  (or (not (derived-mode-p 'sql-mode))
+      (when-let* ((connection
+                   (cfg-lang/sql--connection-for-project
+                    (cfg-lang/sql--project-root)))
+                  (adapter (cfg-lang/sql--json-value "adapter" connection)))
+        (member adapter cfg-lang/sql-lsp-supported-adapters))))
+
+(add-hook 'cfg-lsp/deferred-start-predicate-functions
+          #'cfg-lang/sql-lsp-supported-p)
+#+end_src
+
+** SQLFluff
+#+begin_src emacs-lisp
+(defconst cfg-lang/sqlfluff-config-files
+  '("setup.cfg" "tox.ini" "pep8.ini" ".sqlfluff" "pyproject.toml"))
+
+(defvar-local cfg-lang/sqlfluff-dialect nil
+  "Dialect supplied to SQLFluff for the current buffer.")
+
+(defun cfg-lang/sqlfluff--dialect-in-file (file)
+  "Return SQLFluff's dialect setting from FILE, if present."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (goto-char (point-min))
+    (when (re-search-forward
+           (if (string= (file-name-nondirectory file) "pyproject.toml")
+               "^\\[tool\\.sqlfluff\\(?:\\.core\\)?\\]"
+             "^\\[sqlfluff\\]")
+           nil t)
+      (let ((section-end (or (save-excursion
+                               (when (re-search-forward "^\\[" nil t)
+                                 (match-beginning 0)))
+                             (point-max))))
+        (when (re-search-forward
+               "^[[:space:]]*dialect[[:space:]]*=[[:space:]]*\\(?:\\\"\\)?\\([^[:space:]\\\"#;]+\\)"
+               section-end t)
+          (match-string-no-properties 1))))))
+
+(defun cfg-lang/sqlfluff--ancestor-directories (directory)
+  "Return DIRECTORY's ancestors from the filesystem root to DIRECTORY."
+  (let ((directories nil)
+        (current (file-name-as-directory (expand-file-name directory))))
+    (while current
+      (push current directories)
+      (let ((parent (file-name-directory (directory-file-name current))))
+        (setq current (unless (equal parent current) parent))))
+    directories))
+
+(defun cfg-lang/sqlfluff--project-dialect ()
+  "Return the nearest SQLFluff dialect configured for the current buffer."
+  (let (dialect)
+    (dolist (directory (cfg-lang/sqlfluff--ancestor-directories default-directory))
+      (dolist (name cfg-lang/sqlfluff-config-files)
+        (let ((file (expand-file-name name directory)))
+          (when (file-readable-p file)
+            (when-let ((configured (cfg-lang/sqlfluff--dialect-in-file file)))
+              (setq dialect configured))))))
+    dialect))
+
+(defun cfg-lang/sqlfluff--available-dialects ()
+  "Return dialect names reported by the installed SQLFluff executable."
+  (when-let ((program (executable-find "sqlfluff")))
+    (with-temp-buffer
+      (when (zerop (call-process program nil t nil "dialects"))
+        (goto-char (point-min))
+        (let (dialects)
+          (while (re-search-forward "^\\([[:alnum:]_]+\\):" nil t)
+            (push (match-string-no-properties 1) dialects))
+          (nreverse dialects))))))
+
+(defun cfg-lang/sqlfluff-select-dialect ()
+  "Select SQLFluff dialect for the current buffer and rerun Flycheck."
+  (interactive)
+  (setq-local cfg-lang/sqlfluff-dialect
+              (completing-read "SQLFluff dialect: "
+                               (or (cfg-lang/sqlfluff--available-dialects)
+                                   '("ansi"))))
+  (when (bound-and-true-p flycheck-mode)
+    (flycheck-buffer)))
+
+(defun cfg-lang/sqlfluff--parse-output (output _checker _buffer)
+  "Convert SQLFluff JSON OUTPUT into Flycheck errors."
+  (condition-case nil
+      (let ((reports (json-parse-string output :object-type 'alist :array-type 'list
+                                        :null-object nil :false-object nil)))
+        (apply #'append
+               (mapcar
+                (lambda (report)
+                  (mapcar
+                   (lambda (violation)
+                     (flycheck-error-new-at
+                      (or (cfg-lang/sql--json-value "start_line_no" violation)
+                          (cfg-lang/sql--json-value "line_no" violation))
+                      (or (cfg-lang/sql--json-value "start_line_pos" violation)
+                          (cfg-lang/sql--json-value "line_pos" violation))
+                      (if (cfg-lang/sql--json-value "warning" violation)
+                          'warning
+                        'error)
+                      (format "%s: %s"
+                              (cfg-lang/sql--json-value "code" violation)
+                              (cfg-lang/sql--json-value "description" violation))))
+                   (cfg-lang/sql--json-value "violations" report)))
+                reports)))
+    (json-parse-error nil)))
+
+(flycheck-define-checker sqlfluff
+  "A SQLFluff checker with buffer-local dialect selection."
+  :command ("sqlfluff" "lint" "--nocolor" "--disable-progress-bar"
+            "--format" "json" "--stdin-filename" source-original
+            (option "--dialect" cfg-lang/sqlfluff-dialect) "-")
+  :standard-input t
+  :error-parser cfg-lang/sqlfluff--parse-output
+  :modes sql-mode)
+
+(defun cfg-lang/sqlfluff-setup ()
+  "Configure SQLFluff as the only diagnostics provider for SQL buffers."
+  (setq-local lsp-diagnostics-provider :none)
+  (setq-local cfg-lang/sqlfluff-dialect
+              (or (cfg-lang/sqlfluff--project-dialect)
+                  (progn
+                    (message "No project SQLFluff dialect found; choose one for this buffer.")
+                    (completing-read "SQLFluff dialect: "
+                                     (or (cfg-lang/sqlfluff--available-dialects)
+                                         '("ansi"))))))
+  (setq-local flycheck-checker 'sqlfluff)
+  (flycheck-mode 1))
+
+(add-hook 'sql-mode-hook #'cfg-lang/sqlfluff-setup)
+#+end_src
+
+** SQLFluff Formatting (Optional)
+SQLFluff formatting is available on demand only. It is not enabled for SQL
+buffers automatically because valid dialect-specific SQL can fail formatting.
+
+#+begin_src emacs-lisp
+;; Do not let Apheleia's default pgformatter mapping format SQL on save.
+(with-eval-after-load 'apheleia
+  (setf (alist-get 'sql-mode apheleia-mode-alist) nil)
+  (setf (alist-get 'sqlfluff apheleia-formatters)
+        '("sqlfluff" "format" "--disable-progress-bar"
+          "--stdin-filename" filepath
+          (when cfg-lang/sqlfluff-dialect
+            (list "--dialect" cfg-lang/sqlfluff-dialect))
+          "-")))
+
+(defun cfg-lang/sqlfluff-format-buffer ()
+  "Format the current SQL buffer with SQLFluff through Apheleia."
+  (interactive)
+  (unless (derived-mode-p 'sql-mode)
+    (user-error "SQLFluff formatting is only available in SQL buffers"))
+  (unless (executable-find "sqlfluff")
+    (user-error "SQLFluff executable is not available"))
+  (apheleia-format-buffer 'sqlfluff))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "L"     '(:ignore t :which-key "lang/code")
+  "L s"   '(:ignore t :which-key "sql")
+  "L s f" '(cfg-lang/sqlfluff-format-buffer :which-key "Format buffer (SQLFluff)"))
+#+end_src
+
+* System Setup
+** SQL Language Server
+#+begin_src sh
+is_installed__lang__sql__language_server() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/sql-language-server" ]
+}
+
+install__lang__sql__language_server() {
+  install_nodejs_tools
+}
+
+uninstall__lang__sql__language_server() {
+  uninstall_nodejs_tools
+}
+
+register_action "Lang" "SQL" "Install SQL Language Server" "-lang--sql--language-server" "node"
+#+end_src
+
+** SQLFluff
+#+begin_src sh
+is_installed__lang__sql__sqlfluff() {
+  command -v sqlfluff >/dev/null 2>&1
+}
+
+install__lang__sql__sqlfluff() {
+  install_via_pipx "SQLFluff" "sqlfluff"
+  # install_via_pipx "Pytest" "pytest"
+}
+
+uninstall__lang__sql__sqlfluff() {
+  run_task "Uninstalling SQLFluff" "pipx uninstall sqlfluff 2>/dev/null || true"
+}
+
+register_action "Lang" "SQL" "Install SQLFluff" "-lang--sql--sqlfluff" "standalone"
+#+end_src

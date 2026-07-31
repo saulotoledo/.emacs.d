@@ -47,6 +47,7 @@
   - [[file:lang/pdf/README.org][pdf]]
   - [[file:lang/python/README.org][python]]
   - [[file:lang/shell/README.org][shell]]
+  - [[file:lang/sql/README.org][sql]]
   - [[file:lang/terraform/README.org][terraform]]
   - [[file:lang/treesitter/README.org][treesitter]]
   - [[file:lang/web/README.org][web]]

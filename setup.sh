@@ -654,7 +654,7 @@ install_via_pipx() {
   local package="$2"
 
   if ensure_pipx_available; then
-    run_task "$friendly_name via pipx" "pipx install $package"
+    run_task "$friendly_name via pipx" "pipx install --force $package"
   else
     log_error "Installation of $package skipped because pipx is unavailable."
     return 1
@@ -1640,6 +1640,35 @@ uninstall__lang__shell__shellcheck() {
 }
 
 register_action "Lang" "Shell" "Install ShellCheck" "-lang--shell--shellcheck" "standalone"
+
+is_installed__lang__sql__language_server() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/sql-language-server" ]
+}
+
+install__lang__sql__language_server() {
+  install_nodejs_tools
+}
+
+uninstall__lang__sql__language_server() {
+  uninstall_nodejs_tools
+}
+
+register_action "Lang" "SQL" "Install SQL Language Server" "-lang--sql--language-server" "node"
+
+is_installed__lang__sql__sqlfluff() {
+  command -v sqlfluff >/dev/null 2>&1
+}
+
+install__lang__sql__sqlfluff() {
+  install_via_pipx "SQLFluff" "sqlfluff"
+  # install_via_pipx "Pytest" "pytest"
+}
+
+uninstall__lang__sql__sqlfluff() {
+  run_task "Uninstalling SQLFluff" "pipx uninstall sqlfluff 2>/dev/null || true"
+}
+
+register_action "Lang" "SQL" "Install SQLFluff" "-lang--sql--sqlfluff" "standalone"
 
 is_installed__lang__web__tailwindcss_language_server() {
   [ -f "$TOOLS_DIR/node_modules/.bin/tailwindcss-language-server" ]
