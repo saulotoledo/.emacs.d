@@ -665,6 +665,68 @@ install_via_pipx() {
   fi
 }
 
+register_system_package "go" \
+                        "alpine:go" \
+                        "fedora:golang" \
+                        "linuxbrew:go" \
+                        "mac:go" \
+                        "debian-ubuntu:golang-go"
+
+configure_go_environment() {
+  export GOPATH="${XDG_DATA_HOME:-$HOME/.local/share}/go"
+  export PATH="$PATH:$GOPATH/bin"
+
+  # shellcheck disable=SC2016
+  register_shell_path 'export GOPATH="${XDG_DATA_HOME:-$HOME/.local/share}/go"'
+  # shellcheck disable=SC2016
+  register_shell_path 'export PATH="$PATH:${XDG_DATA_HOME:-$HOME/.local/share}/go/bin"'
+}
+
+install_go() {
+  configure_go_environment
+
+  if ! command -v go >/dev/null 2>&1; then
+    install_system_packages "go"
+  else
+    log_skip "Go" "EXISTS"
+  fi
+}
+
+ensure_go_available() {
+  configure_go_environment
+
+  if command -v go >/dev/null 2>&1; then
+    return 0
+  fi
+
+  log_warn "Go not found in PATH. Initiating installation..."
+  install_go
+
+  if command -v go >/dev/null 2>&1; then
+    log_success "Go is now ready to use."
+    return 0
+  else
+    log_error "Critical error: Go could not be found after installation."
+    return 1
+  fi
+}
+
+install_via_go() {
+  local friendly_name="$1"
+  local package="$2"
+
+  if [[ "$package" != *@* ]]; then
+    package="${package}@latest"
+  fi
+
+  if ensure_go_available; then
+    run_task "$friendly_name via Go" "go install $package"
+  else
+    log_error "Installation of $package skipped because Go is unavailable."
+    return 1
+  fi
+}
+
 execute_uninstallers() {
   [[ ${#MENU_SELECTED_INDICES[@]} -eq 0 ]] && return 0
 
