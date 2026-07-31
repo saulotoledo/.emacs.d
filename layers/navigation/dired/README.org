@@ -383,7 +383,7 @@ making the buffer much easier to read.
 
     (let ((default-directory target-dir)
           (rg-custom-flags flags))
-      (call-interactively #'rg)))))
+      (call-interactively #'rg))))
 #+end_src
 
 * Keybindings

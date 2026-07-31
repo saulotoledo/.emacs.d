@@ -136,6 +136,10 @@ code completion, go-to-definition, diagnostics, and more.
   ;; bindings so command completion immediately reports C-c l, never s-l.
   (define-key lsp-mode-map (kbd lsp-keymap-prefix) lsp-command-map)
 
+  ;; makes `lsp-completion-at-point` return the last cached list when a request is interrupted
+  ;; (:interrupted catch).
+  (setq lsp-completion-use-last-result t)
+
   (with-eval-after-load 'lsp-completion
     (defun cgf-lsp/lsp-completion-mode-without-company-for-corfu (orig &rest args)
       "Prevent lsp-mode from enabling Company in Corfu buffers.
@@ -154,26 +158,21 @@ when `corfu-mode' is active."
 
     (advice-add 'lsp-completion-mode
                 :around
-                #'cgf-lsp/lsp-completion-mode-without-company-for-corfu))
+                #'cgf-lsp/lsp-completion-mode-without-company-for-corfu)
 
-  ;; makes `lsp-completion-at-point` return the last cached list when a request is interrupted
-  ;; (:interrupted catch).
-  (setq lsp-completion-use-last-result t)
-
-  ;; Some language servers (TypeScript, Pyright, clangd, etc.) frequently return
-  ;; isIncomplete=true in their textDocument/completion responses. When that
-  ;; happens lsp-mode stores :incomplete in lsp-completion--cache, and the
-  ;; (listp :incomplete) guard always fails, forcing a new server request on
-  ;; every corfu-auto tick; even within the same session. The result:
-  ;; lsp-request-while-no-input -> sit-for leading to very high CPU usage.
-  ;;
-  ;; Fix: within `cgf-lsp/lsp-completion-debounce-delay' seconds and the same
-  ;; bounds-start, return the last raw LSP response without a server round-trip;
-  ;; `lsp-completion--filter-candidates' still applies prefix filtering locally.
-  ;; When the server returns a complete list, lsp-mode's own cache already
-  ;; avoids the round-trip, so this debounce only activates for incomplete
-  ;; results. Manual completion (`non-essential = nil`) is never throttled.
-  (with-eval-after-load 'lsp-completion
+    ;; Some language servers (TypeScript, Pyright, clangd, etc.) frequently return
+    ;; isIncomplete=true in their textDocument/completion responses. When that
+    ;; happens lsp-mode stores :incomplete in lsp-completion--cache, and the
+    ;; (listp :incomplete) guard always fails, forcing a new server request on
+    ;; every corfu-auto tick; even within the same session. The result:
+    ;; lsp-request-while-no-input -> sit-for leading to very high CPU usage.
+    ;;
+    ;; Fix: within `cgf-lsp/lsp-completion-debounce-delay' seconds and the same
+    ;; bounds-start, return the last raw LSP response without a server round-trip;
+    ;; `lsp-completion--filter-candidates' still applies prefix filtering locally.
+    ;; When the server returns a complete list, lsp-mode's own cache already
+    ;; avoids the round-trip, so this debounce only activates for incomplete
+    ;; results. Manual completion (`non-essential = nil`) is never throttled.
     (defvar-local cgf-lsp/lsp-completion--last-resp nil
       "Cached raw LSP textDocument/completion response for auto-completion reuse.")
     (defvar-local cgf-lsp/lsp-completion--last-resp-time 0
@@ -402,23 +401,23 @@ description and caches the result."
                                                 (when (and (buffer-live-p buf)
                                                            (bound-and-true-p corfu--candidates))
                                                   (cgf-lsp/corfu-refresh-after-lsp-async buf))))))
-                       (remhash pkey cache))))
-                 (lambda ()
-                   (when (buffer-live-p buf)
-                     (with-current-buffer buf
-                       (remhash pkey cache)))))))
-            ;; Append cached description (module source) to the annotation
-            (when (and lsp-completion-show-detail (not has-raw) has-cached)
-              (setq base-ann (concat (or base-ann "") " " cached-desc)))))
-        base-ann))
+                         (remhash pkey cache))))
+                   (lambda ()
+                     (when (buffer-live-p buf)
+                       (with-current-buffer buf
+                         (remhash pkey cache)))))))
+              ;; Append cached description (module source) to the annotation
+              (when (and lsp-completion-show-detail (not has-raw) has-cached)
+                (setq base-ann (concat (or base-ann "") " " cached-desc)))))
+          base-ann))
 
-    ;; Flush the resolve cache at the same time lsp-mode clears its own.
-    (advice-add 'lsp-completion--clear-cache :after
-                (lambda (&rest _)
-                  (setq cgf-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal))))
+      ;; Flush the resolve cache at the same time lsp-mode clears its own.
+      (advice-add 'lsp-completion--clear-cache :after
+                  (lambda (&rest _)
+                    (setq cgf-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal))))
 
-    (advice-add 'lsp-completion--annotate :around
-                #'cgf-lsp/lsp-completion--annotate-with-resolve))
+      (advice-add 'lsp-completion--annotate :around
+                  #'cgf-lsp/lsp-completion--annotate-with-resolve)))
 
   ;; workspace/executeCommand is used by language servers in two very different ways:
   ;;
