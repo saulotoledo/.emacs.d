@@ -315,7 +315,11 @@ are not available in a -Q environment."
              (file-exists-p init-el)
              (executable-find "gcc")
              (fboundp 'native-compile))
-    (run-with-idle-timer 2 nil #'native-compile-async init-el)))
+    (run-with-idle-timer
+     2 nil
+     (lambda ()
+       (let ((native-comp-async-report-warnings-errors nil))
+         (native-compile-async init-el))))))
 
 (defun cfg-core/retangle-init (&optional compile)
   "Retangle init.org (expanding layer includes) into Emacs Lisp / setup files.
