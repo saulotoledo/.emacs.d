@@ -889,7 +889,7 @@ Defers activation to ensure Copilot server is ready."
                  (error
                   ;; Only report errors if copilot is loaded (real errors)
                   (when (featurep 'copilot)
-                    (message "Copilot activation failed: %S" err))))))))))
+                    (message "Copilot activation failed: %S" err)))))))))))
 
   :hook ((prog-mode . cfg-tools/safe-copilot-mode)
          (text-mode . cfg-tools/safe-copilot-mode)
