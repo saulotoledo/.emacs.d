@@ -49,7 +49,6 @@
 #+INCLUDE: "navigation/treemacs/README.org"
 #+INCLUDE: "tools/ai/README.org"
 #+INCLUDE: "tools/containers/README.org"
-#+INCLUDE: "tools/docker/README.org"
 #+INCLUDE: "tools/helpful/README.org"
 #+INCLUDE: "tools/project/README.org"
 #+INCLUDE: "tools/rg/README.org"

@@ -59,7 +59,6 @@
 - Tools
   - [[file:tools/ai/README.org][ai]]
   - [[file:tools/containers/README.org][containers]]
-  - [[file:tools/docker/README.org][docker]]
   - [[file:tools/helpful/README.org][helpful]]
   - [[file:tools/project/README.org][project]]
   - [[file:tools/rg/README.org][rg]]
