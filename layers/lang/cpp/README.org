@@ -41,6 +41,7 @@ to place the cursor while typing interactively."
 
 ;; Common indentation settings (fallback styles for interactive typing)
 (defvar c-ts-mode-indent-style nil)
+(defvar c-default-style)
 (setq c-default-style (symbol-name (cfg-lang/map-cpp-base-indent-style-for-emacs)))
 (setq c-ts-mode-indent-style (cfg-lang/map-cpp-base-indent-style-for-emacs))
 (setq-default c-basic-offset 2)

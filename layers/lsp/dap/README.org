@@ -37,6 +37,13 @@ which disconnects the DAP session. Override in a mode hook with
 `setq-local' when termination needs language-specific cleanup (e.g.
 killing a suspended JVM process group for Java compile_attach sessions).")
 
+(declare-function dap--find-available-port "dap-mode")
+(declare-function dap-start-debugging "dap-mode")
+(declare-function dap-register-debug-provider "dap-mode")
+(declare-function dap--make-terminal-buffer "dap-mode")
+(declare-function dap--send-message "dap-mode")
+(declare-function dap--make-success-response "dap-mode")
+(declare-function dap--resp-handler "dap-mode")
 (use-package dap-mode
   :after lsp-mode
   :init
@@ -65,47 +72,47 @@ killing a suspended JVM process group for Java compile_attach sessions).")
   (declare-function dap--session-running "dap-mode")
   (declare-function dap--debug-session-thread-id "dap-mode")
 
-  (defun cfg-lsp/dap--thread-stopped-p (session)
-    "Return non-nil if SESSION has a currently stopped thread."
-    (and session
-         (dap--session-running session)
-         (dap--debug-session-thread-id session)))
+(defun cfg-lsp/dap--thread-stopped-p (session)
+  "Return non-nil if SESSION has a currently stopped thread."
+  (and session
+       (dap--session-running session)
+       (dap--debug-session-thread-id session)))
 
-  (defun cfg-lsp/dap-run-continue-dispatch ()
-    "Smart F5: continue a stopped thread, or start a new debug session.
+(defun cfg-lsp/dap-run-continue-dispatch ()
+  "Smart F5: continue a stopped thread, or start a new debug session.
 - If a thread is stopped (breakpoint/exception): calls `dap-continue'.
 - If session is running but no thread is stopped: shows a hint.
 - Otherwise: starts a new session via `cfg-lsp/dap-start-debug'."
-    (interactive)
-    (let ((session (and (fboundp 'dap--cur-session) (dap--cur-session))))
-      (cond
-       ((cfg-lsp/dap--thread-stopped-p session)
-        (call-interactively 'dap-continue))
-       ((and session (dap--session-running session))
-        (message "Debug session is running. Set a breakpoint (<f9>) and trigger it to pause."))
-       (t
-        (if (funcall cfg-lsp/dap-check-requirements)
-            (funcall cfg-lsp/dap-start-debug)
-          (message "DAP pre-flight check failed; not starting debug session."))))))
+  (interactive)
+  (let ((session (and (fboundp 'dap--cur-session) (dap--cur-session))))
+    (cond
+     ((cfg-lsp/dap--thread-stopped-p session)
+      (call-interactively 'dap-continue))
+     ((and session (dap--session-running session))
+      (message "Debug session is running. Set a breakpoint (<f9>) and trigger it to pause."))
+     (t
+      (if (funcall cfg-lsp/dap-check-requirements)
+          (funcall cfg-lsp/dap-start-debug)
+        (message "DAP pre-flight check failed; not starting debug session."))))))
 
-  (defun cfg-lsp/dap-step-dispatch (step-fn)
-    "Call STEP-FN if a thread is stopped, otherwise show a hint."
-    (let ((session (and (fboundp 'dap--cur-session) (dap--cur-session))))
-      (if (cfg-lsp/dap--thread-stopped-p session)
-          (call-interactively step-fn)
-        (message "No stopped thread. Set a breakpoint (<f9>) and trigger it first."))))
+(defun cfg-lsp/dap-step-dispatch (step-fn)
+  "Call STEP-FN if a thread is stopped, otherwise show a hint."
+  (let ((session (and (fboundp 'dap--cur-session) (dap--cur-session))))
+    (if (cfg-lsp/dap--thread-stopped-p session)
+        (call-interactively step-fn)
+      (message "No stopped thread. Set a breakpoint (<f9>) and trigger it first."))))
 
-  (defun cfg-lsp/dap-next-dispatch ()
-    "F6: step over -- only when a thread is stopped."
-    (interactive) (cfg-lsp/dap-step-dispatch 'dap-next))
+(defun cfg-lsp/dap-next-dispatch ()
+  "F6: step over -- only when a thread is stopped."
+  (interactive) (cfg-lsp/dap-step-dispatch 'dap-next))
 
-  (defun cfg-lsp/dap-step-in-dispatch ()
-    "F7: step in -- only when a thread is stopped."
-    (interactive) (cfg-lsp/dap-step-dispatch 'dap-step-in))
+(defun cfg-lsp/dap-step-in-dispatch ()
+  "F7: step in -- only when a thread is stopped."
+  (interactive) (cfg-lsp/dap-step-dispatch 'dap-step-in))
 
-  (defun cfg-lsp/dap-step-out-dispatch ()
-    "F8: step out -- only when a thread is stopped."
-    (interactive) (cfg-lsp/dap-step-dispatch 'dap-step-out))
+(defun cfg-lsp/dap-step-out-dispatch ()
+  "F8: step out -- only when a thread is stopped."
+  (interactive) (cfg-lsp/dap-step-dispatch 'dap-step-out))
 
   ;; ansi-color-compilation-filter (Emacs 28+) correctly uses the
   ;; compilation-filter-start marker to apply colors only to new output.
@@ -268,6 +275,27 @@ JVM process group. The icon already ships with ~dap-mode~
 (=icons/vscode/stop.png=).
 
 #+begin_src emacs-lisp
+(declare-function lsp-workspace-set-metadata "lsp-mode")
+
+(declare-function dap--get-sessions "dap-mode")
+(declare-function dap-request "dap-mode")
+(declare-function dap--set-sessions "dap-mode")
+(declare-function dap--get-breakpoint-at-point "dap-mode")
+(declare-function dap-restart-frame "dap-mode")
+(declare-function dap-switch-session "dap-mode")
+(declare-function dap-next "dap-mode")
+(declare-function dap-step-in "dap-mode")
+(declare-function dap-step-out "dap-mode")
+(declare-function dap-breakpoint-condition "dap-mode")
+(declare-function dap-breakpoint-delete-all "dap-mode")
+(declare-function dap-eval-at-point "dap-mode")
+
+(declare-function dap-ui-inspect "dap-ui")
+(declare-function dap-ui-breakpoints "dap-ui")
+(declare-function dap-ui-stack-frame "dap-ui")
+
+(declare-function posframe-hide "posframe")
+
 (defun cfg-lsp/dap--kill-dap-connection (process)
   "Kill a DAP connection PROCESS and its hidden process buffer."
   (when process
@@ -398,61 +426,64 @@ This works in any buffer where ~dap-mode~ is active, allowing you to quickly set
 or remove breakpoints without needing to use keyboard shortcuts or commands.
 
 #+begin_src emacs-lisp
-(with-eval-after-load 'dap-mode
-  (defun cfg-lsp/dap-fringe-click-toggle-breakpoint (event)
-    "Toggle a DAP breakpoint at the line clicked in the left fringe.
+(declare-function treesit-fold--overlays-in "treesit-fold")
+(defun cfg-lsp/dap-fringe-click-toggle-breakpoint (event)
+  "Toggle a DAP breakpoint at the line clicked in the left fringe.
 EVENT is the mouse click event."
-    (interactive "e")
-    (when (and (bound-and-true-p dap-mode)
-               (derived-mode-p 'prog-mode))
-      (let ((pos (posn-point (event-start event))))
-        (when pos
-          (save-excursion
-            (goto-char pos)
-            (dap-breakpoint-toggle))))))
+  (interactive "e")
+  (when (and (bound-and-true-p dap-mode)
+             (derived-mode-p 'prog-mode))
+    (let ((pos (posn-point (event-start event))))
+      (when pos
+        (save-excursion
+          (goto-char pos)
+          (dap-breakpoint-toggle))))))
 
-  (add-hook 'prog-mode-hook
-            (lambda ()
-              (local-set-key [left-fringe mouse-1] #'cfg-lsp/dap-fringe-click-toggle-breakpoint)))
-
-  (with-eval-after-load 'treesit-fold-indicators
-    (defun cfg-lsp/dap-treesit-fold-fringe-click-advice (orig-fn event)
-      "Handle [left-fringe mouse-1] in *-ts-mode for breakpoints and folds.
+(defun cfg-lsp/dap-treesit-fold-fringe-click-advice (orig-fn event)
+  "Handle \\[mouse-1] in left-fringe in *-ts-mode for breakpoints and folds.
+\\(Since the treesit-fold fringe indicator overlays everything else).
 By default, clicking the fringe with no fold indicator does nothing (event is
 swallowed). This advice ensures the click toggles a DAP breakpoint if no fold
 indicator is present, so fringe clicks are always useful. Call ORIG-FN if a
 fold indicator is present at the clicked line; otherwise, toggle a DAP
 breakpoint if `dap-mode' is active in the current buffer."
-      (let* ((pos (posn-point (event-start event)))
-             (cur-ln (when pos (line-number-at-pos pos)))
-             (ovs (when pos
-                    (append (treesit-fold--overlays-in
-                             'type 'treesit-fold-indicators-fr-plus)
-                            (treesit-fold--overlays-in
-                             'type 'treesit-fold-indicators-fr-minus-tail))))
-             (has-indicator
-              (and ovs cur-ln
-                   (cl-some
-                    (lambda (ov)
-                      (= cur-ln (line-number-at-pos (overlay-start ov))))
-                    ovs))))
-        (if has-indicator
-            ;; Fold-indicator line: if a DAP breakpoint is already there,
-            ;; remove it (otherwise it would not be possible to remove
-            ;; an orphaned breakpoint stuck on a fold-indicator line by
-            ;; clicking on the fringe).
-            (let ((bp-on-line
-                   (and (bound-and-true-p dap-mode)
-                        pos
-                        (save-excursion
-                          (goto-char pos)
-                          (dap--get-breakpoint-at-point)))))
-              (if bp-on-line
-                  (cfg-lsp/dap-fringe-click-toggle-breakpoint event)
-                (funcall orig-fn event)))
-          (when (and (bound-and-true-p dap-mode)
-                     (derived-mode-p 'prog-mode))
-            (cfg-lsp/dap-fringe-click-toggle-breakpoint event)))))
+  (let* ((pos (posn-point (event-start event)))
+         (cur-ln (when pos (line-number-at-pos pos)))
+         (ovs (when pos
+                (append (treesit-fold--overlays-in
+                         'type 'treesit-fold-indicators-fr-plus)
+                        (treesit-fold--overlays-in
+                         'type 'treesit-fold-indicators-fr-minus-tail))))
+         (has-indicator
+          (and ovs cur-ln
+               (cl-some
+                (lambda (ov)
+                  (= cur-ln (line-number-at-pos (overlay-start ov))))
+                ovs))))
+    (if has-indicator
+        ;; Fold-indicator line: if a DAP breakpoint is already there,
+        ;; remove it (otherwise it would not be possible to remove
+        ;; an orphaned breakpoint stuck on a fold-indicator line by
+        ;; clicking on the fringe).
+        (let ((bp-on-line
+               (and (bound-and-true-p dap-mode)
+                    pos
+                    (save-excursion
+                      (goto-char pos)
+                      (dap--get-breakpoint-at-point)))))
+          (if bp-on-line
+              (cfg-lsp/dap-fringe-click-toggle-breakpoint event)
+            (funcall orig-fn event)))
+      (when (and (bound-and-true-p dap-mode)
+                 (derived-mode-p 'prog-mode))
+        (cfg-lsp/dap-fringe-click-toggle-breakpoint event)))))
+
+(with-eval-after-load 'dap-mode
+  (add-hook 'prog-mode-hook
+            (lambda ()
+              (local-set-key [left-fringe mouse-1] #'cfg-lsp/dap-fringe-click-toggle-breakpoint)))
+
+  (with-eval-after-load 'treesit-fold-indicators
     (advice-add 'treesit-fold-indicators-click-fringe
                 :around #'cfg-lsp/dap-treesit-fold-fringe-click-advice)))
 #+end_src

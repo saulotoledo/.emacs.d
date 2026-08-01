@@ -11,40 +11,40 @@ for large Org-mode files.
 * Emacs Configuration
 ** Expand Region
 #+begin_src emacs-lisp
+(defun cfg-editor/er-mark-org-code-block-fast ()
+  "Mark an org-code-block, searching at most 10KB to prevent lag."
+  (interactive)
+  (let ((case-fold-search t)
+        (re "#\\+begin_\\(\\sw+\\)")
+        (limit (max (point-min) (- (point) 10000))))
+    (when (or (looking-at re)
+              (search-backward-regexp re limit t))
+      (set-mark (point))
+      (search-forward (concat "#+end_" (match-string 1))
+                      (min (point-max) (+ (point) 20000)) t)
+      (exchange-point-and-mark))))
+
+(defun cfg-editor/er-expand-region-large-buffer-advice (orig-fun &rest args)
+  "Dynamically override `er/try-expand-list' in large Org buffers."
+  (if (and (derived-mode-p 'org-mode)
+           (> (buffer-size) 50000))
+      (let ((er/try-expand-list
+             '(er/mark-word
+               er/mark-symbol
+               er/mark-sentence
+               er/mark-paragraph
+               cfg-editor/er-mark-org-code-block-fast))
+            (er/save-mode-excursion nil))
+        (message "Expand-region: Optimized for large buffer.")
+        (apply orig-fun args))
+    (apply orig-fun args)))
+
 (use-package expand-region
   :custom
   ;; Global optimization: disabling state-save prevents UI lag in large buffers
   (er/save-state-before-expand nil)
   (er/history-is-kept-at-point nil)
   :config
-  (defun cfg-editor/er-mark-org-code-block-fast ()
-    "Mark an org-code-block, searching at most 10KB to prevent lag."
-    (interactive)
-    (let ((case-fold-search t)
-          (re "#\\+begin_\\(\\sw+\\)")
-          (limit (max (point-min) (- (point) 10000))))
-      (when (or (looking-at re)
-                (search-backward-regexp re limit t))
-        (set-mark (point))
-        (search-forward (concat "#+end_" (match-string 1))
-                        (min (point-max) (+ (point) 20000)) t)
-        (exchange-point-and-mark))))
-
-  (defun cfg-editor/er-expand-region-large-buffer-advice (orig-fun &rest args)
-    "Dynamically override `er/try-expand-list' in large Org buffers."
-    (if (and (derived-mode-p 'org-mode)
-             (> (buffer-size) 50000))
-        (let ((er/try-expand-list
-               '(er/mark-word
-                 er/mark-symbol
-                 er/mark-sentence
-                 er/mark-paragraph
-                 cfg-editor/er-mark-org-code-block-fast))
-              (er/save-mode-excursion nil))
-          (message "Expand-region: Optimized for large buffer.")
-          (apply orig-fun args))
-      (apply orig-fun args)))
-
   (advice-add 'er/expand-region :around #'cfg-editor/er-expand-region-large-buffer-advice)
   (advice-add 'er/contract-region :around #'cfg-editor/er-expand-region-large-buffer-advice))
 #+end_src
@@ -62,6 +62,9 @@ previous occurrence and type to edit them all simultaneously. Below are
 a couple of convenient keybindings.
 
 #+begin_src emacs-lisp
+(declare-function doom-modeline-def-segment "doom-modeline")
+(declare-function mc/load-lists "multiple-cursors-core")
+(declare-function mc/save-lists "multiple-cursors-core")
 (use-package multiple-cursors
   :init
   ;; Set list file location explicitly

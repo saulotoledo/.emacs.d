@@ -25,7 +25,7 @@ Tools]] makes a huge improvement on the built-in [[http://www.gnu.org/software/e
 
 ;; Custom command to toggle header line in PDF buffers
 (defun cfg-lang/pdf-view-toggle-header-line ()
-  "Toggle display of the header-line-format in pdf-view mode."
+  "Toggle display of the `header-line-format' in pdf-view mode."
   (interactive)
   (if header-line-format
       (setq header-line-format nil)
@@ -45,6 +45,9 @@ Tools]] makes a huge improvement on the built-in [[http://www.gnu.org/software/e
 Registers navigation and header toggling shortcuts for PDF buffers.
 
 #+begin_src emacs-lisp
+(declare-function pdf-view-next-line-or-next-page "pdf-view")
+(declare-function pdf-view-previous-line-or-previous-page "pdf-view")
+
 ;; Direct mode-map bindings inside pdf-view-mode
 (with-eval-after-load 'pdf-view
   (define-key pdf-view-mode-map (kbd "c") #'cfg-lang/pdf-view-toggle-header-line)

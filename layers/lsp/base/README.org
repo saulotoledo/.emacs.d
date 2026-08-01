@@ -57,6 +57,26 @@ code completion, go-to-definition, diagnostics, and more.
   (when (cfg-lsp/deferred-start-p)
     (lsp-deferred)))
 
+(declare-function lsp--client-server-id "lsp-mode")
+(declare-function lsp--path-to-uri "lsp-mode")
+(declare-function lsp--set-configuration "lsp-mode")
+(declare-function lsp--uri-to-path "lsp-mode")
+(declare-function lsp--workspace-client "lsp-mode")
+(declare-function lsp--workspace-server-id "lsp-mode")
+(declare-function lsp-activate-on "lsp-mode")
+(declare-function lsp-configuration-section "lsp-mode")
+(declare-function lsp-find-workspace "lsp-mode")
+(declare-function lsp-notify "lsp-mode")
+(declare-function lsp-register-client "lsp-mode")
+(declare-function lsp-request-async "lsp-mode")
+(declare-function lsp-stdio-connection "lsp-mode")
+(declare-function lsp-workspace-root "lsp-mode")
+(declare-function make-lsp-client "lsp-mode")
+
+(defvar lsp-command-map)
+(defvar lsp-completion--cache)
+(defvar lsp-mode-map)
+
 (use-package lsp-mode
   :pin "MELPA Unstable"
   :init
@@ -776,6 +796,7 @@ unchanged.
     (orig-fun session client project-root)
   "Block multi-root workspace expansion when PROJECT-ROOT has no matching files.
 
+ORIG-FUN is the original function being invoked.
 SESSION is the current LSP session.
 CLIENT is the active LSP client.
 PROJECT-ROOT is the directory being considered for multiroot expansion.
@@ -884,6 +905,7 @@ errors, references, and more.
 
 * Keybindings
 #+begin_src emacs-lisp
+(declare-function lsp-signature-activate "lsp-mode")
 (with-eval-after-load 'lsp-mode
   (define-key lsp-mode-map (kbd "M-s M-d") #'cfg-lsp/ui-show-doc-toggle)
   (define-key lsp-mode-map (kbd "M-s M-s") #'lsp-signature-activate) ; Manual trigger since :on-trigger-char is disabled

@@ -55,7 +55,44 @@ All interactive functions use the =devcontainer-= prefix:
 + =M-x devcontainer-term= - Launch a terminal inside the container
 
 #+begin_src emacs-lisp
+(defun cfg-tools/get-devcontainer-shell ()
+  "Search for a shell preference in devcontainer.json.
+Falls back to VS Code settings if a shell is not found."
+  (condition-case nil
+      (when-let* ((config (devcontainer--read-devcontainer-json))
+                  (customizations (gethash "customizations" config)))
+        (or
+         ;; 1. Check for Emacs-specific shell setting
+         (when-let ((emacs (gethash "emacs" customizations)))
+           (gethash "shell" emacs))
+         ;; 2. Fallback to VS Code default profile
+         (when-let ((vscode (gethash "vscode" customizations)))
+           (when-let ((settings (gethash "settings" vscode)))
+             (gethash "terminal.integrated.defaultProfile.linux" settings)))))
+    (error nil)))
+
+(defun cfg-tools/vterm-use-devcontainer-shell-advice (orig-fun &rest args)
+  "Advice for `vterm' to use `devcontainer-term-shell' when in a container.
+Applies ORIG-FUN with ARGS."
+  (let ((vterm-shell (if (and (bound-and-true-p devcontainer-mode)
+                              (tramp-tramp-file-p default-directory)
+                              (let ((method (tramp-file-name-method (tramp-dissect-file-name default-directory))))
+                                (member method (list "docker" "podman"))))
+                         (or (cfg-tools/get-devcontainer-shell)
+                             (bound-and-true-p devcontainer-term-shell)
+                             vterm-shell)
+                       vterm-shell)))
+    (apply orig-fun args)))
+
+;; Optimization: Skip customizations on remote files to prevent TRAMP freeze
+(defun cfg-tools/devcontainer-skip-remote-customization-advice (orig-fun &rest args)
+  "Skip `devcontainer--read-and-apply-customizations' for remote files.
+Applies ORIG-FUN with ARGS."
+  (unless (file-remote-p (or (buffer-file-name) default-directory))
+    (apply orig-fun args)))
+
 (declare-function tramp-tramp-file-p "tramp")
+(defvar vterm-shell)
 (use-package devcontainer
   :config
   ;; Utilize the Dev Containers CLI from our PATH
@@ -74,44 +111,9 @@ All interactive functions use the =devcontainer-= prefix:
   (add-hook 'devcontainer-post-startup-hook #'devcontainer-tramp-dired)
 
   (declare-function devcontainer--read-devcontainer-json "devcontainer")
-  (defun cfg-tools/get-devcontainer-shell ()
-    "Search for a shell preference in devcontainer.json.
-Falls back to VS Code settings if a shell is not found."
-    (condition-case nil
-        (when-let* ((config (devcontainer--read-devcontainer-json))
-                    (customizations (gethash "customizations" config)))
-          (or
-           ;; 1. Check for Emacs-specific shell setting
-           (when-let ((emacs (gethash "emacs" customizations)))
-             (gethash "shell" emacs))
-           ;; 2. Fallback to VS Code default profile
-           (when-let ((vscode (gethash "vscode" customizations)))
-             (when-let ((settings (gethash "settings" vscode)))
-               (gethash "terminal.integrated.defaultProfile.linux" settings)))))
-      (error nil)))
-
-  (defun cfg-tools/vterm-use-devcontainer-shell-advice (orig-fun &rest args)
-    "Advice for `vterm' to use `devcontainer-term-shell' when in a container.
-Applies ORIG-FUN with ARGS."
-    (let ((vterm-shell (if (and (bound-and-true-p devcontainer-mode)
-                                (tramp-tramp-file-p default-directory)
-                                (let ((method (tramp-file-name-method (tramp-dissect-file-name default-directory))))
-                                  (member method (list "docker" "podman"))))
-                           (or (cfg-tools/get-devcontainer-shell)
-                               (bound-and-true-p devcontainer-term-shell)
-                               vterm-shell)
-                         vterm-shell)))
-      (apply orig-fun args)))
 
   (with-eval-after-load 'vterm
     (advice-add 'vterm :around #'cfg-tools/vterm-use-devcontainer-shell-advice))
-
-  ;; Optimization: Skip customizations on remote files to prevent TRAMP freeze
-  (defun cfg-tools/devcontainer-skip-remote-customization-advice (orig-fun &rest args)
-    "Skip `devcontainer--read-and-apply-customizations' for remote files.
-Applies ORIG-FUN with ARGS."
-    (unless (file-remote-p (or (buffer-file-name) default-directory))
-      (apply orig-fun args)))
 
   (advice-add 'devcontainer--read-and-apply-customizations :around #'cfg-tools/devcontainer-skip-remote-customization-advice))
 #+end_src
@@ -131,7 +133,7 @@ container should have Node.js and language server extensions installed.
 
 * Keybindings
 #+begin_src emacs-lisp
-;; Leader bindings under Devcontainer / Docker
+(declare-function devcontainer-term "devcontainer")
 (cfg-keys/leader-def
   "C"     '(:ignore t :which-key "containers")
   "C D"   '(:ignore t :which-key "devcontainers")

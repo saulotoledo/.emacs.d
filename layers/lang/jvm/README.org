@@ -200,7 +200,7 @@ Set automatically when `cfg-jvm/java-stack-trace-mode' is enabled in a
 buffer that does not belong to a recognised project.")
 
 (defun cfg-lang/java-stack-trace--effective-root ()
-  "Return the project root to use for source searches and package detection.
+  "Return the project root to use for source lookup and package detection.
 Prefers `cfg-jvm/java-stack-trace--root-override' when set (explicitly chosen
 on mode activation); falls back to `project-current'.  Returns nil when
 neither is available."
@@ -217,9 +217,10 @@ auto-detects from Maven/Gradle build files in the effective project root."
         (cfg-lang/java-stack-trace--auto-detect-packages root))))
 
 (defun cfg-lang/java-stack-trace--project-p (fqcn)
-  "Non-nil if FQCN starts with a prefix in the effective project packages.
-Checks `cfg-jvm/java-stack-trace-project-packages' first; falls back to auto-detection
-from Maven/Gradle build files via `cfg-jvm/java-stack-trace--project-packages'."
+  "Return non-nil if FQCN matches a prefix in effective project packages.
+Checks `cfg-jvm/java-stack-trace-project-packages' first; falls back to
+auto-detection from Maven/Gradle build files via
+`cfg-jvm/java-stack-trace--project-packages'."
   (cl-some (lambda (p) (string-prefix-p p fqcn))
            (cfg-lang/java-stack-trace--project-packages)))
 
@@ -261,7 +262,7 @@ Example: \"com.foo.Bar.method\" + \"Bar.java\" -> \"com/foo/Bar.java\"."
               cfg-lang/java-stack-trace-library-search-paths)))
 
 (defun cfg-lang/java-stack-trace--jar-has-entry-p (jar entry)
-  "Return non-nil when JAR contains ENTRY."
+  "Return non-nil when JAR has ENTRY."
   (with-temp-buffer
     (eq 0 (process-file "unzip" nil (current-buffer) nil "-Z1" jar entry))))
 
@@ -278,6 +279,8 @@ Example: \"com.foo.Bar.method\" + \"Bar.java\" -> \"com/foo/Bar.java\"."
             (puthash key jar cfg-lang/java-stack-trace--jar-entry-cache))
           jar))))
 
+(declare-function archive-goto-file "arc-mode")
+(declare-function archive-extract "arc-mode")
 (defun cfg-lang/java-stack-trace--open-archive-entry (jar entry line source-p)
   "Open ENTRY from JAR read-only, moving to LINE when SOURCE-P is non-nil."
   (require 'arc-mode)
@@ -307,7 +310,7 @@ Example: \"com.foo.Bar.method\" + \"Bar.java\" -> \"com/foo/Bar.java\"."
             (cfg-lang/java-stack-trace--display-buffer member)))))))
 
 (defun cfg-lang/java-stack-trace--jump (fqcn file line)
-  "Open the project source or library archive entry for FQCN at LINE.
+  "Open the project source or library archive entry for FQCN at LINE in FILE.
 Project source takes precedence over source JARs, which take precedence over
 class-only JARs."
   (let* ((rel (cfg-lang/java-stack-trace--rel-path fqcn file))
@@ -354,7 +357,7 @@ class-only JARs."
          (km   (let ((m (make-sparse-keymap))
                      (f fqcn) (fi file) (ln line))
                  (define-key m [mouse-1]
-                   (lambda (e) (interactive "e") (cfg-lang/java-stack-trace--jump f fi ln)))
+                   (lambda (_e) (interactive "e") (cfg-lang/java-stack-trace--jump f fi ln)))
                  (define-key m (kbd "RET")
                    (lambda () (interactive) (cfg-lang/java-stack-trace--jump f fi ln)))
                  m))
@@ -405,11 +408,11 @@ Project-internal classes (matched by
 `cfg-jvm/java-stack-trace-project-face'; external library classes use
 `cfg-jvm/java-stack-trace-external-face'.
 
-Each File.java:N reference is clickable (mouse-1) and reachable with
+Each File.java:N reference is clickable and reachable with
 \\[cfg-jvm/java-stack-trace-jump-at-point].
 
 When enabled in a buffer that does not belong to a recognised project
-(e.g. a scratch buffer), the mode tries to inherit the root from any
+\(e.g. a scratch buffer), the mode tries to inherit the root from any
 active lsp-mode or dap session. If that also fails it prompts once for a
 project root directory and stores it buffer-locally so subsequent clicks
 and jumps work without further prompting.

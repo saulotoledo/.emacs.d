@@ -9,6 +9,13 @@ buttons via conflict-buttons, and side-by-side buffer diffing via Ediff.
 * Emacs Configuration
 ** Smerge Mode
 #+begin_src emacs-lisp
+(defun cfg-vc/smerge-mode-maybe ()
+  "Efficiently check for smerge markers in large files."
+  (save-excursion
+    (goto-char (point-min))
+    (when (re-search-forward "^<<<<<<< " 10000 t)
+      (smerge-mode 1))))
+
 (defvar smerge-auto-refine nil)
 (use-package smerge-mode
   :ensure nil
@@ -23,13 +30,6 @@ buttons via conflict-buttons, and side-by-side buffer diffing via Ediff.
               ("C-c M-s-r" . smerge-resolve)
               ("C-c M-s-E" . smerge-ediff))
   :config
-  (defun cfg-vc/smerge-mode-maybe ()
-    "Efficiently check for smerge markers in large files."
-    (save-excursion
-      (goto-char (point-min))
-      (when (re-search-forward "^<<<<<<< " 10000 t)
-        (smerge-mode 1))))
-
   (set-face-attribute 'smerge-upper nil :background "dark slate blue" :foreground 'unspecified)
   (set-face-attribute 'smerge-lower nil :background "dark olive green" :foreground 'unspecified)
   (set-face-attribute 'smerge-base nil :background "dim gray" :foreground 'unspecified)

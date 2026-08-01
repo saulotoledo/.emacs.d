@@ -93,6 +93,7 @@ TRAMP support for Flyway was added to version 38 (See PR 2191 at
 flycheck/flycheck).
 
 #+begin_src emacs-lisp
+(declare-function tramp-tramp-file-p "tramp")
 (defun cfg-lsp--flycheck-maybe-enable ()
   "Enable flycheck when properly supported.
 Always enable for local files. For TRAMP files, enable only if Flycheck is v38+,
@@ -178,6 +179,10 @@ of tree-sitter (external package).
 
 * Keybindings
 #+begin_src emacs-lisp
+(declare-function flycheck-buffer "flycheck")
+(declare-function flycheck-list-errors "flycheck")
+(declare-function flycheck-next-error "flycheck")
+(declare-function flycheck-previous-error "flycheck")
 (cfg-keys/leader-def
   "!"   '(:ignore t :which-key "errors/diagnostics")
   "! c" '(flycheck-buffer :which-key "Flycheck Check Buffer")

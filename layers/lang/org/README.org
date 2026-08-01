@@ -16,6 +16,7 @@ contents for Org files. Simply add a heading with the =:TOC:= tag and
 save the file.
 
 #+begin_src emacs-lisp
+(declare-function toc-org-insert-toc "toc-org")
 (use-package toc-org
   :hook (org-mode . toc-org-mode)
   :config

@@ -42,6 +42,24 @@ logical structure of your configuration is always transparent and easy
 to manipulate safely.
 
 #+begin_src emacs-lisp
+(defun cfg-lang/yaml-pro-toggle-feature (var name)
+  "Toggle a local boolean YAML feature VAR and display message with NAME."
+  (set (make-local-variable var) (not (symbol-value var)))
+  (font-lock-flush)
+  (font-lock-ensure)
+  (message "YAML %s highlighting: %s" name (if (symbol-value var) "Enabled" "Disabled")))
+
+;; Named interactive commands
+(defun cfg-lang/yaml-pro-toggle-anchors ()
+  "Toggle YAML anchor highlighting in current buffer."
+  (interactive)
+  (cfg-lang/yaml-pro-toggle-feature 'yaml-pro-highlight-anchors "Anchor"))
+
+(defun cfg-lang/yaml-pro-toggle-tags ()
+  "Toggle YAML tag highlighting in current buffer."
+  (interactive)
+  (cfg-lang/yaml-pro-toggle-feature 'yaml-pro-highlight-tags "Tag"))
+
 (use-package yaml-pro
   :after yaml-ts-mode
   :hook ((yaml-ts-mode . yaml-pro-mode)
@@ -53,25 +71,7 @@ to manipulate safely.
   (declare-function yaml-pro-up-level "yaml-pro")
   (declare-function yaml-pro-down-level "yaml-pro")
   (declare-function yaml-pro-convolute-tree "yaml-pro")
-  (setq yaml-pro-set-colors t)
-
-  (defun cfg-lang/yaml-pro-toggle-feature (var name)
-    "Toggle a local boolean YAML feature VAR and display message with NAME."
-    (set (make-local-variable var) (not (symbol-value var)))
-    (font-lock-flush)
-    (font-lock-ensure)
-    (message "YAML %s highlighting: %s" name (if (symbol-value var) "Enabled" "Disabled")))
-
-  ;; Named interactive commands
-  (defun cfg-lang/yaml-pro-toggle-anchors ()
-    "Toggle YAML anchor highlighting in current buffer."
-    (interactive)
-    (cfg-lang/yaml-pro-toggle-feature 'yaml-pro-highlight-anchors "Anchor"))
-
-  (defun cfg-lang/yaml-pro-toggle-tags ()
-    "Toggle YAML tag highlighting in current buffer."
-    (interactive)
-    (cfg-lang/yaml-pro-toggle-feature 'yaml-pro-highlight-tags "Tag")))
+  (setq yaml-pro-set-colors t))
 #+end_src
 
 * Keybindings

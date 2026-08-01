@@ -11,7 +11,7 @@ shell interpreter and resolves syntax/sexp navigation issues in Python mode.
 ** Python Setup
 #+begin_src emacs-lisp
 (defun cfg-lang/python-mode-setup ()
-  "Setup hook for python-mode buffers."
+  "Setup hook for `python-mode' buffers."
   ;; Reset forward-sexp-function to avoid issues with standard sexp navigation
   (setq forward-sexp-function nil))
 

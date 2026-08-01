@@ -189,6 +189,8 @@ spaces use a high-contrast warning face.
   :config
   (global-whitespace-mode 1))
 
+(declare-function whitespace-display-char-off "whitespace")
+(declare-function whitespace-display-char-on "whitespace")
 (use-package unicode-whitespace
   :after whitespace
   :config

@@ -15,6 +15,7 @@ PostgreSQL, SQLite, BigQuery, and JSON. It is therefore started only when the
 project resolves one of those adapters from its =.sqllsrc.json= configuration.
 
 #+begin_src emacs-lisp
+(defvar lsp-sql-server-path)
 (setq lsp-sql-server-path
       (expand-file-name "nodejs_tools/node_modules/.bin/sql-language-server"
                         user-emacs-directory))
@@ -132,6 +133,7 @@ project resolves one of those adapters from its =.sqllsrc.json= configuration.
               (setq dialect configured))))))
     dialect))
 
+(declare-function flycheck-buffer "flycheck")
 (defun cfg-lang/sqlfluff--available-dialects ()
   "Return dialect names reported by the installed SQLFluff executable."
   (when-let ((program (executable-find "sqlfluff")))
@@ -153,6 +155,7 @@ project resolves one of those adapters from its =.sqllsrc.json= configuration.
   (when (bound-and-true-p flycheck-mode)
     (flycheck-buffer)))
 
+(declare-function flycheck-error-new-at "flycheck")
 (defun cfg-lang/sqlfluff--parse-output (output _checker _buffer)
   "Convert SQLFluff JSON OUTPUT into Flycheck errors."
   (condition-case nil

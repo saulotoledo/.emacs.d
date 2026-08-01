@@ -15,6 +15,7 @@ The ~plantuml-mode~ package provides syntax highlighting, autocompletion, and pr
 capabilities for PlantUML diagrams within Emacs.
 
 #+begin_src emacs-lisp
+(defvar org-src-lang-modes)
 (use-package plantuml-mode
   :mode (("\\.wsd\\'" . plantuml-mode)
          ("\\.pu\\'" . plantuml-mode)
@@ -44,6 +45,8 @@ capabilities for PlantUML diagrams within Emacs.
 Registers keybindings for previewing and editing diagrams.
 
 #+begin_src emacs-lisp
+(declare-function plantuml-preview "plantuml-mode")
+
 ;; Mode-specific shortcuts for PlantUML buffers
 (with-eval-after-load 'plantuml-mode
   (define-key plantuml-mode-map (kbd "C-c C-c") #'plantuml-preview))

@@ -11,13 +11,13 @@ The package below highlights CSV and TSV spreadsheet files in different colors,
 making it easier to identify the columns:
 
 #+begin_src emacs-lisp
+(defun cfg-editor/rainbow-csv-setup ()
+  "Enable rainbow-csv-mode and set up local refresh on save."
+  (rainbow-csv-mode 1)
+  (add-hook 'after-save-hook #'rainbow-csv-highlight nil t))
+
 (use-package rainbow-csv
   :config
-  (defun cfg-editor/rainbow-csv-setup ()
-    "Enable rainbow-csv-mode and set up local refresh on save."
-    (rainbow-csv-mode 1)
-    (add-hook 'after-save-hook #'rainbow-csv-highlight nil t))
-
   (add-hook 'csv-mode-hook #'cfg-editor/rainbow-csv-setup)
   (add-hook 'tsv-mode-hook #'cfg-editor/rainbow-csv-setup))
 #+end_src

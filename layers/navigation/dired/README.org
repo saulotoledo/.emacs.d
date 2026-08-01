@@ -12,6 +12,50 @@ and integrated searching via ripgrep.
 * Emacs Configuration
 ** Dired Basic Configuration
 #+begin_src emacs-lisp
+(declare-function dired-goto-file "dired")
+(declare-function dired-up-directory "dired")
+(declare-function dired-create-empty-file "dired")
+(declare-function dired-get-filename "dired")
+(defun cfg-navigation/refresh-dired-and-children (&rest _)
+  "Force-refresh the current Dired buffer and any related child buffers.
+It should be used after wdired to make sure the changes done will
+propagate to the other buffers when renaming a subtree in the main buffer."
+  (let ((parent-dir (expand-file-name default-directory)))
+    (dolist (buf (buffer-list))
+      (with-current-buffer buf
+        (when (and (derived-mode-p 'dired-mode)
+                   (string-prefix-p parent-dir (expand-file-name default-directory)))
+          (revert-buffer t t))))))
+
+(defvar cfg-navigation/dired-last-created nil
+  "Cons of (buffer . path) recorded before file/dir creation.
+Consumed by `cfg-navigation/dired-goto-last-created' via
+`dirvish-after-revert-hook'.")
+
+(defun cfg-navigation/dired-record-created (path &rest _)
+  "Before creating PATH, save it for post-revert cursor repositioning."
+  (setq cfg-navigation/dired-last-created
+        (cons (current-buffer)
+              (expand-file-name (directory-file-name path)))))
+
+(defun cfg-navigation/dired-goto-last-created ()
+  "Jump to the last-created dired entry after Dirvish reverts.
+Appended to `dirvish-after-revert-hook' so it runs after
+`dirvish-subtree--revert' has already re-expanded all subtrees.
+
+`dired-goto-file' (Emacs 30) searches text via `dired-subdir-alist', which
+Dirvish subtrees do not populate. We therefore fall back to
+`dirvish-subtree-expand-to', which navigates the overlay tree correctly."
+  (when (and cfg-navigation/dired-last-created
+             (eq (current-buffer) (car cfg-navigation/dired-last-created)))
+    (let ((target (cdr cfg-navigation/dired-last-created)))
+      (setq cfg-navigation/dired-last-created nil)
+      (or (dired-goto-file target)
+          (when (fboundp 'dirvish-subtree-expand-to)
+            (condition-case nil
+                (dirvish-subtree-expand-to target)
+              (user-error nil)))))))
+
 (use-package dired
   :ensure nil ; Built-in
   :custom
@@ -24,17 +68,6 @@ and integrated searching via ripgrep.
   (dired-listing-switches "-ahl --group-directories-first")
   (dired-clean-confirm-killing-deleted-buffers nil) ; No confirmation prompt
   :config
-  (defun cfg-navigation/refresh-dired-and-children (&rest _)
-    "Force-refresh the current Dired buffer and any related child buffers.
-It should be used after wdired to make sure the changes done will
-propagate to the other buffers when renaming a subtree in the main buffer."
-    (let ((parent-dir (expand-file-name default-directory)))
-      (dolist (buf (buffer-list))
-        (with-current-buffer buf
-          (when (and (derived-mode-p 'dired-mode)
-                     (string-prefix-p parent-dir (expand-file-name default-directory)))
-            (revert-buffer t t))))))
-
   (advice-add 'wdired-finish-edit :after #'cfg-navigation/refresh-dired-and-children)
 
   ;; After creating a file/dir inside a Dirvish subtree, the cursor jumps to
@@ -56,34 +89,6 @@ propagate to the other buffers when renaming a subtree in the main buffer."
   ;; overlays instead). So we fall back to `dirvish-subtree-expand-to'
   ;; which navigates via the overlay structure and correctly finds entries
   ;; inside subtrees.
-  (defvar cfg-navigation/dired-last-created nil
-    "Cons of (buffer . path) recorded before file/dir creation.
-Consumed by `cfg-navigation/dired-goto-last-created' via `dirvish-after-revert-hook'.")
-
-  (defun cfg-navigation/dired-record-created (path &rest _)
-    "Before creating PATH, save it for post-revert cursor repositioning."
-    (setq cfg-navigation/dired-last-created
-          (cons (current-buffer)
-                (expand-file-name (directory-file-name path)))))
-
-  (defun cfg-navigation/dired-goto-last-created ()
-    "Jump to the last-created dired entry after Dirvish reverts.
-Appended to `dirvish-after-revert-hook' so it runs after
-`dirvish-subtree--revert' has already re-expanded all subtrees.
-
-`dired-goto-file' (Emacs 30) searches text via `dired-subdir-alist', which
-Dirvish subtrees do not populate. We therefore fall back to
-`dirvish-subtree-expand-to', which navigates the overlay tree correctly."
-    (when (and cfg-navigation/dired-last-created
-               (eq (current-buffer) (car cfg-navigation/dired-last-created)))
-      (let ((target (cdr cfg-navigation/dired-last-created)))
-        (setq cfg-navigation/dired-last-created nil)
-        (or (dired-goto-file target)
-            (when (fboundp 'dirvish-subtree-expand-to)
-              (condition-case nil
-                  (dirvish-subtree-expand-to target)
-                (user-error nil)))))))
-
   (advice-add 'dired-create-directory  :before #'cfg-navigation/dired-record-created)
   (advice-add 'dired-create-empty-file :before #'cfg-navigation/dired-record-created)
   ;; t = append, so we run after dirvish-subtree--revert (which is prepended)

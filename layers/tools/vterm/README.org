@@ -14,6 +14,7 @@ scrolling without the compromises found in pure Emacs Lisp shells.
 * Emacs Configuration
 ** Vterm Terminal Emulator
 #+begin_src emacs-lisp
+(declare-function vterm-send-key "vterm")
 (use-package vterm
   :defer t
   :preface

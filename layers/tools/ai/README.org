@@ -326,24 +326,6 @@ Optional _ARG is ignored (for compatibility with advice)."
              (message "ECA [-]: Skipping key %s: %s"
                       env-var (error-message-string err))))))))
 
-  (defun cfg-tools/eca-toggle ()
-    "Toggle ECA.
-If the window is visible, stop the process and kill it.
-Otherwise, start a fresh session."
-    (interactive)
-    (let ((eca-buf (cl-find-if (lambda (b)
-                                 (string-match-p "^<eca-chat" (buffer-name b)))
-                               (buffer-list))))
-      (if (and eca-buf (get-buffer-window eca-buf))
-          (progn
-            (eca-stop)
-            (delete-window (get-buffer-window eca-buf))
-            (dolist (buf (buffer-list))
-              (when (string-match-p "^<eca" (buffer-name buf))
-                (kill-buffer buf)))
-            (message "ECA Sessions Terminated."))
-        (eca))))
-
   (advice-add 'eca :before #'cfg-tools/eca-init)
 
   ;; NOTE: auth-source backends (gpg-agent, pass, keychain, etc.) are initialized
@@ -368,6 +350,24 @@ Otherwise, start a fresh session."
   ;; Uncommment to start ECA automatically after startup:
   ;; (run-with-idle-timer 1 nil #'eca)
   )
+
+(defun cfg-tools/eca-toggle ()
+  "Toggle ECA.
+If the window is visible, stop the process and kill it.
+Otherwise, start a fresh session."
+  (interactive)
+  (let ((eca-buf (cl-find-if (lambda (b)
+                               (string-match-p "^<eca-chat" (buffer-name b)))
+                             (buffer-list))))
+    (if (and eca-buf (get-buffer-window eca-buf))
+        (progn
+          (eca-stop)
+          (delete-window (get-buffer-window eca-buf))
+          (dolist (buf (buffer-list))
+            (when (string-match-p "^<eca" (buffer-name buf))
+              (kill-buffer buf)))
+          (message "ECA Sessions Terminated."))
+      (eca))))
 #+end_src
 
 *** ECA over TRAMP
@@ -747,8 +747,42 @@ GitHub Copilot integration for Emacs. It provides AI-powered code suggestions as
 you type.
 
 #+begin_src emacs-lisp
+(declare-function corfu-insert "corfu")
+(declare-function corfu-complete "corfu")
 (declare-function cfg-tools/copilot-kubernetes-sensitive-p nil)
 (declare-function cfg-tools/copilot-excluded-file-p nil)
+
+(defun cfg-tools/tab-indent-or-complete ()
+  "Handle TAB key with a priority-based dispatch system.
+The priority order is as follows:
+1. Copilot: If a ghost-text overlay is active, accept the completion.
+2. ECA: If an ECA completion overlay is present, accept the ECA completion.
+2. Corfu: If the Corfu completion popup is visible, select the current candidate.
+3. Default: Fall back to standard indentation."
+  (interactive)
+  (let* ((at-point (overlays-at (point)))
+         (copilot-ov (and (bound-and-true-p copilot--overlay)
+                          (overlay-buffer copilot--overlay)
+                          copilot--overlay))
+         (eca-ov (cl-find-if (lambda (ov) (overlay-get ov 'completion)) at-point)))
+    (cond
+     (copilot-ov
+      (copilot-accept-completion))
+     (eca-ov
+      (if (fboundp 'eca-completion-accept)
+          (eca-completion-accept)
+        (indent-for-tab-command)))
+     ((and (bound-and-true-p corfu-mode)
+           (or (and (bound-and-true-p corfu--frame) (frame-visible-p corfu--frame))
+               (and (featurep 'corfu-terminal) (corfu-terminal--visible-p))))
+      (corfu-complete))
+     (t
+      (indent-for-tab-command)))))
+
+(defun cfg-tools/copilot-chat-yank-pop-previous ()
+  "Pop the previous yanked code block from `copilot-chat` history."
+  (interactive)
+  (copilot-chat-yank-pop -1))
 
 (use-package copilot
   ;; We activate the copilot extension only if it is authorized on this computer.
@@ -812,40 +846,13 @@ you type.
     "List of regex patterns for files to exclude from Copilot.")
 
   (defun cfg-tools/copilot-kubernetes-sensitive-p ()
-    "Check if current buffer contains Kubernetes sensitive content.
+    "Return non-nil if current buffer contains Kubernetes sensitive content.
 Returns non-nil if buffer contains Kubernetes Secrets or ConfigMaps."
     (save-excursion
       (goto-char (point-min))
       (and (re-search-forward "^apiVersion:" nil t)
            (goto-char (point-min))
            (re-search-forward "^kind:\\s-*\\(Secret\\|ConfigMap\\)\\s-*$" nil t))))
-
-  (defun cfg-tools/tab-indent-or-complete ()
-    "Handle TAB key with a priority-based dispatch system.
-The priority order is as follows:
-1. Copilot: If a ghost-text overlay is active, accept the completion.
-2. ECA: If an ECA completion overlay is present, accept the ECA completion.
-2. Corfu: If the Corfu completion popup is visible, select the current candidate.
-3. Default: Fall back to standard indentation."
-    (interactive)
-    (let* ((at-point (overlays-at (point)))
-           (copilot-ov (and (bound-and-true-p copilot--overlay)
-                            (overlay-buffer copilot--overlay)
-                            copilot--overlay))
-           (eca-ov (cl-find-if (lambda (ov) (overlay-get ov 'completion)) at-point)))
-      (cond
-       (copilot-ov
-        (copilot-accept-completion))
-       (eca-ov
-        (if (fboundp 'eca-completion-accept)
-            (eca-completion-accept)
-          (indent-for-tab-command)))
-       ((and (bound-and-true-p corfu-mode)
-             (or (and (bound-and-true-p corfu--frame) (frame-visible-p corfu--frame))
-                 (and (featurep 'corfu-terminal) (corfu-terminal--visible-p))))
-        (corfu-complete))
-       (t
-        (indent-for-tab-command)))))
 
   (defun cfg-tools/copilot-excluded-file-p ()
     "Check if current file should be excluded from Copilot."
@@ -882,12 +889,7 @@ Defers activation to ensure Copilot server is ready."
                  (error
                   ;; Only report errors if copilot is loaded (real errors)
                   (when (featurep 'copilot)
-                    (message "Copilot activation failed: %S" err)))))))))))
-
-  (defun cfg-tools/copilot-chat-yank-pop-previous ()
-    "Pop the previous yanked code block from `copilot-chat` history."
-    (interactive)
-    (copilot-chat-yank-pop -1))
+                    (message "Copilot activation failed: %S" err))))))))))
 
   :hook ((prog-mode . cfg-tools/safe-copilot-mode)
          (text-mode . cfg-tools/safe-copilot-mode)
@@ -940,6 +942,15 @@ tests, and more, all within Emacs.
 Registers keybindings for AI tools, ECA chat sessions, Copilot, and Copilot Chat integrations.
 
 #+begin_src emacs-lisp
+(declare-function copilot-chat-yank "copilot-chat")
+(declare-function copilot-chat-yank-pop "copilot-chat")
+(declare-function copilot-clear-overlay "copilot")
+(declare-function copilot-diagnose "copilot")
+(declare-function copilot-login "copilot")
+(declare-function copilot-next-completion "copilot")
+(declare-function copilot-previous-completion "copilot")
+(defvar copilot-completion-map)
+
 ;; ECA Chat mode navigation
 (with-eval-after-load 'eca-chat
   (define-key eca-chat-mode-map (kbd "C-c C-S-i") #'cfg-tools/eca-chat-open-index))

@@ -43,6 +43,11 @@ something to continue the search. You need to call the toggle function while the
 switcher is active to see the change.
 
 #+begin_src emacs-lisp
+(declare-function ibuffer-update "ibuffer")
+(declare-function ivy-update-candidates "ivy")
+(declare-function ivy--exhibit "ivy")
+(defvar ibuffer-display-maybe-show-predicates)
+
 (use-package counsel
   :after ivy
   :config
@@ -148,6 +153,8 @@ you interact with them.
   "s y" '(ivy-resume :which-key "Yvy Resume last search"))
 
 ;; --- Context-Specific Keymaps ---
+(declare-function counsel-expression-history "counsel")
+(defvar ibuffer-mode-map)
 (with-eval-after-load 'counsel
   (define-key minibuffer-local-map (kbd "C-r") #'counsel-minibuffer-history))
 

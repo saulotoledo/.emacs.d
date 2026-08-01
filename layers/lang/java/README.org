@@ -76,6 +76,7 @@ apply to all language servers:
 
 ;; Disable LSP-based Java formatting. Apheleia with
 ;; google-java-format handles formatting instead.
+(defvar lsp-java-format-enabled)
 (with-eval-after-load 'lsp-java
   (setq lsp-java-format-enabled nil)
 
@@ -102,6 +103,35 @@ apply to all language servers:
      #'ignore
      :error-handler #'ignore
      :mode 'detached)))
+
+(declare-function -first "dash")
+(declare-function dap-force-quit "dap-mode")
+(declare-function dap-java--populate-attach-args "dap-java")
+(declare-function dap-java--populate-default-args "dap-java")
+(declare-function dap-java-debug "dap-java")
+(declare-function dap-java-test-class "dap-java")
+(declare-function dap-java-test-method-at-point "dap-java")
+(declare-function lsp-java--get-root "lsp-java")
+(declare-function lsp-java--language-status-callback "lsp-java")
+(declare-function s-chop-prefix "s")
+(declare-function s-chop-suffix "s")
+(declare-function s-contains? "s")
+(declare-function s-join "s")
+(declare-function s-replace "s")
+(declare-function s-split "s")
+(defvar dap-java--classpath-separator)
+(defvar dap-java--latest-test)
+(defvar dap-java--var-format)
+(defvar dap-java-java-command)
+(defvar dap-java-test-additional-args)
+(defvar dap-java-test-runner)
+(defvar dap-java-testng-report-dir)
+(defvar dap-java-use-project-settings)
+(defvar dap-java-use-testng)
+(defvar dap-utils-extension-path)
+(defvar lsp-java-bundles)
+(defvar lsp-java-format-enabled)
+(defvar lsp-java-workspace-dir)
 
 (defun cfg-lang/dap-java--check-requirements ()
   "Return non-nil if the Java LSP server is running in this buffer."
@@ -384,7 +414,7 @@ Returns nil if the property is not found or is a property reference."
       (string-trim (match-string 1)))))
 
 (defun cfg-lang/jdtls--extract-pom-property-raw (name)
-  "Extract a raw property value (including ${refs}) for NAME from the current buffer."
+  "Extract raw property value for NAME (including ${refs}) from buffer."
   (save-excursion
     (goto-char (point-min))
     (when (re-search-forward (format "<%s>\\([^<]+\\)</%s>" (regexp-quote name) (regexp-quote name)) nil t)
@@ -494,10 +524,8 @@ the POM is never modified on disk.
 
 WORKSPACE is the lsp workspace, STATUS is the notification payload."
   (when-let* ((type (if (hash-table-p status) (gethash "type" status) (plist-get status :type)))
-              (_started (string= type "Started"))
               (root (lsp--workspace-root workspace))
               (pom (expand-file-name "pom.xml" root))
-              (_has-pom (file-exists-p pom))
               (java-version (cfg-lang/jdtls--detect-maven-java-version root)))
     (let ((count 0)
           (env-name (if (string= java-version "8") "JavaSE-1.8" (format "JavaSE-%s" java-version))))
@@ -1010,7 +1038,7 @@ around in `cfg-lang/dap-java--build-compile-attach'. Uses `lsp-request-async'
 validates the response shape with `sequencep' before joining, falling
 back to index 0 if the classpath is not at index 1."
   (let* ((jdtls-ws (or (lsp-find-workspace 'jdtls)
-                       (user-error "jdtls is not running. Open a Java file first")))
+                       (user-error "JDTLS is not running. Open a Java file first")))
          (cp-raw (let (result done)
                    (with-lsp-workspace jdtls-ws
                      (lsp-request-async
@@ -1079,8 +1107,7 @@ under a recognised src/test/java layout or no module root is found."
                                (or (file-exists-p (expand-file-name "pom.xml" dir))
                                    (file-exists-p (expand-file-name "build.gradle" dir))
                                    (file-exists-p (expand-file-name "build.gradle.kts" dir))))))
-              (rel (file-relative-name test-file module-root))
-              (_ (string-prefix-p "src/test/java/" rel)))
+              (rel (file-relative-name test-file module-root)))
     (cons module-root
           (s-chop-suffix ".java" (s-chop-prefix "src/test/java/" rel)))))
 
@@ -1117,7 +1144,7 @@ this compile step exists to fix."
         (file-newer-than-file-p test-file class-file))))
 
 (defun cfg-lang/dap-java--method-selector-shell-snippet (test-file class-name method-name)
-  "Return a shell snippet exporting TEST_SELECTOR for METHOD-NAME.
+  "Return a shell snippet exporting TEST_SELECTOR for METHOD-NAME in TEST-FILE.
 JUnit Platform Console's bare \"CLASS-NAME#METHOD-NAME\" method selector
 only resolves to a zero-argument method: for a `@ParameterizedTest' (or
 any test method that takes arguments), resolution fails with \"Could not
@@ -1184,7 +1211,7 @@ correctly (see that function's docstring)."
           (test-class-name (cl-first (s-split "#" to-run)))
           (method-name (and run-method? (cl-second (s-split "#" to-run))))
           (jdtls-ws (or (lsp-find-workspace 'jdtls)
-                       (user-error "jdtls is not running. Open a Java file first")))
+                       (user-error "JDTLS is not running. Open a Java file first")))
           (class-path (s-join dap-java--classpath-separator
                               (cfg-lang/dap-java--resolve-test-classpath test-class-name)))
           (test-file (buffer-file-name))
@@ -1271,7 +1298,7 @@ the first debug-test run per Emacs session. Polling via
 whatever synchronous wait upstream's call relies on, covers that slow
 first response directly rather than needing any special-casing for it."
   (let* ((jdtls-ws (or (lsp-find-workspace 'jdtls)
-                       (user-error "jdtls is not running. Open a Java file first")))
+                       (user-error "JDTLS is not running. Open a Java file first")))
          (result nil)
          (done nil))
     (with-lsp-workspace jdtls-ws
@@ -1331,7 +1358,7 @@ until it attaches), so Emacs does not need to probe the port at all."
 
 (defun cfg-lang/dap-java-debug-test-class (port)
   "Safe replacement for `dap-java-debug-test-class'.
-See `cfg-lang/dap-java-debug-test-method'."
+See `cfg-lang/dap-java-debug-test-method'. PORT is the JDWP attach port."
   (interactive (list (dap--find-available-port)))
   (dap-start-debugging
    (append (list :type "java"
@@ -1620,11 +1647,10 @@ If SDKMAN is not installed the function is a no-op and Emacs falls back to
 whatever Java is already on =exec-path=.
 
 #+begin_src emacs-lisp
-(with-eval-after-load 'lsp-java
-  (defvar lsp-java-java-path)
+(defvar lsp-java-java-path)
 
-  (defun cfg-lang/bootstrap-sdkman-java ()
-    "Bootstrap SDKMAN's current Java into Emacs's environment.
+(defun cfg-lang/bootstrap-sdkman-java ()
+  "Bootstrap SDKMAN's current Java into Emacs's environment.
 Sets JAVA_HOME, exec-path, PATH, and `lsp-java-java-path' from the
 `~/.sdkman/candidates/java/current' symlink. No version is hardcoded.
 IDempotent: skips PATH/JAVA_HOME patches when SDKMAN is already present.
@@ -1632,34 +1658,35 @@ Falls back silently to system Java when SDKMAN is not installed.
 Call interactively after switching Java with `sdk use java X.X.X'
 outside Emacs, then invoke `jal-lsp-java-switch-java-version' to
 update LSP without restarting Emacs."
-    (interactive)
-    (let* ((sdkman-java-dir (expand-file-name "~/.sdkman/candidates/java/current"))
-           (java-bin-dir    (expand-file-name "bin" sdkman-java-dir))
-           (java-bin        (expand-file-name "java" java-bin-dir)))
-      (cond
-       ((file-executable-p java-bin)
-        ;; Only patch JAVA_HOME/PATH if exec-path-from-shell did not already
-        ;; pick up SDKMAN (idempotent: skip when JAVA_HOME already points there).
-        (unless (string-prefix-p sdkman-java-dir (or (getenv "JAVA_HOME") ""))
-          (setenv "JAVA_HOME" sdkman-java-dir)
-          (setenv "PATH" (concat java-bin-dir path-separator (getenv "PATH")))
-          (add-to-list 'exec-path java-bin-dir))
-        ;; Pin lsp-java-java-path only when it has not already been set to a
-        ;; non-SDKMAN-current path by the user (e.g. via cfg-lang/java-switch-version).
-        ;; This prevents re-loading the config from undoing a live version switch.
-        (let ((current-path (bound-and-true-p lsp-java-java-path)))
-          (when (or (null current-path)
-                    (string= current-path "java")
-                    ;; Still pointing at SDKMAN current: safe to update.
-                    (string-prefix-p sdkman-java-dir current-path))
-            (setq lsp-java-java-path java-bin)
-            (message "SDKMAN Java bootstrapped: %s" java-bin))))
-       ((file-directory-p (expand-file-name "~/.sdkman/candidates/java"))
-        ;; SDKMAN is installed but no `current' version is selected.
-        (message "SDKMAN found but no current Java selected; using system Java."))
-       ;; SDKMAN not installed -- silent fallback to system Java.
-       )))
+  (interactive)
+  (let* ((sdkman-java-dir (expand-file-name "~/.sdkman/candidates/java/current"))
+         (java-bin-dir    (expand-file-name "bin" sdkman-java-dir))
+         (java-bin        (expand-file-name "java" java-bin-dir)))
+    (cond
+     ((file-executable-p java-bin)
+      ;; Only patch JAVA_HOME/PATH if exec-path-from-shell did not already
+      ;; pick up SDKMAN (idempotent: skip when JAVA_HOME already points there).
+      (unless (string-prefix-p sdkman-java-dir (or (getenv "JAVA_HOME") ""))
+        (setenv "JAVA_HOME" sdkman-java-dir)
+        (setenv "PATH" (concat java-bin-dir path-separator (getenv "PATH")))
+        (add-to-list 'exec-path java-bin-dir))
+      ;; Pin lsp-java-java-path only when it has not already been set to a
+      ;; non-SDKMAN-current path by the user (e.g. via cfg-lang/java-switch-version).
+      ;; This prevents re-loading the config from undoing a live version switch.
+      (let ((current-path (bound-and-true-p lsp-java-java-path)))
+        (when (or (null current-path)
+                  (string= current-path "java")
+                  ;; Still pointing at SDKMAN current: safe to update.
+                  (string-prefix-p sdkman-java-dir current-path))
+          (setq lsp-java-java-path java-bin)
+          (message "SDKMAN Java bootstrapped: %s" java-bin))))
+     ((file-directory-p (expand-file-name "~/.sdkman/candidates/java"))
+      ;; SDKMAN is installed but no `current' version is selected.
+      (message "SDKMAN found but no current Java selected; using system Java."))
+     ;; SDKMAN not installed -- silent fallback to system Java.
+     )))
 
+(with-eval-after-load 'lsp-java
   (cfg-lang/bootstrap-sdkman-java))
 #+end_src
 

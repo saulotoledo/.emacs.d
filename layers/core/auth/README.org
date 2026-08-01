@@ -27,7 +27,8 @@ We use the Emacs built-in ~auth-source~ package to securely retrieve API keys fr
   (auth-sources '("~/.authinfo.gpg"))
   :config
   (defun cfg-core/auth-source-get-secret (host &optional user)
-    "Retrieve a secret password from auth-source for HOST and optional USER (defaults to \"apikey\")."
+    "Retrieve a secret password from auth-source for HOST and optional USER.
+USER defaults to \"apikey\" if nil or omitted."
     (let ((found (car (auth-source-search :host host :login (or user "apikey") :require '(:secret)))))
       (when found
         (let ((secret (plist-get found :secret)))

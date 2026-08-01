@@ -46,6 +46,7 @@ The server is installed via =nodejs_tools= and pointed to via
 =lsp-tailwindcss-server-path= so that ~lsp-mode~ can launch it.
 
 #+begin_src emacs-lisp
+(defvar lsp-tailwindcss-server-path)
 (with-eval-after-load 'lsp-tailwindcss
   (setq lsp-tailwindcss-server-path
         (or (executable-find "tailwindcss-language-server")
@@ -56,6 +57,10 @@ The server is installed via =nodejs_tools= and pointed to via
 
 * Keybindings
 #+begin_src emacs-lisp
+(declare-function web-mode-element-close "web-mode")
+(declare-function web-mode-element-highlight-min "web-mode")
+(declare-function web-mode-element-rename "web-mode")
+
 (cfg-keys/leader-def
   "m"     '(:ignore t :which-key "major-mode")
   "m w"   '(:ignore t :which-key "web")

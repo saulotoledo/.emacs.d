@@ -19,6 +19,11 @@ annotations using blamer.el.
 
 ** Blamer Inline Annotations
 #+begin_src emacs-lisp
+(defun cfg-vc/toggle-blamer ()
+  "Toggle global-blamer-mode on and off."
+  (interactive)
+  (global-blamer-mode 'toggle))
+
 (use-package blamer
   :demand t
   :custom
@@ -28,12 +33,7 @@ annotations using blamer.el.
   :custom-face
   (blamer-face ((t :foreground "#5c6370"
                    :background unspecified
-                   :height 85)))
-  :config
-  (defun cfg-vc/toggle-blamer ()
-    "Toggle global-blamer-mode on and off."
-    (interactive)
-    (global-blamer-mode 'toggle)))
+                   :height 85))))
 #+end_src
 
 * Keybindings

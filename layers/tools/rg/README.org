@@ -11,21 +11,20 @@ editable grep results via wgrep.
 * Emacs Configuration
 ** Ripgrep Package Setup
 #+begin_src emacs-lisp
+(defun cfg-tools/counsel-rg-auto-preview-advice (orig-fun &rest args)
+  "Enable live-calling/preview automatically when running `counsel-rg`.
+ORIG-FUN is the advised function and ARGS are its arguments."
+  (minibuffer-with-setup-hook
+      (lambda () (setq-local ivy-calling t))
+    (apply orig-fun args)))
+
 (use-package rg
   :config
   (rg-enable-default-bindings)
   (rg-enable-menu)
   (setq wgrep-auto-save-buffer t) ; Save wgrep buffers automatically after editing
+  (advice-add 'counsel-rg :around #'cfg-tools/counsel-rg-auto-preview-advice)
 
-  (defun my/counsel-rg-auto-preview-advice (orig-fun &rest args)
-    "Enable live-calling/preview automatically when running `counsel-rg`."
-    (minibuffer-with-setup-hook
-        (lambda () (setq-local ivy-calling t))
-      (apply orig-fun args)))
-
-  (advice-add 'counsel-rg :around #'my/counsel-rg-auto-preview-advice)
-
-  (declare-function project-roots "project")
   (declare-function transient-quit-all "transient")
   (defun cfg-tools/rg-abort-to-counsel ()
     "Abort the current transient menu and launch counsel-rg."
@@ -68,9 +67,7 @@ If HIDDEN is non-nil, search hidden and ignored files/folders."
            ((fboundp 'project-current)
             (let ((proj (project-current)))
               (when proj
-                (if (fboundp 'project-root)
-                    (project-root proj)
-                  (car (project-roots proj))))))
+                (project-root proj))))
            ((fboundp 'vc-root-dir)
             (vc-root-dir))
            (t default-directory)))

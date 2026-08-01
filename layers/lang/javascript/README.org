@@ -57,6 +57,37 @@ Key features:
 ;; Ensure dap-js is loaded and the debug adapter is installed automatically.
 ;; dap-js-path defaults to ~/.emacs.d/.extension/js-debug.
 ;; dap-js-setup downloads the adapter only when it is missing.
+(declare-function dap-js-setup "dap-js")
+(defun cfg-lang/dap--start-process-with-env (debug-session parsed-msg)
+  "Override `dap--start-process' to pass env and return shellProcessId.
+Extracts `env', `args', `cwd', `title', and `kind' from PARSED-MSG,
+spawns the command in a shell with the env vars injected into
+`process-environment', captures the shell PID, and sends a success
+response containing :shellProcessId so pwa-node can auto-attach."
+  (let* ((args-hash (gethash "arguments" parsed-msg))
+         (seq       (gethash "seq" parsed-msg))
+         (args      (gethash "args" args-hash))
+         (cwd       (gethash "cwd" args-hash))
+         (title     (or (gethash "title" args-hash) "DAP Terminal"))
+         (env-hash  (gethash "env" args-hash))
+         (default-directory (or cwd default-directory))
+         ;; Build the env list from the hash
+         (extra-env
+          (when (hash-table-p env-hash)
+            (let (pairs)
+              (maphash (lambda (k v) (push (concat k "=" v) pairs)) env-hash)
+              pairs)))
+         (process-environment (append extra-env process-environment))
+         (command (combine-and-quote-strings (append args nil) " "))
+         ;; Spawn via shell so we can capture the shell PID
+         (buf (dap--make-terminal-buffer title debug-session))
+         (proc (start-process-shell-command title buf command))
+         (pid (process-id proc)))
+    (dap--send-message
+     (dap--make-success-response seq "runInTerminal" (list :shellProcessId pid))
+     (dap--resp-handler)
+     debug-session)))
+
 (with-eval-after-load 'dap-mode
   (require 'dap-js)
   (dap-js-setup)
@@ -69,36 +100,6 @@ Key features:
   ;;   2. the shell PID in the response body so it can track/auto-attach to the
   ;;      node process. Without the PID the adapter crashes immediately after
   ;;      receiving the success response ("connection broken by remote peer").
-  (defun cfg-lang/dap--start-process-with-env (debug-session parsed-msg)
-    "Override `dap--start-process' to pass env and return shellProcessId.
-Extracts `env', `args', `cwd', `title', and `kind' from PARSED-MSG,
-spawns the command in a shell with the env vars injected into
-`process-environment', captures the shell PID, and sends a success
-response containing :shellProcessId so pwa-node can auto-attach."
-    (let* ((args-hash (gethash "arguments" parsed-msg))
-           (seq       (gethash "seq" parsed-msg))
-           (args      (gethash "args" args-hash))
-           (cwd       (gethash "cwd" args-hash))
-           (title     (or (gethash "title" args-hash) "DAP Terminal"))
-           (env-hash  (gethash "env" args-hash))
-           (default-directory (or cwd default-directory))
-           ;; Build the env list from the hash
-           (extra-env
-            (when (hash-table-p env-hash)
-              (let (pairs)
-                (maphash (lambda (k v) (push (concat k "=" v) pairs)) env-hash)
-                pairs)))
-           (process-environment (append extra-env process-environment))
-           (command (combine-and-quote-strings (append args nil) " "))
-           ;; Spawn via shell so we can capture the shell PID
-           (buf (dap--make-terminal-buffer title debug-session))
-           (proc (start-process-shell-command title buf command))
-           (pid (process-id proc)))
-      (dap--send-message
-       (dap--make-success-response seq "runInTerminal" (list :shellProcessId pid))
-       (dap--resp-handler)
-       debug-session)))
-
   (advice-add 'dap--start-process :override #'cfg-lang/dap--start-process-with-env))
 #+end_src
 
@@ -108,33 +109,33 @@ interactive Node.js shell within Emacs, allowing you to run JavaScript code
 snippets and test functions on the fly.
 
 #+begin_src emacs-lisp
-(use-package nodejs-repl
-  :config
-  (defun cfg-lang/nodejs-repl-with-manager ()
-    "Launch nodejs-repl using the detected package manager."
-    (interactive)
-    (let* ((manager (cfg-lang/nodejs-get-project-package-manager))
-           (cmd (if (string-equal manager "npm") "npx" manager)))
-      (setq nodejs-repl-command cmd)
-      (setq nodejs-repl-arguments '("node"))
-      (nodejs-repl))))
+(defun cfg-lang/nodejs-repl-with-manager ()
+  "Launch nodejs-repl using the detected package manager."
+  (interactive)
+  (let* ((manager (cfg-lang/nodejs-get-project-package-manager))
+         (cmd (if (string-equal manager "npm") "npx" manager)))
+    (setq nodejs-repl-command cmd)
+    (setq nodejs-repl-arguments '("node"))
+    (nodejs-repl)))
+
+(use-package nodejs-repl)
 #+end_src
 
 ** npm.el
 =npm-el= is a feature-rich Transient UI popup menu for all NPM-related tasks.
 
 #+begin_src emacs-lisp
+(defun cfg-lang/npm-fix-command-for-package-manager (args)
+  "Replace `npm' with the detected package manager in npm-common--compile ARGS."
+  (let* ((manager (cfg-lang/nodejs-get-project-package-manager))
+         (npm-command (car args))
+         (rest (cdr args)))
+    (if (string-equal manager "npm")
+        args
+      (cons (replace-regexp-in-string "^npm\\b" manager npm-command) rest))))
+
 (use-package npm
   :config
-  (defun cfg-lang/npm-fix-command-for-package-manager (args)
-    "Replace 'npm' with the detected package manager in npm-common--compile ARGS."
-    (let* ((manager (cfg-lang/nodejs-get-project-package-manager))
-           (npm-command (car args))
-           (rest (cdr args)))
-      (if (string-equal manager "npm")
-          args
-        (cons (replace-regexp-in-string "^npm\\b" manager npm-command) rest))))
-
   (advice-add 'npm-common--compile :filter-args #'cfg-lang/npm-fix-command-for-package-manager))
 #+end_src
 
@@ -216,6 +217,9 @@ snippets and test functions on the fly.
 ;; Point lsp-typescript-tsdk at our emacs-local typescript installation.
 ;; Projects that have their own typescript in node_modules will override this
 ;; automatically because vtsls.autoUseWorkspaceTsdk is enabled below.
+(defvar lsp-typescript-tsdk)
+(defvar lsp-typescript-suggest-complete-function-calls)
+(defvar lsp-typescript-preferences-import-module-specifier)
 (setq lsp-typescript-tsdk
       (expand-file-name "nodejs_tools/node_modules/typescript/lib"
                         user-emacs-directory))
@@ -241,6 +245,7 @@ snippets and test functions on the fly.
 (setq lsp-typescript-suggest-complete-function-calls t)
 (setq lsp-typescript-preferences-import-module-specifier "auto") ; other values: non-relative, relative
 
+(declare-function ht-merge "ht")
 (with-eval-after-load 'lsp-mode
   (add-to-list 'lsp-language-id-configuration '(typescript-ts-mode . "typescript"))
   (add-to-list 'lsp-language-id-configuration '(tsx-ts-mode . "typescriptreact"))

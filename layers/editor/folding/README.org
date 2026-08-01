@@ -8,6 +8,13 @@ Provides syntax-aware code and block folding for Tree-sitter modes via treesit-f
 * Emacs Configuration
 ** Treesit Fold
 #+begin_src emacs-lisp
+(defun cfg-editor/treesit-fold-toggle-all ()
+  "Toggle all folds in the current buffer."
+  (interactive)
+  (if (bound-and-true-p cfg-editor/treesit-folded-p)
+      (progn (treesit-fold-open-all) (setq-local cfg-editor/treesit-folded-p nil))
+    (progn (treesit-fold-close-all) (setq-local cfg-editor/treesit-folded-p t))))
+
 (use-package treesit-fold
   :pin "JCS-ELPA"
   :config
@@ -47,14 +54,7 @@ Skip entirely when indicators are not active in this buffer."
                 (lambda ()
                   (when (buffer-live-p buf)
                     (with-current-buffer buf
-                      (ignore-errors (apply orig-fn args))))))))))
-
-  (defun cfg-editor/treesit-fold-toggle-all ()
-    "Toggle all folds in the current buffer."
-    (interactive)
-    (if (bound-and-true-p cfg-editor/treesit-folded-p)
-        (progn (treesit-fold-open-all) (setq-local cfg-editor/treesit-folded-p nil))
-      (progn (treesit-fold-close-all) (setq-local cfg-editor/treesit-folded-p t)))))
+                      (ignore-errors (apply orig-fn args)))))))))))
 #+end_src
 
 * Keybindings

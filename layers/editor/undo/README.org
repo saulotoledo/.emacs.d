@@ -25,6 +25,7 @@ easier to navigate complex edits and to revert to earlier states.
 
 * Keybindings
 #+begin_src emacs-lisp
+(declare-function undo-tree-visualize "undo-tree")
 (cfg-keys/leader-def
   "u"   '(:ignore t :which-key "undo")
   "u u" #'undo-tree-visualize)
