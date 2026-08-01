@@ -48,8 +48,10 @@ using =M-x devcontainer-tramp-dired=.
 All interactive functions use the =devcontainer-= prefix:
 + =M-x devcontainer-up= - Start the devcontainer for the current project
 + =M-x devcontainer-restart= - Stop and restart the devcontainer
-+ =M-x devcontainer-rebuild-and-restart= - Rebuild and restart (useful after Dockerfile changes)
-+ =M-x devcontainer-execute-command= - Execute an arbitrary command inside the container
++ =M-x devcontainer-rebuild-and-restart= - Rebuild and restart (useful after
+  Dockerfile changes)
++ =M-x devcontainer-execute-command= - Execute an arbitrary command inside the
+  container
 + =M-x devcontainer-term= - Launch a terminal inside the container
 
 #+begin_src emacs-lisp
@@ -143,13 +145,19 @@ container should have Node.js and language server extensions installed.
 * System Setup
 Prerequisites for devcontainers environment:
 
-+ [[https://github.com/devcontainers/cli][devcontainers/cli]]: The official command-line interface for the Dev Containers specification. It allows you to build, run, and manage development container environments defined by a =devcontainer.json= file independently of the IDE extension. It is added to the =nodejs_tools= folder, which requires running =npm install=.
-+ =Container Runtime= - Have a functioning installation of either Docker or Podman.
-+ =Docker Compose= - Required only if your Dev Containers configuration relies on it.
++ [[https://github.com/devcontainers/cli][devcontainers/cli]]: The official command-line interface for the Dev Containers
+  specification. It allows you to build, run, and manage development container
+  environments defined by a =devcontainer.json= file independently of the IDE
+  extension. It is added to the =nodejs_tools= folder, which requires running
+  =npm install=.
++ =Container Runtime= - Have a functioning installation of either Docker or
+  Podman.
++ =Docker Compose= - Required only if your Dev Containers configuration relies
+  on it.
 
 #+begin_src sh
 is_installed__tools__docker__devcontainer_cli() {
-  command -v devcontainer >/dev/null 2>&1
+  [ -f "$TOOLS_DIR/node_modules/.bin/devcontainer" ] || command -v devcontainer >/dev/null 2>&1
 }
 
 install__tools__docker__devcontainer_cli() {

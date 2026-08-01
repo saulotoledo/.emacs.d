@@ -1940,7 +1940,7 @@ uninstall__tools__ai__rtk() {
 register_action "Tools" "AI" "Install Rust Token Killer (rtk)" "-tools--ai--rtk" "standalone"
 
 is_installed__tools__docker__devcontainer_cli() {
-  command -v devcontainer >/dev/null 2>&1
+  [ -f "$TOOLS_DIR/node_modules/.bin/devcontainer" ] || command -v devcontainer >/dev/null 2>&1
 }
 
 install__tools__docker__devcontainer_cli() {
