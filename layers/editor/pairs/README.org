@@ -27,9 +27,9 @@ Smartparens is a minor mode for dealing with pairs in Emacs.
 ;; Instead, we snapshot the current line's indentation and apply it
 ;; manually with `indent-to', which is instant and always correct.
 (defun cfg-editor/prog-smart-ret ()
-  "Smart RET for prog-mode.
+  "Smart RET for `prog-mode'.
 Expands {|}, (|), [|], and >|</ into indented blocks.
-Falls through to newline-and-indent otherwise."
+Falls through to `newline-and-indent' otherwise."
   (interactive)
   (let ((base (current-indentation)))
     (cond

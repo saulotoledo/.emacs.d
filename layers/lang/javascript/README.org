@@ -60,10 +60,13 @@ Key features:
 (declare-function dap-js-setup "dap-js")
 (defun cfg-lang/dap--start-process-with-env (debug-session parsed-msg)
   "Override `dap--start-process' to pass env and return shellProcessId.
+DEBUG-SESSION is the active DAP session object.
+PARSED-MSG is the incoming DAP request message payload.
+
 Extracts `env', `args', `cwd', `title', and `kind' from PARSED-MSG,
 spawns the command in a shell with the env vars injected into
 `process-environment', captures the shell PID, and sends a success
-response containing :shellProcessId so pwa-node can auto-attach."
+response containing `:shellProcessId' so pwa-node can auto-attach."
   (let* ((args-hash (gethash "arguments" parsed-msg))
          (seq       (gethash "seq" parsed-msg))
          (args      (gethash "args" args-hash))
@@ -109,6 +112,8 @@ interactive Node.js shell within Emacs, allowing you to run JavaScript code
 snippets and test functions on the fly.
 
 #+begin_src emacs-lisp
+(defvar nodejs-repl-command)
+(defvar nodejs-repl-arguments)
 (defun cfg-lang/nodejs-repl-with-manager ()
   "Launch nodejs-repl using the detected package manager."
   (interactive)

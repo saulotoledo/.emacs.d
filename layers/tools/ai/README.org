@@ -747,8 +747,10 @@ GitHub Copilot integration for Emacs. It provides AI-powered code suggestions as
 you type.
 
 #+begin_src emacs-lisp
-(declare-function corfu-insert "corfu")
+(declare-function copilot-accept-completion "copilot")
 (declare-function corfu-complete "corfu")
+(declare-function corfu-insert "corfu")
+(declare-function corfu-terminal--visible-p "corfu-terminal")
 (declare-function cfg-tools/copilot-kubernetes-sensitive-p nil)
 (declare-function cfg-tools/copilot-excluded-file-p nil)
 
@@ -757,7 +759,8 @@ you type.
 The priority order is as follows:
 1. Copilot: If a ghost-text overlay is active, accept the completion.
 2. ECA: If an ECA completion overlay is present, accept the ECA completion.
-2. Corfu: If the Corfu completion popup is visible, select the current candidate.
+2. Corfu: If the Corfu completion popup is visible, select the current
+   candidate.
 3. Default: Fall back to standard indentation."
   (interactive)
   (let* ((at-point (overlays-at (point)))

@@ -37,40 +37,16 @@ which disconnects the DAP session. Override in a mode hook with
 `setq-local' when termination needs language-specific cleanup (e.g.
 killing a suspended JVM process group for Java compile_attach sessions).")
 
+(declare-function dap--cur-session "dap-mode")
+(declare-function dap--debug-session-thread-id "dap-mode")
 (declare-function dap--find-available-port "dap-mode")
-(declare-function dap-start-debugging "dap-mode")
-(declare-function dap-register-debug-provider "dap-mode")
-(declare-function dap--make-terminal-buffer "dap-mode")
-(declare-function dap--send-message "dap-mode")
 (declare-function dap--make-success-response "dap-mode")
+(declare-function dap--make-terminal-buffer "dap-mode")
 (declare-function dap--resp-handler "dap-mode")
-(use-package dap-mode
-  :after lsp-mode
-  :init
-  (dap-auto-configure-mode 1)
-  :bind
-  (("<f5>" . cfg-lsp/dap-run-continue-dispatch)
-   ("<f6>" . cfg-lsp/dap-next-dispatch)
-   ("<f7>" . cfg-lsp/dap-step-in-dispatch)
-   ("<f8>" . cfg-lsp/dap-step-out-dispatch)
-   ("<f9>" . dap-breakpoint-toggle))
-  :config
-  ;; Fix for newline translation issues on Linux/WSL file-watching.
-  ;; See https://github.com/emacs-lsp/dap-mode/issues/214
-  (setq inhibit-eol-conversion t)
-
-  (setq dap-auto-configure-features
-        '(sessions locals breakpoints expressions controls tooltip repl))
-
-  ;; Force the output terminal to pop up on debug launch.
-  (setq dap-auto-show-output t)
-
-  ;; Log DAP protocol JSON to *Messages* to debug communication issues.
-  (setq dap-print-io t)
-
-  (declare-function dap--cur-session "dap-mode")
-  (declare-function dap--session-running "dap-mode")
-  (declare-function dap--debug-session-thread-id "dap-mode")
+(declare-function dap--send-message "dap-mode")
+(declare-function dap--session-running "dap-mode")
+(declare-function dap-register-debug-provider "dap-mode")
+(declare-function dap-start-debugging "dap-mode")
 
 (defun cfg-lsp/dap--thread-stopped-p (session)
   "Return non-nil if SESSION has a currently stopped thread."
@@ -113,6 +89,30 @@ killing a suspended JVM process group for Java compile_attach sessions).")
 (defun cfg-lsp/dap-step-out-dispatch ()
   "F8: step out -- only when a thread is stopped."
   (interactive) (cfg-lsp/dap-step-dispatch 'dap-step-out))
+
+(use-package dap-mode
+  :after lsp-mode
+  :init
+  (dap-auto-configure-mode 1)
+  :bind
+  (("<f5>" . cfg-lsp/dap-run-continue-dispatch)
+   ("<f6>" . cfg-lsp/dap-next-dispatch)
+   ("<f7>" . cfg-lsp/dap-step-in-dispatch)
+   ("<f8>" . cfg-lsp/dap-step-out-dispatch)
+   ("<f9>" . dap-breakpoint-toggle))
+  :config
+  ;; Fix for newline translation issues on Linux/WSL file-watching.
+  ;; See https://github.com/emacs-lsp/dap-mode/issues/214
+  (setq inhibit-eol-conversion t)
+
+  (setq dap-auto-configure-features
+        '(sessions locals breakpoints expressions controls tooltip repl))
+
+  ;; Force the output terminal to pop up on debug launch.
+  (setq dap-auto-show-output t)
+
+  ;; Log DAP protocol JSON to *Messages* to debug communication issues.
+  (setq dap-print-io t)
 
   ;; ansi-color-compilation-filter (Emacs 28+) correctly uses the
   ;; compilation-filter-start marker to apply colors only to new output.
@@ -440,13 +440,15 @@ EVENT is the mouse click event."
           (dap-breakpoint-toggle))))))
 
 (defun cfg-lsp/dap-treesit-fold-fringe-click-advice (orig-fn event)
-  "Handle \\[mouse-1] in left-fringe in *-ts-mode for breakpoints and folds.
-\\(Since the treesit-fold fringe indicator overlays everything else).
-By default, clicking the fringe with no fold indicator does nothing (event is
-swallowed). This advice ensures the click toggles a DAP breakpoint if no fold
-indicator is present, so fringe clicks are always useful. Call ORIG-FN if a
-fold indicator is present at the clicked line; otherwise, toggle a DAP
-breakpoint if `dap-mode' is active in the current buffer."
+  "Handle fringe click EVENT in `*-ts-mode' for breakpoints and folds.
+Calls ORIG-FN if a treesit-fold indicator is present at the clicked line;
+otherwise, toggles a DAP breakpoint if `dap-mode' is enabled.
+
+EVENT is the mouse event passed by Emacs when clicking the fringe.
+
+Since treesit-fold fringe indicators overlay other fringe elements, clicks
+are swalled by default when no fold indicator is present. This advice ensures
+unhandled fringe clicks toggle DAP breakpoints instead."
   (let* ((pos (posn-point (event-start event)))
          (cur-ln (when pos (line-number-at-pos pos)))
          (ovs (when pos

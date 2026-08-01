@@ -15,6 +15,25 @@ warnings directly in your code buffer. This helps you catch mistakes early by
 providing immediate feedback about code issues (like syntax errors, unused
 variables, or style problems).
 
+*** Flycheck limitations over TRAMP
+TRAMP support for Flyway was added to version 38 (See PR 2191 at
+flycheck/flycheck).
+
+#+begin_src emacs-lisp
+(declare-function tramp-tramp-file-p "tramp")
+(defun cfg-lsp--flycheck-maybe-enable ()
+  "Enable flycheck when properly supported.
+Always enable for local files. For TRAMP files, enable only if Flycheck is v38+,
+because TRAMP support was added to that version."
+  (when (buffer-file-name)
+    (if (not (tramp-tramp-file-p (buffer-file-name)))
+        (flycheck-mode 1)
+      (when (and (boundp 'flycheck-version)
+                 (version<= "38" flycheck-version))
+        (flycheck-mode 1)))))
+#+end_src
+
+*** Main configuration
 By default, Flycheck limits the number of errors it will display in a buffer.
 Some language servers (such as Lean or large LSP projects) can produce many
 diagnostics, which may exceed this limit and cause Flycheck to stop reporting
@@ -86,24 +105,6 @@ being excessive.
   ;; Enable Flycheck globally. Disabled for now. I am trying prog-mode hook instead.
   ;; (global-flycheck-mode t)
   :hook (prog-mode . cfg-lsp--flycheck-maybe-enable))
-#+end_src
-
-*** Flycheck limitations over TRAMP
-TRAMP support for Flyway was added to version 38 (See PR 2191 at
-flycheck/flycheck).
-
-#+begin_src emacs-lisp
-(declare-function tramp-tramp-file-p "tramp")
-(defun cfg-lsp--flycheck-maybe-enable ()
-  "Enable flycheck when properly supported.
-Always enable for local files. For TRAMP files, enable only if Flycheck is v38+,
-because TRAMP support was added to that version."
-  (when (buffer-file-name)
-    (if (not (tramp-tramp-file-p (buffer-file-name)))
-        (flycheck-mode 1)
-      (when (and (boundp 'flycheck-version)
-                 (version<= "38" flycheck-version))
-        (flycheck-mode 1)))))
 #+end_src
 
 ** Cognitive Complexity: Code Metrics

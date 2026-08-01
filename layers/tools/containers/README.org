@@ -55,6 +55,11 @@ All interactive functions use the =devcontainer-= prefix:
 + =M-x devcontainer-term= - Launch a terminal inside the container
 
 #+begin_src emacs-lisp
+(declare-function tramp-dissect-file-name "tramp")
+(declare-function tramp-file-name-method "tramp")
+(declare-function tramp-tramp-file-p "tramp")
+(defvar vterm-shell)
+
 (defun cfg-tools/get-devcontainer-shell ()
   "Search for a shell preference in devcontainer.json.
 Falls back to VS Code settings if a shell is not found."
@@ -91,8 +96,6 @@ Applies ORIG-FUN with ARGS."
   (unless (file-remote-p (or (buffer-file-name) default-directory))
     (apply orig-fun args)))
 
-(declare-function tramp-tramp-file-p "tramp")
-(defvar vterm-shell)
 (use-package devcontainer
   :config
   ;; Utilize the Dev Containers CLI from our PATH

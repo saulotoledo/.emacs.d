@@ -39,7 +39,7 @@ Consumed by `cfg-navigation/dired-goto-last-created' via
               (expand-file-name (directory-file-name path)))))
 
 (defun cfg-navigation/dired-goto-last-created ()
-  "Jump to the last-created dired entry after Dirvish reverts.
+  "Jump to the last-created Dired entry after Dirvish reverts.
 Appended to `dirvish-after-revert-hook' so it runs after
 `dirvish-subtree--revert' has already re-expanded all subtrees.
 

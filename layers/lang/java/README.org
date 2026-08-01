@@ -1651,7 +1651,7 @@ whatever Java is already on =exec-path=.
 
 (defun cfg-lang/bootstrap-sdkman-java ()
   "Bootstrap SDKMAN's current Java into Emacs's environment.
-Sets JAVA_HOME, exec-path, PATH, and `lsp-java-java-path' from the
+Sets JAVA_HOME, variable `exec-path', PATH, and `lsp-java-java-path' from the
 `~/.sdkman/candidates/java/current' symlink. No version is hardcoded.
 IDempotent: skips PATH/JAVA_HOME patches when SDKMAN is already present.
 Falls back silently to system Java when SDKMAN is not installed.

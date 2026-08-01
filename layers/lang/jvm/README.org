@@ -281,6 +281,7 @@ Example: \"com.foo.Bar.method\" + \"Bar.java\" -> \"com/foo/Bar.java\"."
 
 (declare-function archive-goto-file "arc-mode")
 (declare-function archive-extract "arc-mode")
+(defvar archive-read-only)
 (defun cfg-lang/java-stack-trace--open-archive-entry (jar entry line source-p)
   "Open ENTRY from JAR read-only, moving to LINE when SOURCE-P is non-nil."
   (require 'arc-mode)
@@ -386,14 +387,6 @@ class-only JARs."
   "Remove all stack trace overlays from the current buffer."
   (remove-overlays (point-min) (point-max) 'cfg-lang/java-stack-trace t))
 
-(defun cfg-lang/java-stack-trace--after-change (beg end _len)
-  "Refresh overlays for the region that changed (BEG..END)."
-  (when cfg-lang/java-stack-trace-mode
-    (let ((scan-beg (save-excursion (goto-char beg) (line-beginning-position)))
-          (scan-end (save-excursion (goto-char end)  (line-end-position))))
-      (remove-overlays scan-beg scan-end 'cfg-lang/java-stack-trace t)
-      (cfg-lang/java-stack-trace--apply-overlays scan-beg scan-end))))
-
 (defvar cfg-lang/java-stack-trace-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "C-c C-j") #'cfg-lang/java-stack-trace-jump-at-point)
@@ -449,6 +442,14 @@ Set `cfg-jvm/java-stack-trace-project-packages' to skip auto-detection:
     (remove-hook 'after-change-functions #'cfg-lang/java-stack-trace--after-change t)
     (when (not buffer-file-name)
       (local-unset-key (kbd "C-c C-j")))))
+
+(defun cfg-lang/java-stack-trace--after-change (beg end _len)
+  "Refresh overlays for the region that changed (BEG..END)."
+  (when cfg-lang/java-stack-trace-mode
+    (let ((scan-beg (save-excursion (goto-char beg) (line-beginning-position)))
+          (scan-end (save-excursion (goto-char end)  (line-end-position))))
+      (remove-overlays scan-beg scan-end 'cfg-lang/java-stack-trace t)
+      (cfg-lang/java-stack-trace--apply-overlays scan-beg scan-end))))
 
 ;; Auto-enable in DAP server-log buffers (where stack traces appear most often)
 (add-hook 'dap-server-log-mode-hook #'cfg-lang/java-stack-trace-mode)

@@ -13,6 +13,9 @@ and additional completion backends via `cape`.
 ** Corfu Core Setup
 #+begin_src emacs-lisp
 (defvar lsp-completion--cache)
+(defvar cfg-lsp/lsp-completion--last-resp)
+(defvar cfg-lsp/lsp-completion--last-resp-time)
+(defvar cfg-lsp/lsp-completion--last-resp-bounds)
 (defun cfg-completion/corfu-reset-completion-cache ()
   "Clear stale LSP/Corfu completion caches and restart completion."
   (interactive)
