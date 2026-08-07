@@ -33,9 +33,10 @@ The special value `:inherit' means that `corfu-auto' was not buffer-local.")
                 (corfu-terminal--visible-p)))))
 
 (defun cfg-completion/corfu-candidate-selected-p ()
-  "Return non-nil when Corfu has an explicitly selected candidate."
-  (and (cfg-completion/corfu-visible-p)
-       (boundp 'corfu--index)
+  "Return non-nil when Corfu has an explicitly selected candidate.
+Use Corfu's own selection state; popup-frame visibility may already be false
+while the active Return command is tearing the popup down."
+  (and (boundp 'corfu--index)
        (integerp corfu--index)
        (>= corfu--index 0)))
 
@@ -75,7 +76,8 @@ The special value `:inherit' means that `corfu-auto' was not buffer-local.")
       (delete-overlay overlay))))
 
 (defun cfg-completion/corfu-return-or-newline ()
-  "Insert a selected Corfu candidate, or insert a normal newline."
+  "Accept a selected Corfu candidate or insert a newline when none is selected.
+Enter is consumed while Corfu's keymap is active."
   (interactive)
   (if (cfg-completion/corfu-candidate-selected-p)
       (progn
@@ -244,9 +246,16 @@ or blocking behavior.
 
 ;; Corfu active popup keymap
 (with-eval-after-load 'corfu
+  ;; Prevent Corfu's pre-command hook from auto-inserting the previewed
+  ;; candidate before our handler can inspect `corfu--index'. The handler must
+  ;; see the selected state so it can accept the candidate without also
+  ;; inserting the buffer's newline.
+  (add-to-list 'corfu-continue-commands
+               #'cfg-completion/corfu-return-or-newline)
   (define-key corfu-map (kbd "C-<return>") #'corfu-insert)
-  (define-key corfu-map (kbd "[return]") #'cfg-completion/corfu-return-or-newline)
+  (define-key corfu-map (kbd "<return>") #'cfg-completion/corfu-return-or-newline)
   (define-key corfu-map (kbd "RET") #'cfg-completion/corfu-return-or-newline)
+  (define-key corfu-map (kbd "C-m") #'cfg-completion/corfu-return-or-newline)
   (define-key corfu-map (kbd "C-g") #'cfg-completion/corfu-quit-only)
   (define-key corfu-map (kbd "ESC") #'cfg-completion/corfu-quit-only)
   (define-key corfu-map (kbd "C-e") #'cfg-completion/corfu-quit-only)
