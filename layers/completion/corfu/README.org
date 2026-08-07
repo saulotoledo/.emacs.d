@@ -148,6 +148,70 @@ ORIG-FUN is the advised function. ARGS are its arguments."
 (defvar cfg-lsp/lsp-completion-refresh-hook)
 (defvar-local cfg-completion/corfu--refresh-timer nil
   "Timer used to debounce Corfu refreshes after asynchronous LSP results.")
+(defvar-local cfg-completion/corfu--manual-pending nil
+  "Non-nil while an explicitly requested completion is awaiting an LSP result.")
+(defvar-local cfg-completion/corfu--manual-timeout-timer nil
+  "Timer used to bound an explicitly requested completion request.")
+
+(defcustom cfg-completion/corfu-manual-completion-timeout 2.0
+  "Seconds to wait for an explicitly requested completion result.
+The request itself remains asynchronous; this value only controls how long the
+manual completion command reports that it is pending."
+  :type 'number
+  :group 'corfu)
+
+(defun cfg-completion/corfu--finish-manual-completion (&optional message)
+  "Clear the manual completion pending state and optionally show MESSAGE."
+  (when (timerp cfg-completion/corfu--manual-timeout-timer)
+    (cancel-timer cfg-completion/corfu--manual-timeout-timer))
+  (setq cfg-completion/corfu--manual-timeout-timer nil
+        cfg-completion/corfu--manual-pending nil)
+  (when message
+    (message "%s" message)))
+
+(defun cfg-completion/corfu-manual-completion-refresh
+    (buf &optional _context-key _generation _saved-tick _saved-point)
+  "Finish an explicitly requested completion when BUF receives an LSP result."
+  (when (and cfg-completion/corfu--manual-pending
+             (eq (current-buffer) buf))
+    (cfg-completion/corfu--finish-manual-completion)))
+
+(defun cfg-completion/corfu-manual-completion-timeout (buf)
+  "Report that the manual completion request for BUF did not finish in time."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (when cfg-completion/corfu--manual-pending
+        (cfg-completion/corfu--finish-manual-completion
+         "Completion is still pending; try again when the language server responds")))))
+
+(defun cfg-completion/corfu-manual-completion ()
+  "Request completion explicitly without blocking Emacs.
+
+If the current completion is served synchronously, the command finishes
+normally. If an LSP request is required, the request remains asynchronous and
+Corfu is refreshed when the validated result arrives. A bounded timer reports
+when the result has not arrived yet instead of making the command appear to
+have silently completed."
+  (interactive)
+  (cfg-completion/corfu--finish-manual-completion)
+  (setq cfg-completion/corfu--manual-pending t)
+  (setq cfg-completion/corfu--manual-timeout-timer
+        (run-at-time cfg-completion/corfu-manual-completion-timeout nil
+                     #'cfg-completion/corfu-manual-completion-timeout
+                     (current-buffer)))
+  (let ((result (let ((non-essential t))
+                  (completion-at-point))))
+    ;; A cache hit or local CAPF opens completion synchronously. In that case
+    ;; there is no pending LSP request for this command to report.
+  (when (or result (bound-and-true-p completion-in-region-mode))
+      (cfg-completion/corfu--finish-manual-completion))
+    (when (and (null result)
+               (not (bound-and-true-p completion-in-region-mode))
+               (or (not (boundp 'cfg-lsp/lsp-completion--context-key))
+                   (null cfg-lsp/lsp-completion--context-key)))
+      (cfg-completion/corfu--finish-manual-completion
+       "No completion is available at point"))
+    result))
 
 (defun cfg-completion/corfu-refresh-after-lsp-async
     (buf &optional context-key generation saved-tick saved-point)
@@ -216,6 +280,8 @@ POINT, or GENERATION no longer match) are ignored."
                     buf context-key generation saved-tick saved-point)))))))))
 
 (add-hook 'cfg-lsp/lsp-completion-refresh-hook
+          #'cfg-completion/corfu-manual-completion-refresh)
+(add-hook 'cfg-lsp/lsp-completion-refresh-hook
           #'cfg-completion/corfu-schedule-lsp-refresh)
 
 (defun cfg-completion/corfu-reset-completion-cache ()
@@ -224,6 +290,7 @@ POINT, or GENERATION no longer match) are ignored."
   (when (timerp cfg-completion/corfu--refresh-timer)
     (cancel-timer cfg-completion/corfu--refresh-timer)
     (setq cfg-completion/corfu--refresh-timer nil))
+  (cfg-completion/corfu--finish-manual-completion)
   (when (and (fboundp 'corfu-reset)
              (bound-and-true-p completion-in-region-mode)
              (bound-and-true-p completion-in-region--data))
@@ -327,7 +394,7 @@ or blocking behavior.
 (declare-function corfu-previous "corfu")
 
 ;; Global completion triggers and direct keybindings
-(define-key cfg-keys-map (kbd "C-<return>") #'completion-at-point)
+(define-key cfg-keys-map (kbd "C-<return>") #'cfg-completion/corfu-manual-completion)
 
 ;; Corfu active popup keymap
 (with-eval-after-load 'corfu
@@ -353,7 +420,7 @@ or blocking behavior.
 (cfg-keys/leader-def
   "c"   '(:ignore t :which-key "code")
   "c c" '(cfg-completion/corfu-reset-completion-cache :which-key "Reset Completion Cache")
-  "c p" '(completion-at-point :which-key "Complete at Point"))
+  "c p" '(cfg-completion/corfu-manual-completion :which-key "Complete at Point"))
 #+end_src
 
 * System Setup
