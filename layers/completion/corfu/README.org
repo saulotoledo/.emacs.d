@@ -14,6 +14,65 @@ and additional completion backends via `cape`.
 #+begin_src emacs-lisp
 (defvar lsp-completion--cache)
 (declare-function cfg-lsp/lsp-completion-clear-caches "lsp-mode")
+(declare-function company-mode "company")
+(defvar company-mode)
+(defvar company-backends)
+
+(defun cfg-completion/disable-company-in-corfu-buffer ()
+  "Keep Company disabled whenever Corfu owns completion in this buffer.
+This is an enforcement hook in addition to lsp-mode's initialization advice,
+so Company cannot remain enabled or be enabled later because of hook order."
+  (when (bound-and-true-p corfu-mode)
+    (when (and (boundp 'company-mode)
+               company-mode)
+      (company-mode -1))
+    ;; Do not leave an LSP-mutated backend list behind for a later Company
+    ;; activation in the same buffer.
+    (when (boundp 'company-backends)
+      (setq-local company-backends nil))))
+
+(defun cfg-lsp/lsp-completion-mode-without-company-for-corfu (orig-fun &rest args)
+    "Prevent lsp-mode from enabling Company in Corfu buffers.
+`lsp-completion-mode' still installs `lsp-completion-at-point' and the LSP
+completion category settings. Only its Company autoconfiguration is skipped
+when `corfu-mode' is active.
+ORIG-FUN is the advised function. ARGS are its arguments."
+    (if (not (bound-and-true-p corfu-mode))
+        (apply orig-fun args)
+      ;; Disable an already-active Company instance before LSP setup. The
+      ;; Corfu layer also enforces this through company-mode-hook for later
+      ;; activation; this handles the LSP initialization path itself.
+      (when (and (boundp 'company-mode)
+                 company-mode
+                 (fboundp 'company-mode))
+        (company-mode -1))
+      ;; In lsp-mode 20260630, `lsp-completion-mode' installs the CAPF before
+      ;; consulting `lsp-completion-provider'. Bind it to :none only for this
+      ;; call so lsp-mode skips its Company branch, which otherwise enables
+      ;; `company-mode' and mutates `company-backends' even in Corfu buffers.
+      (let ((lsp-completion-provider :none))
+        (prog1 (apply orig-fun args)
+          ;; Keep the supported CAPF path explicit even if a future lsp-mode
+          ;; version changes the order of its provider setup.
+          (when (fboundp 'lsp-completion-at-point)
+            (add-hook 'completion-at-point-functions
+                      #'lsp-completion-at-point nil t))))))
+
+(add-hook 'corfu-mode-hook #'cfg-completion/disable-company-in-corfu-buffer)
+
+(with-eval-after-load 'company
+  ;; Catch Company activation that happens after Corfu or LSP initialization.
+  (add-hook 'company-mode-hook #'cfg-completion/disable-company-in-corfu-buffer)
+  ;; Normalize buffers that were initialized before Company finished loading.
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (cfg-completion/disable-company-in-corfu-buffer))))
+
+(with-eval-after-load 'lsp-completion
+  (advice-add 'lsp-completion-mode
+              :around
+              #'cfg-lsp/lsp-completion-mode-without-company-for-corfu))
+
 (defun cfg-completion/corfu-reset-completion-cache ()
   "Clear stale LSP/Corfu completion caches and restart completion."
   (interactive)
@@ -62,9 +121,9 @@ and additional completion backends via `cape`.
   ;; background requests from interactive ones.
   (with-eval-after-load 'corfu-auto
     (advice-add 'corfu-auto--complete-deferred :around
-                (lambda (orig &rest args)
+                (lambda (orig-fun &rest args)
                   (let ((non-essential t))
-                    (apply orig args))))))
+                    (apply orig-fun args))))))
 #+end_src
 
 ** Kind Icon

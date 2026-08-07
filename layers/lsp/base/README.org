@@ -85,10 +85,8 @@ code completion, go-to-definition, diagnostics, and more.
    lsp-auto-register-remote-clients t
    ;; Do not load unnecessary clients:
    lsp-auto-require-clients nil
-   ;; Use the standard completion-at-point mechanism, which Corfu and other
-   ;; completion frameworks integrate with. See the `lsp-completion-mode'
-   ;; advice below: in this lsp-mode version :capf also auto-enables company,
-   ;; so we suppress that side effect when Corfu is active.
+   ;; Use the standard completion-at-point mechanism, which completion
+   ;; frameworks such as Corfu integrate with.
    lsp-completion-provider :capf
    ;; Load lsp-mode with this setting so its which-key labels never expose
    ;; the default Super-key prefix.
@@ -161,25 +159,6 @@ code completion, go-to-definition, diagnostics, and more.
   (setq lsp-completion-use-last-result t)
 
   (with-eval-after-load 'lsp-completion
-    (defun cgf-lsp/lsp-completion-mode-without-company-for-corfu (orig &rest args)
-      "Prevent lsp-mode from enabling Company in Corfu buffers.
-`lsp-completion-mode' still installs `lsp-completion-at-point' and the LSP
-completion category settings. Only its Company autoconfiguration is skipped
-when `corfu-mode' is active."
-      (if (not (and (bound-and-true-p corfu-mode)
-                    (fboundp 'company-mode)))
-          (apply orig args)
-        ;; In lsp-mode 20260630, `lsp-completion-mode' installs the CAPF before
-        ;; consulting `lsp-completion-provider'. Bind it to :none only for this
-        ;; call so lsp-mode skips its Company branch, which otherwise enables
-        ;; `company-mode' and mutates `company-backends' even in Corfu buffers.
-        (let ((lsp-completion-provider :none))
-          (apply orig args))))
-
-    (advice-add 'lsp-completion-mode
-                :around
-                #'cgf-lsp/lsp-completion-mode-without-company-for-corfu)
-
     ;; Some language servers (TypeScript, Pyright, clangd, etc.) frequently return
     ;; isIncomplete=true in their textDocument/completion responses. When that
     ;; happens lsp-mode stores :incomplete in lsp-completion--cache, and the
