@@ -21,10 +21,11 @@ without competing with actual content of the buffer. Deprecated diagnostics
 retain their strike-through styling.
 
 #+begin_src emacs-lisp
+(defvar lsp-diagnostics-attributes)
 (with-eval-after-load 'lsp-diagnostics
-  (setopt lsp-diagnostics-attributes
-          '((unnecessary :foreground "#666666")
-            (deprecated :strike-through t))))
+  (setq lsp-diagnostics-attributes
+        '((unnecessary :foreground "#666666")
+          (deprecated :strike-through t))))
 #+end_src
 
 ** Flycheck: On-the-fly Syntax Checking
