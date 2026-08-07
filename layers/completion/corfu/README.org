@@ -13,10 +13,77 @@ and additional completion backends via `cape`.
 ** Corfu Core Setup
 #+begin_src emacs-lisp
 (defvar lsp-completion--cache)
-(declare-function cfg-lsp/lsp-completion-clear-caches "lsp-mode")
 (declare-function company-mode "company")
+(declare-function yas-active-snippets "yasnippet")
 (defvar company-mode)
 (defvar company-backends)
+
+(defvar-local cfg-completion/corfu-auto-before-snippet :unset
+  "Previous local `corfu-auto' value saved while a snippet is active.
+The special value `:inherit' means that `corfu-auto' was not buffer-local.")
+
+(defun cfg-completion/corfu-visible-p ()
+  "Return non-nil when the Corfu popup is currently visible."
+  (and (bound-and-true-p corfu-mode)
+       (or (and (bound-and-true-p corfu--frame)
+                (frame-live-p corfu--frame)
+                (frame-visible-p corfu--frame))
+           (and (featurep 'corfu-terminal)
+                (fboundp 'corfu-terminal--visible-p)
+                (corfu-terminal--visible-p)))))
+
+(defun cfg-completion/corfu-candidate-selected-p ()
+  "Return non-nil when Corfu has an explicitly selected candidate."
+  (and (cfg-completion/corfu-visible-p)
+       (boundp 'corfu--index)
+       (integerp corfu--index)
+       (>= corfu--index 0)))
+
+(defun cfg-completion/suspend-corfu-auto-for-snippet ()
+  "Suspend Corfu's automatic popup while a Yasnippet field is active."
+  (when (eq cfg-completion/corfu-auto-before-snippet :unset)
+    (setq-local cfg-completion/corfu-auto-before-snippet
+                (if (local-variable-p 'corfu-auto)
+                    corfu-auto
+                  :inherit)))
+  (when (boundp 'corfu-auto)
+    (setq-local corfu-auto nil))
+  (when (and (boundp 'corfu--auto-timer) corfu--auto-timer)
+    (cancel-timer corfu--auto-timer)
+    (setq corfu--auto-timer nil)))
+
+(defun cfg-completion/restore-corfu-auto-after-snippet ()
+  "Restore Corfu automatic completion after the last snippet exits."
+  (when (and (not (eq cfg-completion/corfu-auto-before-snippet :unset))
+             (or (not (fboundp 'yas-active-snippets))
+                 (not (yas-active-snippets))))
+    (if (eq cfg-completion/corfu-auto-before-snippet :inherit)
+        (kill-local-variable 'corfu-auto)
+      (setq-local corfu-auto cfg-completion/corfu-auto-before-snippet))
+    (setq-local cfg-completion/corfu-auto-before-snippet :unset)))
+
+(defun cfg-completion/corfu-quit-only ()
+  "Dismiss Corfu without touching Copilot or ECA ghost text."
+  (interactive)
+  (when (fboundp 'corfu-quit)
+    (corfu-quit)))
+
+(defun cfg-completion/clear-eca-overlays ()
+  "Remove ECA completion overlays at point, if ECA exposes them there."
+  (dolist (overlay (overlays-at (point)))
+    (when (overlay-get overlay 'completion)
+      (delete-overlay overlay))))
+
+(defun cfg-completion/corfu-return-or-newline ()
+  "Insert a selected Corfu candidate, or insert a normal newline."
+  (interactive)
+  (if (cfg-completion/corfu-candidate-selected-p)
+      (progn
+        (when (fboundp 'copilot-clear-overlay)
+          (copilot-clear-overlay))
+        (cfg-completion/clear-eca-overlays)
+        (corfu-insert))
+    (newline)))
 
 (defun cfg-completion/disable-company-in-corfu-buffer ()
   "Keep Company disabled whenever Corfu owns completion in this buffer.
@@ -102,8 +169,8 @@ ORIG-FUN is the advised function. ARGS are its arguments."
   (corfu-scroll-margin 3)
   (corfu-count 20)
   :config
-  ;; Prevent accidental completion on RET
-  (define-key corfu-map (kbd "RET") nil)
+  ;; Only an explicitly selected candidate may consume Return.
+  (define-key corfu-map (kbd "RET") #'cfg-completion/corfu-return-or-newline)
   (set-face-attribute 'corfu-current nil
                       :background "#3e4451"
                       :foreground "#ffffff"
@@ -168,6 +235,7 @@ or blocking behavior.
 #+begin_src emacs-lisp
 (declare-function corfu-insert "corfu")
 (declare-function corfu-complete "corfu")
+(declare-function corfu-quit "corfu")
 (declare-function corfu-next "corfu")
 (declare-function corfu-previous "corfu")
 
@@ -177,10 +245,11 @@ or blocking behavior.
 ;; Corfu active popup keymap
 (with-eval-after-load 'corfu
   (define-key corfu-map (kbd "C-<return>") #'corfu-insert)
-  (define-key corfu-map (kbd "[return]") #'corfu-insert)
-  (define-key corfu-map (kbd "RET") nil)
-  (define-key corfu-map (kbd "TAB") #'corfu-complete)
-  (define-key corfu-map (kbd "<tab>") #'corfu-complete)
+  (define-key corfu-map (kbd "[return]") #'cfg-completion/corfu-return-or-newline)
+  (define-key corfu-map (kbd "RET") #'cfg-completion/corfu-return-or-newline)
+  (define-key corfu-map (kbd "C-g") #'cfg-completion/corfu-quit-only)
+  (define-key corfu-map (kbd "ESC") #'cfg-completion/corfu-quit-only)
+  (define-key corfu-map (kbd "C-e") #'cfg-completion/corfu-quit-only)
   (define-key corfu-map (kbd "C-n") #'corfu-next)
   (define-key corfu-map (kbd "C-p") #'corfu-previous)
   (define-key corfu-map (kbd "S-TAB") #'corfu-previous)

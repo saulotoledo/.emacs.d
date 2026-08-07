@@ -22,15 +22,12 @@ collection of ready-to-use snippets across various programming languages.
   ;; duration of the snippet session.
   (add-hook 'yas-before-expand-snippet-hook
             (lambda ()
-              (when (bound-and-true-p corfu-mode)
-		;; Cancel a timer that was already queued before the expansion.
-                (when (and (boundp 'corfu--auto-timer) corfu--auto-timer)
-                  (cancel-timer corfu--auto-timer)
-                  (setq corfu--auto-timer nil)))
-              (setq-local corfu-auto nil)))
+              (when (fboundp 'cfg-completion/suspend-corfu-auto-for-snippet)
+                (cfg-completion/suspend-corfu-auto-for-snippet))))
   (add-hook 'yas-after-exit-snippet-hook
             (lambda ()
-              (kill-local-variable 'corfu-auto))))
+              (when (fboundp 'cfg-completion/restore-corfu-auto-after-snippet)
+                (cfg-completion/restore-corfu-auto-after-snippet)))))
 #+end_src
 
 ** Community Snippets

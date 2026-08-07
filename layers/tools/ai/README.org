@@ -254,13 +254,16 @@ ECA uses its own overlay-based completion system.
 Optional _ARG is ignored (for compatibility with advice)."
       (interactive)
 
-      (if (cfg-tools/ai-copilot-authorized-p)
-          ;; If Copilot is ON, disable ECA completion to avoid conflicts
-          (when (bound-and-true-p eca-completion-mode)
-            (eca-completion-mode -1)
-            (message "ECA [-]: Skipping ECA completion because Copilot is enabled"))
-        ;; If Copilot is OFF, enable ECA completion
-        (when (and (fboundp 'eca-completion-mode) (not (derived-mode-p 'eca-chat-mode)))
+      (if (bound-and-true-p copilot-mode)
+          ;; If Copilot is ON, it owns ghost-text completion.
+          (progn
+            (when (bound-and-true-p eca-completion-mode)
+              (eca-completion-mode -1)
+              (message "ECA [-]: Skipping ECA completion because Copilot is enabled")))
+        ;; Corfu may coexist with the ghost provider. Only Copilot and ECA
+        ;; are mutually exclusive; TAB decides which visible UI wins.
+        (when (and (fboundp 'eca-completion-mode)
+                   (not (derived-mode-p 'eca-chat-mode)))
           (cfg-tools/eca-init) ;; Ensure ECA is initialized before enabling completion
           (eca-completion-mode 1)
           (message "ECA [✓]: Using ECA for ghost completions"))))
@@ -751,17 +754,12 @@ you type.
 (declare-function corfu-complete "corfu")
 (declare-function corfu-insert "corfu")
 (declare-function corfu-terminal--visible-p "corfu-terminal")
+(declare-function yas-next-field-or-maybe-expand "yasnippet")
 (declare-function cfg-tools/copilot-kubernetes-sensitive-p nil)
 (declare-function cfg-tools/copilot-excluded-file-p nil)
 
 (defun cfg-tools/tab-indent-or-complete ()
-  "Handle TAB key with a priority-based dispatch system.
-The priority order is as follows:
-1. Copilot: If a ghost-text overlay is active, accept the completion.
-2. ECA: If an ECA completion overlay is present, accept the ECA completion.
-2. Corfu: If the Corfu completion popup is visible, select the current
-   candidate.
-3. Default: Fall back to standard indentation."
+  "Dispatch TAB according to the currently visible completion context."
   (interactive)
   (let* ((at-point (overlays-at (point)))
          (copilot-ov (and (bound-and-true-p copilot--overlay)
@@ -769,15 +767,25 @@ The priority order is as follows:
                           copilot--overlay))
          (eca-ov (cl-find-if (lambda (ov) (overlay-get ov 'completion)) at-point)))
     (cond
+     ;; Yasnippet always wins: Copilot must never consume field navigation.
+     ((and (fboundp 'yas-active-snippets)
+           (yas-active-snippets)
+           (fboundp 'yas-next-field-or-maybe-expand))
+      (yas-next-field-or-maybe-expand))
+     ;; Ghost text wins over a visible Corfu popup on TAB. Close Corfu first
+     ;; so the accepted text is not hidden behind a stale child frame.
      (copilot-ov
+      (when (fboundp 'corfu-quit)
+        (corfu-quit))
       (copilot-accept-completion))
      (eca-ov
+      (when (fboundp 'corfu-quit)
+        (corfu-quit))
       (if (fboundp 'eca-completion-accept)
           (eca-completion-accept)
         (indent-for-tab-command)))
-     ((and (bound-and-true-p corfu-mode)
-           (or (and (bound-and-true-p corfu--frame) (frame-visible-p corfu--frame))
-               (and (featurep 'corfu-terminal) (corfu-terminal--visible-p))))
+     ((and (fboundp 'cfg-completion/corfu-visible-p)
+           (cfg-completion/corfu-visible-p))
       (corfu-complete))
      (t
       (indent-for-tab-command)))))
