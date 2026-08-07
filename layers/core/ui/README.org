@@ -27,7 +27,8 @@ the classic =rainbow-mode.el=, but uses overlays instead and is more modern.
   (css-fontify-colors nil)
   :config
   (global-colorful-mode t)
-  (add-to-list 'global-colorful-modes 'helpful-mode))
+  (add-to-list 'global-colorful-modes 'helpful-mode)
+  (add-to-list 'global-colorful-modes 'org-mode))
 #+end_src
 
 ** Cursor & Line Display Attributes
