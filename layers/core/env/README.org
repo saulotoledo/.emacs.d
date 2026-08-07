@@ -50,6 +50,52 @@ keymap definitions when running under macOS port builds.
   (setq mac-pass-command-to-system nil))
 #+end_src
 
+** WSLg Cursor Refresh
+WSLg can occasionally fail to update the mouse cursor after a long-running
+operation. Refresh the cursor position after commands, but only for graphical
+Emacs sessions running under WSL.
+
+#+begin_src emacs-lisp
+(defun cfg-core/wsl-p ()
+  "Return non-nil when running under WSL."
+  (or (getenv "WSL_INTEROP")
+      (and (file-readable-p "/proc/version")
+           (with-temp-buffer
+             (insert-file-contents "/proc/version")
+             (goto-char (point-min))
+             (re-search-forward "microsoft\\|WSL" nil t)))))
+
+(defun cfg-core/wsl-refresh-cursor ()
+  "Force WSLg to update the mouse cursor shape after long operations."
+  (let ((pos (mouse-position)))
+    (when (and (eq (car pos) (selected-frame))
+               (cadr pos)
+               (cddr pos))
+      (let* ((frame (car pos))
+             (x (cadr pos))
+             (y (cddr pos))
+             (width (frame-width frame))
+             (height (frame-height frame))
+             (nudge-x (cond
+                       ((< (1+ x) width) (1+ x))
+                       ((> x 0) (1- x))))
+             (nudge-y (cond
+                       ((< (1+ y) height) (1+ y))
+                       ((> y 0) (1- y)))))
+        (cond
+         (nudge-x
+          (set-mouse-position frame nudge-x y)
+          (set-mouse-position frame x y))
+         (nudge-y
+          (set-mouse-position frame x nudge-y)
+          (set-mouse-position frame x y)))))))
+
+(when (and (eq system-type 'gnu/linux)
+           (cfg-core/wsl-p)
+           (display-graphic-p))
+  (add-hook 'post-command-hook #'cfg-core/wsl-refresh-cursor))
+#+end_src
+
 ** Restart Emacs from within Emacs
 #+begin_src emacs-lisp
 (use-package restart-emacs)
