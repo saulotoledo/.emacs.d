@@ -8,6 +8,25 @@ metrics via cognitive-complexity. Both tools integrate with LSP and treesit for
 comprehensive code quality feedback.
 
 * Emacs Configuration
+** LSP Diagnostic Appearance
+LSP servers can mark diagnostics as *unnecessary*, which covers messages such as
+unused variables and other redundant code. When the LSP/Flycheck integration
+receives this tag, `lsp-mode' dynamically creates a specialized Flycheck error
+level and face from ~lsp-diagnostics-attributes~. Because this face is generated
+only when such a diagnostic appears, the supported way to customize it is
+through that attribute list rather than by setting the generated face directly.
+
+We use a dark gray foreground so these low-priority notices remain readable
+without competing with actual content of the buffer. Deprecated diagnostics
+retain their strike-through styling.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'lsp-diagnostics
+  (setopt lsp-diagnostics-attributes
+          '((unnecessary :foreground "#666666")
+            (deprecated :strike-through t))))
+#+end_src
+
 ** Flycheck: On-the-fly Syntax Checking
 Flycheck is a modern on-the-fly syntax checking extension for Emacs. It runs
 linters and compilers in the background as you edit, highlighting errors and
@@ -51,7 +70,7 @@ being excessive.
   (flycheck-checker-error-threshold 9999)
   ;; Flycheck behavior:
   (flycheck-check-syntax-automatically '(save mode-enabled idle-change))
-  (flycheck-idle-change-delay 2)
+  (flycheck-idle-change-delay 5)
 
   :config
   ;; Available only on Flycheck 38+:
@@ -79,7 +98,7 @@ being excessive.
                         :slant 'italic
                         :weight 'normal)
     (set-face-attribute 'flycheck-annotate-info nil
-                        :foreground "#626567"
+                        :foreground "#666666"
                         :slant 'italic
                         :weight 'normal)
 
