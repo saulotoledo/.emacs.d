@@ -1,5 +1,6 @@
 #+TITLE: LSP Base Layer
 #+CATEGORY: lsp
+LAYER_PRIORITY: 0
 #+PROPERTY: header-args:emacs-lisp :tangle yes
 
 * Description
@@ -77,6 +78,20 @@ code completion, go-to-definition, diagnostics, and more.
 (defvar lsp-completion--cache)
 (defvar lsp-mode-map)
 
+;; Keep completion state declarations at top level so other layers can refer to
+;; them without free-variable warnings before lsp-completion is loaded.
+(defvar-local cfg-lsp/lsp-completion--response-cache
+  (make-hash-table :test 'equal)
+  "Completion-context key -> (RESPONSE TIMESTAMP GENERATION COMPLETE-P).")
+(defvar-local cfg-lsp/lsp-completion--context-key nil
+  "The completion context represented by the current request generation.")
+(defvar-local cfg-lsp/lsp-completion--request-generation 0
+  "Monotonically increasing generation for completion request contexts.")
+(defvar cfg-lsp/lsp-completion-refresh-hook nil
+  "Hook run after an asynchronous LSP completion result is cached.
+Each function receives BUF and optional context validation arguments. Frontends
+may use this hook to refresh their completion UI.")
+
 (use-package lsp-mode
   :pin "MELPA Unstable"
   :init
@@ -85,8 +100,8 @@ code completion, go-to-definition, diagnostics, and more.
    lsp-auto-register-remote-clients t
    ;; Do not load unnecessary clients:
    lsp-auto-require-clients nil
-   ;; Use the standard completion-at-point mechanism, which completion
-   ;; frameworks such as Corfu integrate with.
+   ;; Use the standard completion-at-point mechanism used by completion
+   ;; frontends.
    lsp-completion-provider :capf
    ;; Load lsp-mode with this setting so its which-key labels never expose
    ;; the default Super-key prefix.
@@ -118,9 +133,6 @@ code completion, go-to-definition, diagnostics, and more.
   ;; still shows when you pick a completion, and :on-server-request for server-pushed help.
   (lsp-signature-auto-activate '(:after-execute :on-server-request))
   (lsp-idle-delay 0.6)
-  ;; kind-icon already renders kind icons in the Corfu margin; disable LSP's
-  ;; own kind annotation string (kind-icon handles it visually).
-  (lsp-completion-show-kind nil)
   (lsp-completion-show-detail t)
   ;; Show partial results immediately when the server flags isIncomplete=true.
   ;; Combined with the debounce advice in :config, this gives VSCode-like
@@ -163,56 +175,72 @@ code completion, go-to-definition, diagnostics, and more.
     ;; isIncomplete=true in their textDocument/completion responses. When that
     ;; happens lsp-mode stores :incomplete in lsp-completion--cache, and the
     ;; (listp :incomplete) guard always fails, forcing a new server request on
-    ;; every corfu-auto tick; even within the same session. The result:
+    ;; every automatic-completion tick; even within the same session. The result:
     ;; lsp-request-while-no-input -> sit-for leading to very high CPU usage.
     ;;
-    ;; Fix: within `cgf-lsp/lsp-completion-debounce-delay' seconds and the same
-    ;; bounds-start, return the last raw LSP response without a server round-trip;
-    ;; `lsp-completion--filter-candidates' still applies prefix filtering locally.
-    ;; When the server returns a complete list, lsp-mode's own cache already
-    ;; avoids the round-trip, so this debounce only activates for incomplete
-    ;; results. Manual completion (`non-essential = nil`) is never throttled.
-    (defvar-local cgf-lsp/lsp-completion--last-resp nil
-      "Cached raw LSP textDocument/completion response for auto-completion reuse.")
-    (defvar-local cgf-lsp/lsp-completion--last-resp-time 0
-      "Float-time of the last cached LSP completion response.")
-    (defvar-local cgf-lsp/lsp-completion--last-resp-bounds nil
-      "bounds-start of the last cached LSP completion response.")
-    (defcustom cgf-lsp/lsp-completion-debounce-delay 0.8
+    ;; Fix: within `cfg-lsp/lsp-completion-debounce-delay' seconds and the same
+    ;; completion context, return the cached raw LSP response without a server
+    ;; round-trip. `lsp-completion--filter-candidates' still applies prefix
+    ;; filtering locally. When the server returns a complete list, lsp-mode's
+    ;; own cache already avoids the round-trip, so this debounce primarily
+    ;; protects incomplete results.
+    (defcustom cfg-lsp/lsp-completion-debounce-delay 0.8
       "Seconds to reuse a cached LSP textDocument/completion response.
-Applies only in non-essential (auto-completion) context and only when
-bounds-start is unchanged (same completion session)."
+Applies to repeated requests for the same complete completion context."
+      :type 'number
+      :group 'lsp-completion)
+    (defcustom cfg-lsp/lsp-completion-incomplete-debounce-delay 0.15
+      "Seconds to reuse an incomplete cached completion response.
+Incomplete LSP responses are useful for immediate display, but should be
+re-requested more aggressively because they may omit candidates."
       :type 'number
       :group 'lsp-completion)
 
-    (defun cgf-lsp/corfu-refresh-after-lsp-async (buf)
-      "Refresh Corfu in BUF through `completion-at-point'.
-Async LSP callbacks can run outside Corfu's normal command lifecycle.  Re-enter
-via `completion-at-point' so Corfu tears down and recreates its child frame
-through `completion-in-region-mode' instead of repainting private frames
-directly."
-      (when-let ((win (and (buffer-live-p buf)
-                           (get-buffer-window buf t))))
-        (with-selected-window win
-          (with-current-buffer buf
-            (when (bound-and-true-p corfu-mode)
-              (let ((non-essential t))
-                (completion-at-point)))))))
+    (defun cfg-lsp/lsp-completion--response-complete-p (response)
+      "Return non-nil when RESPONSE is a complete LSP completion result."
+      (or (not (and (fboundp 'lsp-completion-list?)
+                    (lsp-completion-list? response)))
+          (not (lsp:completion-list-is-incomplete response))))
 
-    (defun cgf-lsp/lsp-completion-supported-p ()
+    (defun cfg-lsp/lsp-completion--context-key (_params)
+      "Build a key from the current editable completion context.
+Do not include the request plist: LSP trigger metadata may vary while the
+user is still completing the same prefix."
+      (let* ((bounds (bounds-of-thing-at-point 'symbol))
+             (start (or (car bounds) (point)))
+             (end (or (cdr bounds) (point)))
+             (prefix (buffer-substring-no-properties start (point))))
+        (list (current-buffer)
+              (buffer-chars-modified-tick)
+              (point)
+              start
+              end
+              prefix)))
+
+    (defun cfg-lsp/lsp-completion--ensure-context (context-key)
+      "Install CONTEXT-KEY and advance the generation when it changes."
+      (unless (equal context-key cfg-lsp/lsp-completion--context-key)
+        (setq cfg-lsp/lsp-completion--context-key context-key
+              cfg-lsp/lsp-completion--request-generation
+              (1+ cfg-lsp/lsp-completion--request-generation)
+              lsp-completion--cache nil)
+        nil)
+      cfg-lsp/lsp-completion--request-generation)
+
+    (defun cfg-lsp/lsp-completion-supported-p ()
       "Return non-nil when an active LSP workspace supports completion."
       (and (fboundp 'lsp-feature?)
            (ignore-errors
              (lsp-feature? "textDocument/completion"))))
 
-    (defun cgf-lsp/lsp-request-while-no-input--debounce (orig method params)
+    (defun cfg-lsp/lsp-request-while-no-input--debounce (orig method params)
       "Prevent `lsp-request-while-no-input' from blocking for textDocument/completion.
 
 For any `textDocument/completion' request the advice operates in two modes,
 regardless of `non-essential':
 
-  1. Cache hit  – same bounds-start, recent response (<
-     `cgf-lsp/lsp-completion-debounce-delay' s old): return the cached LSP response
+  1. Cache hit  – same complete request context, recent response (<
+     `cfg-lsp/lsp-completion-debounce-delay' s old): return the cached LSP response
      immediately without a server round-trip.
 
   2. Cache miss – fire `lsp-request-async' and return nil immediately; the
@@ -224,68 +252,75 @@ The original blocking function is only called for non-completion methods.
 
 Rationale for dropping the `non-essential' guard on the cache-miss branch:
 The profiler showed `lsp-request-while-no-input' blocking for ~lsp-response-
-timeout (20 s) seconds via the `(t ...)' fallback even inside corfu-auto's
+timeout (20 s) seconds via the `(t ...)' fallback even inside automatic
 timer callbacks, where `non-essential' should have been t. Rather than rely
 on a dynamic binding that can silently fail, we intercept ALL
 `textDocument/completion' requests unconditionally."
-      (let ((bounds-start (or (car (bounds-of-thing-at-point 'symbol)) (point))))
+      (let* ((completion-request-p (equal method "textDocument/completion"))
+             (context-key (when completion-request-p
+                            (cfg-lsp/lsp-completion--context-key params)))
+             (generation (when context-key
+                           (cfg-lsp/lsp-completion--ensure-context context-key)))
+             (cache-entry (when context-key
+                            (gethash context-key
+                                     cfg-lsp/lsp-completion--response-cache))))
         (cond
-         ;; Cache hit: same bounds, recent response -> return immediately.
-         ;; non-essential is NOT checked so manual completion (C-M-i/M-TAB)
-         ;; also benefits from the cache on repeated invocations.
-         ((and (equal method "textDocument/completion")
-               (cgf-lsp/lsp-completion-supported-p)
-               cgf-lsp/lsp-completion--last-resp
-               (equal cgf-lsp/lsp-completion--last-resp-bounds bounds-start)
-               (< (- (float-time) cgf-lsp/lsp-completion--last-resp-time)
-                  cgf-lsp/lsp-completion-debounce-delay))
-          cgf-lsp/lsp-completion--last-resp)
+         ;; Cache hit: same complete request context, recent response -> return
+           ;; immediately. The full key prevents an earlier prefix or workspace
+           ;; from being reused merely because its symbol start is unchanged.
+           ;; non-essential is NOT checked so manual completion (C-M-i/M-TAB)
+           ;; also benefits from the cache on repeated invocations.
+           ((and (equal method "textDocument/completion")
+                 cache-entry
+                 (< (- (float-time) (nth 1 cache-entry))
+                  (if (nth 3 cache-entry)
+                      cfg-lsp/lsp-completion-debounce-delay
+                    cfg-lsp/lsp-completion-incomplete-debounce-delay)))
+          (nth 0 cache-entry))
 
          ;; If the current server set does not advertise completion, do not call
          ;; `lsp-request-async'. It signals before its error handler is installed.
          ((and (equal method "textDocument/completion")
-               (not (cgf-lsp/lsp-completion-supported-p)))
-          (setq cgf-lsp/lsp-completion--last-resp nil
-                cgf-lsp/lsp-completion--last-resp-time 0
-                cgf-lsp/lsp-completion--last-resp-bounds nil)
+               (not (cfg-lsp/lsp-completion-supported-p)))
+          (clrhash cfg-lsp/lsp-completion--response-cache)
           nil)
 
          ;; textDocument/completion cache miss: ALWAYS fire async and return nil
          ;; immediately — the sit-for loop is never entered. This is the core
          ;; fix: the loop blocks whenever the user pauses typing because there is
          ;; no input to interrupt `while-no-input', and lsp-response-timeout is
-         ;; 20 s. By firing async here for every context (auto and manual alike)
+         ;; 20 s. By firing async here for every context (automatic and manual alike)
          ;; we guarantee zero blocking for completion requests.
          ;;
-         ;; When the response arrives the cache is updated. The refresh timer
-         ;; then re-enters completion through `completion-at-point', which lets
-         ;; Corfu run its normal teardown/setup path and avoids leaving stale
-         ;; child frames visible after async Java/JDTLS responses.
+         ;; When the response arrives the cache is updated and registered
+         ;; completion frontends are notified through the refresh hook.
          ((equal method "textDocument/completion")
           (let ((buf (current-buffer))
-                (saved-bounds bounds-start))
+                (saved-tick (buffer-chars-modified-tick))
+                (saved-point (point))
+                (saved-key context-key)
+                (saved-generation generation))
             (lsp-request-async
              method params
              (lambda (result)
                (when (and result (buffer-live-p buf))
                  (with-current-buffer buf
-                   (setq cgf-lsp/lsp-completion--last-resp        result
-                         cgf-lsp/lsp-completion--last-resp-time   (float-time)
-                         cgf-lsp/lsp-completion--last-resp-bounds saved-bounds)
-                   ;; Clear lsp-mode's internal cache so the next capf call doesn't
-                   ;; return the empty result caused by our nil return earlier.
-                   (setq lsp-completion--cache nil)
-                   (when (bound-and-true-p corfu-mode)
-                     (when (timerp cgf-lsp/lsp-completion--refresh-timer)
-                       (cancel-timer cgf-lsp/lsp-completion--refresh-timer))
-                     (setq cgf-lsp/lsp-completion--refresh-timer
-                           (run-at-time 0.05 nil
-                                        (lambda ()
-                                          (when (and (buffer-live-p buf)
-                                                     (with-current-buffer buf
-                                                       (bound-and-true-p corfu-mode)))
-                                            (with-current-buffer buf
-                                              (cgf-lsp/corfu-refresh-after-lsp-async buf))))))))))
+                   (when (and (equal saved-key cfg-lsp/lsp-completion--context-key)
+                              (= saved-generation
+                                 cfg-lsp/lsp-completion--request-generation)
+                              (= saved-tick (buffer-chars-modified-tick))
+                              (= saved-point (point)))
+                     (puthash saved-key
+                              (list result (float-time) saved-generation
+                                    (cfg-lsp/lsp-completion--response-complete-p
+                                     result))
+                              cfg-lsp/lsp-completion--response-cache)
+                     ;; Clear lsp-mode's internal cache so the next capf call
+                     ;; uses the validated custom response.
+                     (setq lsp-completion--cache nil)
+                     (run-hook-with-args 'cfg-lsp/lsp-completion-refresh-hook
+                                         buf saved-key saved-generation
+                                         saved-tick saved-point)))))
              :mode 'alive
              :error-handler #'ignore))
           nil)
@@ -296,10 +331,10 @@ on a dynamic binding that can silently fail, we intercept ALL
 
     (advice-add 'lsp-request-while-no-input
                 :around
-                #'cgf-lsp/lsp-request-while-no-input--debounce)
+                #'cfg-lsp/lsp-request-while-no-input--debounce)
 
-    ;; Async-resolve completion items to show `labelDetails.description` inline
-    ;; in the corfu annotation list (the module/import source for a candidate).
+    ;; Async-resolve completion items to show `labelDetails.description` in
+    ;; completion annotations (the module/import source for a candidate).
     ;; Many language servers omit this field from the initial
     ;; `textDocument/completion` response and populate it only after
     ;; `completionItem/resolve` (LSP 3.17 §3.16.3).
@@ -307,44 +342,35 @@ on a dynamic binding that can silently fail, we intercept ALL
     ;; We store resolved LabelDetails in a buffer-local hash-table keyed by
     ;; "label|sortText" (stable across re-renders without touching the
     ;; server-supplied item, so this works with both `lsp-use-plists t` (plists)
-    ;; and nil (hash-tables)). After any resolve completes, the next corfu
-    ;; render (triggered by navigation, typing, or the auto-timer) picks up
-    ;; the cached description without an extra server round-trip.
-    (defvar-local cgf-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal)
+    ;; and nil (hash-tables)). After any resolve completes, the next completion
+    ;; render picks up the cached description without another server round-trip.
+    (defvar-local cfg-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal)
       "label|sortText -> resolved module source for inline annotations.")
 
-    (defvar-local cgf-lsp/lsp-completion--refresh-timer nil
-      "Timer to debounce corfu refresh after async resolve completes.")
-
     (defun cfg-lsp/lsp-completion-clear-caches ()
-      "Clear all buffer-local LSP/Corfu completion state.
+      "Clear all buffer-local LSP completion state.
 This clears lsp-mode's completion response, the custom response and resolve
-caches, and any pending Corfu refresh timer. When Corfu is active, also reset
-its current completion session. The helper is intentionally safe to call
-before optional completion packages have loaded."
+caches. The helper is intentionally safe to call before optional completion
+frontends have loaded."
       (interactive)
       (when (fboundp 'lsp-completion--clear-cache)
         (lsp-completion--clear-cache))
-      (setq cgf-lsp/lsp-completion--last-resp nil
-            cgf-lsp/lsp-completion--last-resp-time 0
-            cgf-lsp/lsp-completion--last-resp-bounds nil
-            cgf-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal)
+      (setq cfg-lsp/lsp-completion--response-cache
+            (make-hash-table :test 'equal)
+            cfg-lsp/lsp-completion--context-key nil
+            cfg-lsp/lsp-completion--request-generation
+            (1+ cfg-lsp/lsp-completion--request-generation)
+            cfg-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal)
             lsp-completion--cache nil)
-      (when (timerp cgf-lsp/lsp-completion--refresh-timer)
-        (cancel-timer cgf-lsp/lsp-completion--refresh-timer)
-        (setq cgf-lsp/lsp-completion--refresh-timer nil))
-      (when (and (fboundp 'corfu-reset)
-                 (bound-and-true-p completion-in-region-mode)
-                 (bound-and-true-p completion-in-region--data))
-        (corfu-reset)))
+      nil)
 
-    (defun cgf-lsp/lsp-completion--ld-key (item)
+    (defun cfg-lsp/lsp-completion--ld-key (item)
       "Return a string cache key for CompletionItem ITEM."
       (format "%s|%s"
               (or (lsp-get item :label) "")
               (or (lsp-get item :sortText) "")))
 
-    (defun cgf-lsp/lsp-completion--annotation-description (item)
+    (defun cfg-lsp/lsp-completion--annotation-description (item)
       "Extract `labelDetails.description` from CompletionItem ITEM.
 This is the module/import source (e.g. \"next/link\"), NOT the verbose
 type detail. Returns nil when unavailable."
@@ -352,7 +378,7 @@ type detail. Returns nil when unavailable."
                   (desc (lsp:label-details-description? ld)))
         (unless (lsp-falsy? desc) desc)))
 
-    (defun cgf-lsp/lsp-completion--import-source-from-buffer (symbol-name)
+    (defun cfg-lsp/lsp-completion--import-source-from-buffer (symbol-name)
       "Search buffer imports for SYMBOL-NAME and return the module path.
 Handles ES import patterns: `import X from \"mod\"`, `import { X } from \"mod\"`,
 `import { Y as X } from \"mod\"`. Returns nil if not found."
@@ -366,13 +392,13 @@ Handles ES import patterns: `import X from \"mod\"`, `import { X } from \"mod\"`
             (when (re-search-forward pattern nil t)
               (match-string-no-properties 1))))))
 
-    (defun cgf-lsp/lsp-completion--resolve-description (resolved-item)
+    (defun cfg-lsp/lsp-completion--resolve-description (resolved-item)
       "Extract module source from RESOLVED-ITEM, using multiple strategies.
 1. `labelDetails.description` (auto-import items provide this directly).
 2. Buffer import lookup when detail indicates an imported symbol."
       (or
        ;; Strategy 1: labelDetails.description (best: auto-import items)
-       (cgf-lsp/lsp-completion--annotation-description resolved-item)
+       (cfg-lsp/lsp-completion--annotation-description resolved-item)
        ;; Strategy 2: detail ends with "\\nimport SYMBOL" or
        ;; "\\nexport default SYMBOL" -> look up the import in the buffer
        (when-let* ((detail (lsp-get resolved-item :detail))
@@ -381,47 +407,40 @@ Handles ES import patterns: `import X from \"mod\"`, `import { X } from \"mod\"`
                 (concat "\n\\(?:import\\|export default\\)\\s-+"
                         (regexp-quote label) "\\s-*$")
                 detail)
-           (cgf-lsp/lsp-completion--import-source-from-buffer label)))))
+           (cfg-lsp/lsp-completion--import-source-from-buffer label)))))
 
-    (defun cgf-lsp/lsp-completion--annotate-with-resolve (orig cand)
+    (defun cfg-lsp/lsp-completion--annotate-with-resolve (orig cand)
       "Annotate CAND with module source (e.g. \"next/link\") via async resolve.
 Fires one background `completionItem/resolve` per candidate that lacks a
 description and caches the result."
       (let* ((raw (get-text-property 0 'lsp-completion-unresolved-item cand))
              (base-ann (funcall orig cand)))
         (when raw
-          (let* ((key (cgf-lsp/lsp-completion--ld-key raw))
+          (let* ((key (cfg-lsp/lsp-completion--ld-key raw))
                  (pkey (concat "P:" key))
-                 (raw-desc (cgf-lsp/lsp-completion--annotation-description raw))
+                 (raw-desc (cfg-lsp/lsp-completion--annotation-description raw))
                  (has-raw (not (null raw-desc)))
-                 (cached-desc (gethash key cgf-lsp/lsp-completion--ld-cache))
+                 (cached-desc (gethash key cfg-lsp/lsp-completion--ld-cache))
                  (has-cached (not (null cached-desc))))
             ;; Trigger a single background resolve if description is missing and not cached
             (when (and (not has-raw)
                        (not has-cached)
-                       (not (gethash pkey cgf-lsp/lsp-completion--ld-cache))
+                       (not (gethash pkey cfg-lsp/lsp-completion--ld-cache))
                        (lsp-feature? "completionItem/resolve"))
-              (puthash pkey t cgf-lsp/lsp-completion--ld-cache)
-              (let ((cache cgf-lsp/lsp-completion--ld-cache)
+              (puthash pkey t cfg-lsp/lsp-completion--ld-cache)
+              (let ((cache cfg-lsp/lsp-completion--ld-cache)
                     (buf (current-buffer)))
                 (lsp-completion--resolve-async
                  cand
                  (lambda (resolved-item)
                    (when (buffer-live-p buf)
                      (with-current-buffer buf
-                       (when-let* ((desc (cgf-lsp/lsp-completion--resolve-description resolved-item)))
+                       (when-let* ((desc (cfg-lsp/lsp-completion--resolve-description resolved-item)))
                          (puthash key desc cache)
-                         ;; Schedule a debounced corfu refresh so annotations appear
-                         ;; without waiting for the next user keypress.
-                         (when (bound-and-true-p corfu-mode)
-                           (when (timerp cgf-lsp/lsp-completion--refresh-timer)
-                             (cancel-timer cgf-lsp/lsp-completion--refresh-timer))
-                           (setq cgf-lsp/lsp-completion--refresh-timer
-                                 (run-at-time 0.05 nil
-                                              (lambda ()
-                                                (when (and (buffer-live-p buf)
-                                                           (bound-and-true-p corfu--candidates))
-                                                  (cgf-lsp/corfu-refresh-after-lsp-async buf))))))
+                         ;; Let the active completion frontend refresh its UI
+                         ;; after the resolved annotation is cached.
+                         (run-hook-with-args
+                          'cfg-lsp/lsp-completion-refresh-hook buf)
                          (remhash pkey cache))))
                    (lambda ()
                      (when (buffer-live-p buf)
@@ -435,10 +454,10 @@ description and caches the result."
       ;; Flush the resolve cache at the same time lsp-mode clears its own.
       (advice-add 'lsp-completion--clear-cache :after
                   (lambda (&rest _)
-                    (setq cgf-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal))))
+                    (setq cfg-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal))))
 
       (advice-add 'lsp-completion--annotate :around
-                  #'cgf-lsp/lsp-completion--annotate-with-resolve)))
+                  #'cfg-lsp/lsp-completion--annotate-with-resolve)))
 
   ;; workspace/executeCommand is used by language servers in two very different ways:
   ;;
@@ -456,25 +475,25 @@ description and caches the result."
   ;; does not eliminate it.
   ;;
   ;; Two small, general advices handle both cases cleanly:
-  ;;   - cgf-lsp/lsp--in-code-action: a flag that is non-nil only while
+  ;;   - cfg-lsp/lsp--in-code-action: a flag that is non-nil only while
   ;;     lsp-execute-code-action is on the call stack (case 2 above).
   ;;   - lsp-request advice: fires workspace/executeCommand asynchronously
   ;;     (zero blocking) unless that flag is set. Errors are logged to
   ;;     *Messages* so they remain visible.
-  (defvar cgf-lsp/lsp--in-code-action nil
+  (defvar cfg-lsp/lsp--in-code-action nil
     "Non-nil while `lsp-execute-code-action' is on the call stack.
 Prevents the async redirect below from applying to interactive code actions,
 which need to complete synchronously to apply their edits.")
 
   (advice-add 'lsp-execute-code-action :around
               (lambda (orig &rest args)
-                (let ((cgf-lsp/lsp--in-code-action t))
+                (let ((cfg-lsp/lsp--in-code-action t))
                   (apply orig args))))
 
   (advice-add 'lsp-request :around
               (lambda (orig method params &rest args)
                 (if (and (equal method "workspace/executeCommand")
-                         (not cgf-lsp/lsp--in-code-action))
+                         (not cfg-lsp/lsp--in-code-action))
                     ;; Automatic context: fire async so sit-for never blocks.
                     (lsp-request-async method params
                                        (lambda (_) nil)
@@ -635,7 +654,7 @@ so we also set lsp-eslint-enable to nil for extra reliability."
     ;; others send it as a notification; lsp-mode only handles the request form).
     (puthash "window/workDoneProgress/create" #'ignore lsp--default-notification-handlers)
 
-    (defun cgf-lsp/lsp-inspect-remote-clients ()
+    (defun cfg-lsp/lsp-inspect-remote-clients ()
       "Inspect active LSP clients and their processes for the current remote buffer."
       (interactive)
       (when (file-remote-p (or (buffer-file-name) default-directory))

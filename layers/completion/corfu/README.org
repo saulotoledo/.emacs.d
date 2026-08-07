@@ -17,6 +17,7 @@ and additional completion backends via `cape`.
 (declare-function yas-active-snippets "yasnippet")
 (defvar company-mode)
 (defvar company-backends)
+(defvar lsp-completion-show-kind)
 
 (defvar-local cfg-completion/corfu-auto-before-snippet :unset
   "Previous local `corfu-auto' value saved while a snippet is active.
@@ -138,13 +139,95 @@ ORIG-FUN is the advised function. ARGS are its arguments."
       (cfg-completion/disable-company-in-corfu-buffer))))
 
 (with-eval-after-load 'lsp-completion
+  ;; kind-icon renders kinds in Corfu's margin; suppress LSP's textual kind.
+  (setq lsp-completion-show-kind nil)
   (advice-add 'lsp-completion-mode
               :around
               #'cfg-lsp/lsp-completion-mode-without-company-for-corfu))
 
+(defvar cfg-lsp/lsp-completion-refresh-hook)
+(defvar-local cfg-completion/corfu--refresh-timer nil
+  "Timer used to debounce Corfu refreshes after asynchronous LSP results.")
+
+(defun cfg-completion/corfu-refresh-after-lsp-async
+    (buf &optional context-key generation saved-tick saved-point)
+  "Refresh Corfu completion in BUF after an asynchronous LSP response.
+
+BUF is the target buffer to perform completion in.
+CONTEXT-KEY identifies the completion context (e.g., member access).
+GENERATION is the request counter token used to detect stale responses.
+SAVED-TICK is the `buffer-chars-modified-tick' at request time.
+SAVED-POINT is the `point' position at request time.
+
+If SAVED-TICK, SAVED-POINT, or GENERATION do not match the current buffer
+state, the context is considered stale and the refresh is ignored.
+
+Member-access contexts use Corfu's auto path with `.' preserved as the
+trigger so an empty prefix can open the popup without lowering the global
+prefix threshold. Other contexts use `completion-at-point'."
+  (when-let ((win (and (buffer-live-p buf)
+                       (get-buffer-window buf t))))
+    (with-selected-window win
+      (with-current-buffer buf
+        (when (and (bound-and-true-p corfu-mode)
+                   (or (not context-key)
+                       (and (equal context-key cfg-lsp/lsp-completion--context-key)
+                            (= generation cfg-lsp/lsp-completion--request-generation)
+                            (= saved-tick (buffer-chars-modified-tick))
+                            (= saved-point (point)))))
+          (let ((non-essential t))
+            (if (and saved-point
+                     (= saved-point (point))
+                     (eq (char-before saved-point) ?.)
+                     (fboundp 'corfu-auto--complete-deferred))
+                (let ((last-command-event ?.)
+                      (this-command 'self-insert-command))
+                  (corfu-auto--complete-deferred))
+              (completion-at-point))))))))
+
+(defun cfg-completion/corfu-schedule-lsp-refresh
+    (buf &optional context-key generation saved-tick saved-point)
+  "Schedule a Corfu refresh for an asynchronous LSP completion result.
+
+BUF is the target buffer where completion will be refreshed.
+CONTEXT-KEY identifies the completion context (e.g., member access).
+GENERATION is the request counter token used to track async requests.
+SAVED-TICK is the `buffer-chars-modified-tick' at request time.
+SAVED-POINT is the `point' position at request time.
+
+Schedules `cfg-completion/corfu-refresh-after-lsp-async' to run after
+the LSP response returns, ensuring stale callbacks (where BUF, TICK,
+POINT, or GENERATION no longer match) are ignored."
+  (when (and (buffer-live-p buf)
+             (with-current-buffer buf
+               (and (bound-and-true-p corfu-mode)
+                    (or context-key (bound-and-true-p corfu--candidates)))))
+    (with-current-buffer buf
+      (when (timerp cfg-completion/corfu--refresh-timer)
+        (cancel-timer cfg-completion/corfu--refresh-timer))
+      (setq cfg-completion/corfu--refresh-timer
+            (run-at-time
+             0.05 nil
+             (lambda ()
+               (when (buffer-live-p buf)
+                 (with-current-buffer buf
+                   (setq cfg-completion/corfu--refresh-timer nil)
+                   (cfg-completion/corfu-refresh-after-lsp-async
+                    buf context-key generation saved-tick saved-point)))))))))
+
+(add-hook 'cfg-lsp/lsp-completion-refresh-hook
+          #'cfg-completion/corfu-schedule-lsp-refresh)
+
 (defun cfg-completion/corfu-reset-completion-cache ()
   "Clear stale LSP/Corfu completion caches and restart completion."
   (interactive)
+  (when (timerp cfg-completion/corfu--refresh-timer)
+    (cancel-timer cfg-completion/corfu--refresh-timer)
+    (setq cfg-completion/corfu--refresh-timer nil))
+  (when (and (fboundp 'corfu-reset)
+             (bound-and-true-p completion-in-region-mode)
+             (bound-and-true-p completion-in-region--data))
+    (corfu-reset))
   (if (fboundp 'cfg-lsp/lsp-completion-clear-caches)
       (cfg-lsp/lsp-completion-clear-caches)
     (when (fboundp 'lsp-completion--clear-cache)
@@ -162,6 +245,8 @@ ORIG-FUN is the advised function. ARGS are its arguments."
   (corfu-auto t)
   (corfu-auto-delay 0.3)
   (corfu-auto-prefix 3)
+  ;; Trigger LSP completion immediately after member-access punctuation.
+  (corfu-auto-trigger ".")
   (corfu-on-exact-match 'quit)
   ;; Keep popup responsive and predictable:
   (corfu-cycle t)
