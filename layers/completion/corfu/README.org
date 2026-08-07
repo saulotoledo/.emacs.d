@@ -21,6 +21,11 @@ and additional completion backends via `cape`.
 (defvar lsp--buffer-workspaces)
 (declare-function lsp--workspace-server-id "lsp-mode")
 
+(defun cfg-completion/advice-add-once (symbol where function)
+  "Install FUNCTION as advice on SYMBOL exactly once at WHERE."
+  (advice-remove symbol function)
+  (advice-add symbol where function))
+
 (defcustom cfg-completion/corfu-server-policies
   '((vtsls :automatic-lsp t
            :manual-lsp t
@@ -89,6 +94,12 @@ ORIG-FUN is the advised completion function. ARGS are its arguments."
   (if (and (not cfg-completion/corfu--manual-request)
            (not (cfg-completion/corfu-automatic-lsp-enabled-p)))
       nil
+    (apply orig-fun args)))
+
+(defun cfg-completion/corfu-auto-complete-deferred (orig-fun &rest args)
+  "Mark deferred Corfu completion as `non-essential'.
+ORIG-FUN is the original deferred completion function. ARGS are its arguments."
+  (let ((non-essential t))
     (apply orig-fun args)))
 
 (defvar-local cfg-completion/corfu-auto-before-snippet :unset
@@ -217,12 +228,12 @@ ORIG-FUN is the advised function. ARGS are its arguments."
 (with-eval-after-load 'lsp-completion
   ;; kind-icon renders kinds in Corfu's margin; suppress LSP's textual kind.
   (setq lsp-completion-show-kind nil)
-  (advice-add 'lsp-completion-at-point
-              :around
-              #'cfg-completion/corfu-lsp-capf-policy)
-  (advice-add 'lsp-completion-mode
-              :around
-              #'cfg-lsp/lsp-completion-mode-without-company-for-corfu))
+  (cfg-completion/advice-add-once
+   'lsp-completion-at-point :around
+   #'cfg-completion/corfu-lsp-capf-policy)
+  (cfg-completion/advice-add-once
+   'lsp-completion-mode :around
+   #'cfg-lsp/lsp-completion-mode-without-company-for-corfu))
 
 (defvar cfg-lsp/lsp-completion-refresh-hook)
 (defvar-local cfg-completion/corfu--refresh-timer nil
@@ -421,10 +432,9 @@ POINT, or GENERATION no longer match) are ignored."
   ;; debounce (and lsp-mode itself) cannot distinguish auto-completion
   ;; background requests from interactive ones.
   (with-eval-after-load 'corfu-auto
-    (advice-add 'corfu-auto--complete-deferred :around
-                (lambda (orig-fun &rest args)
-                  (let ((non-essential t))
-                    (apply orig-fun args))))))
+    (cfg-completion/advice-add-once
+     'corfu-auto--complete-deferred :around
+     #'cfg-completion/corfu-auto-complete-deferred)))
 #+end_src
 
 ** Kind Icon

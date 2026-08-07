@@ -72,11 +72,65 @@ code completion, go-to-definition, diagnostics, and more.
 (declare-function lsp-request-async "lsp-mode")
 (declare-function lsp-stdio-connection "lsp-mode")
 (declare-function lsp-workspace-root "lsp-mode")
+(declare-function lsp-completion--find-workspace "lsp-completion")
+(declare-function lsp-completion--resolve "lsp-completion")
+(declare-function yas-active-snippets "yasnippet")
+(declare-function yas--snippet-active-field "yasnippet")
+(declare-function yas--field-contains-point-p "yasnippet")
+(declare-function yas--move-to-field "yasnippet")
 (declare-function make-lsp-client "lsp-mode")
 
 (defvar lsp-command-map)
 (defvar lsp-completion--cache)
 (defvar lsp-mode-map)
+(defvar lsp-enable-snippet)
+(defvar cfg-lsp/lsp--in-code-action)
+(defvar cfg-lsp/lsp-completion--ld-cache)
+
+(defun cfg-lsp/advice-add-once (symbol where function)
+  "Install FUNCTION as advice on SYMBOL exactly once at WHERE."
+  (advice-remove symbol function)
+  (advice-add symbol where function))
+
+(defun cfg-lsp/lsp-completion-clear-resolve-cache (&rest _)
+  "Clear the custom completion-item resolve cache after LSP clears its cache."
+  (setq cfg-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal)))
+
+(defun cfg-lsp/lsp-execute-code-action-advice (orig-fun &rest args)
+  "Run code actions synchronously while marking the interactive context.
+ORIG-FUN is the original code-action function. ARGS are its arguments."
+  (let ((cfg-lsp/lsp--in-code-action t))
+    (apply orig-fun args)))
+
+(defun cfg-lsp/lsp-request-workspace-execute-command
+    (orig-fun method params &rest args)
+  "Run automatic workspace commands asynchronously.
+ORIG-FUN is the original request function. METHOD and PARAMS identify the
+request, and ARGS contains its remaining arguments."
+  (if (and (equal method "workspace/executeCommand")
+           (not cfg-lsp/lsp--in-code-action))
+      (lsp-request-async method params
+                         (lambda (_) nil)
+                         :error-handler
+                         (lambda (err)
+                           (message "LSP: workspace/executeCommand: %s" err)))
+    (apply orig-fun method params args)))
+
+(defun cfg-lsp/lsp-completion-resolve-before-exit (candidate &rest _)
+  "Resolve VTSLS completion CANDIDATE before snippet expansion."
+  (when (and lsp-enable-snippet
+             (lsp-completion--find-workspace 'vtsls))
+    (lsp-completion--resolve candidate)))
+
+(defun cfg-lsp/lsp-completion-restore-snippet-field (&rest _)
+  "Move point back into the active Yasnippet field after completion."
+  (when (and (bound-and-true-p yas-minor-mode)
+             (yas-active-snippets))
+    (let* ((snippet (car (yas-active-snippets)))
+           (active-field (yas--snippet-active-field snippet)))
+      (when (and active-field
+                 (not (yas--field-contains-point-p active-field)))
+        (yas--move-to-field snippet active-field)))))
 
 ;; Keep completion state declarations at top level so other layers can refer to
 ;; them without free-variable warnings before lsp-completion is loaded.
@@ -329,9 +383,9 @@ on a dynamic binding that can silently fail, we intercept ALL
          (t
           (funcall orig method params)))))
 
-    (advice-add 'lsp-request-while-no-input
-                :around
-                #'cfg-lsp/lsp-request-while-no-input--debounce)
+    (cfg-lsp/advice-add-once
+     'lsp-request-while-no-input :around
+     #'cfg-lsp/lsp-request-while-no-input--debounce)
 
     ;; Async-resolve completion items to show `labelDetails.description` in
     ;; completion annotations (the module/import source for a candidate).
@@ -452,12 +506,13 @@ description and caches the result."
           base-ann))
 
       ;; Flush the resolve cache at the same time lsp-mode clears its own.
-      (advice-add 'lsp-completion--clear-cache :after
-                  (lambda (&rest _)
-                    (setq cfg-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal))))
+      (cfg-lsp/advice-add-once
+       'lsp-completion--clear-cache :after
+       #'cfg-lsp/lsp-completion-clear-resolve-cache)
 
-      (advice-add 'lsp-completion--annotate :around
-                  #'cfg-lsp/lsp-completion--annotate-with-resolve)))
+      (cfg-lsp/advice-add-once
+       'lsp-completion--annotate :around
+       #'cfg-lsp/lsp-completion--annotate-with-resolve)))
 
   ;; workspace/executeCommand is used by language servers in two very different ways:
   ;;
@@ -485,48 +540,31 @@ description and caches the result."
 Prevents the async redirect below from applying to interactive code actions,
 which need to complete synchronously to apply their edits.")
 
-  (advice-add 'lsp-execute-code-action :around
-              (lambda (orig &rest args)
-                (let ((cfg-lsp/lsp--in-code-action t))
-                  (apply orig args))))
+  (cfg-lsp/advice-add-once
+   'lsp-execute-code-action :around
+   #'cfg-lsp/lsp-execute-code-action-advice)
 
-  (advice-add 'lsp-request :around
-              (lambda (orig method params &rest args)
-                (if (and (equal method "workspace/executeCommand")
-                         (not cfg-lsp/lsp--in-code-action))
-                    ;; Automatic context: fire async so sit-for never blocks.
-                    (lsp-request-async method params
-                                       (lambda (_) nil)
-                                       :error-handler
-                                       (lambda (err)
-                                         (message "LSP: workspace/executeCommand: %s" err)))
-                  (apply orig method params args))))
+  (cfg-lsp/advice-add-once
+   'lsp-request :around
+   #'cfg-lsp/lsp-request-workspace-execute-command)
 
   ;; lsp-mode only calls completionItem/resolve before snippet expansion for ts-ls
   ;; (see lsp-completion--exit-fn). vtsls has the same limitation: the initial
   ;; completion list omits insertText/textEdit with snippet format; those fields
   ;; are populated only after completionItem/resolve. Without this advice,
   ;; selecting a function like parseInt inserts only the bare label with no params.
-  (advice-add 'lsp-completion--exit-fn :before
-              (lambda (candidate &rest _)
-                (when (and lsp-enable-snippet
-                           (lsp-completion--find-workspace 'vtsls))
-                  (lsp-completion--resolve candidate))))
+  (cfg-lsp/advice-add-once
+   'lsp-completion--exit-fn :before
+   #'cfg-lsp/lsp-completion-resolve-before-exit)
 
   ;; After LSP snippet expansion, re-verify cursor is inside the snippet's
   ;; active field. With certain servers (e.g. vtsls JSX/TSX attribute
   ;; completions like className="$1"), the cursor sometimes ends up at the
   ;; snippet start (before the attribute name) rather than inside the value
   ;; field. Silently re-navigate to the active field when that happens.
-  (advice-add 'lsp-completion--exit-fn :after
-              (lambda (&rest _)
-                (when (and (bound-and-true-p yas-minor-mode)
-                           (yas-active-snippets))
-                  (let* ((snippet (car (yas-active-snippets)))
-                         (active-field (yas--snippet-active-field snippet)))
-                    (when (and active-field
-                               (not (yas--field-contains-point-p active-field)))
-                      (yas--move-to-field snippet active-field))))))
+  (cfg-lsp/advice-add-once
+   'lsp-completion--exit-fn :after
+   #'cfg-lsp/lsp-completion-restore-snippet-field)
 
   ;; When using TRAMP with devcontainer, LSP servers run inside the container.
   ;; The container should have Node.js and language server extensions installed.
@@ -844,9 +882,11 @@ that by returning nil before the update runs."
       (funcall orig-fun session client project-root))))
 
 (with-eval-after-load 'lsp-mode
-  (advice-add 'lsp--notify :around #'cfg-lsp--filter-workspace-change-for-server)
-  (advice-add 'lsp--find-multiroot-workspace
-              :around #'cfg-lsp--find-multiroot-workspace-filter))
+  (cfg-lsp/advice-add-once
+   'lsp--notify :around #'cfg-lsp--filter-workspace-change-for-server)
+  (cfg-lsp/advice-add-once
+   'lsp--find-multiroot-workspace
+   :around #'cfg-lsp--find-multiroot-workspace-filter))
 #+end_src
 
 ** LSP Workspace Helpers

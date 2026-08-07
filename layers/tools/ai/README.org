@@ -68,6 +68,11 @@ copilot is enabled in the current machine. In addition, we have a helper to
 install the ECA config file to the global path.
 
 #+begin_src emacs-lisp
+(defun cfg-tools/advice-add-once (symbol where function)
+  "Install FUNCTION as advice on SYMBOL exactly once at WHERE."
+  (advice-remove symbol function)
+  (advice-add symbol where function))
+
 (defun cfg-tools/get-token-from-auth-source (host)
   "Find token in auth-source for HOST."
   (require 'epa-file)
@@ -281,7 +286,9 @@ Optional _ARG is ignored (for compatibility with advice)."
           ;; For other modes, call normally
           (funcall orig-fn)))
 
-      (advice-add 'eca-completion--post-command :around #'cfg-tools/eca-org-post-command-wrapper))
+      (cfg-tools/advice-add-once
+       'eca-completion--post-command :around
+       #'cfg-tools/eca-org-post-command-wrapper))
 
     ;; Set up hooks after ECA is loaded and function is defined
     (dolist (hook '(prog-mode-hook
@@ -302,7 +309,8 @@ Optional _ARG is ignored (for compatibility with advice)."
 
     ;; Advice copilot-mode to update ECA completion when toggled
     (when (fboundp 'copilot-mode)
-      (advice-add 'copilot-mode :after #'cfg-tools/eca-setup-completion)))
+      (cfg-tools/advice-add-once
+       'copilot-mode :after #'cfg-tools/eca-setup-completion)))
 
   ;; Setup tokens when auth-source backends are initialized
   (defun cfg-tools/eca-setup-tokens ()
@@ -329,7 +337,7 @@ Optional _ARG is ignored (for compatibility with advice)."
              (message "ECA [-]: Skipping key %s: %s"
                       env-var (error-message-string err))))))))
 
-  (advice-add 'eca :before #'cfg-tools/eca-init)
+  (cfg-tools/advice-add-once 'eca :before #'cfg-tools/eca-init)
 
   ;; NOTE: auth-source backends (gpg-agent, pass, keychain, etc.) are initialized
   ;; lazily and may rely on async subprocesses and the Emacs event loop.
@@ -396,7 +404,8 @@ Applies ORIG-FUN with ARGS."
     (apply orig-fun args)))
 
 ;; Attach the guard to the package function
-(advice-add 'eca-chat--track-cursor :around #'cfg-tools/eca-chat-track-cursor-safeguard)
+(cfg-tools/advice-add-once
+ 'eca-chat--track-cursor :around #'cfg-tools/eca-chat-track-cursor-safeguard)
 #+end_src
 
 *** ECA Chat Copilot Autocompletion
@@ -406,16 +415,21 @@ and ECA Chat are active, pressing ~Tab~ will accept Copilot completions when
 available, otherwise, it will fall back to ECA Chat's behavior.
 
 #+begin_src emacs-lisp
+(defun cfg-tools/eca-chat-copilot-tab-advice (orig-fun &rest args)
+  "Let Copilot consume TAB when it has a completion.
+ORIG-FUN is ECA Chat's original TAB handler. ARGS are its arguments."
+  (if (and (featurep 'copilot)
+           (boundp 'copilot-mode)
+           copilot-mode
+           (fboundp 'copilot-accept-completion)
+           (copilot-accept-completion))
+      t
+    (apply orig-fun args)))
+
 (with-eval-after-load 'eca-chat
-  (advice-add 'eca-chat--key-pressed-tab :around
-              (lambda (orig-fun &rest args)
-                (if (and (featurep 'copilot)
-                         (boundp 'copilot-mode)
-                         copilot-mode
-                         (fboundp 'copilot-accept-completion)
-                         (copilot-accept-completion))
-                    t  ;; Copilot took the Tab, suppress ECA logic
-                  (apply orig-fun args)))))
+  (cfg-tools/advice-add-once
+   'eca-chat--key-pressed-tab :around
+   #'cfg-tools/eca-chat-copilot-tab-advice))
 #+end_src
 
 *** ECA Chat Management (Auto-save and Index)
@@ -524,11 +538,15 @@ Useful if the index gets out of sync or files are manually deleted."
       (cfg-tools/eca-chat-update-index file))))
 
 ;; Advice to trigger auto-save when ECA finishes loading a response
-(advice-add 'eca-chat--set-chat-loading :after
-            (lambda (&rest args)
-              (let ((loading (cadr args)))
-                (when (not loading)
-                  (cfg-tools/eca-chat-auto-save-h)))))
+(defun cfg-tools/eca-chat-auto-save-loading-advice (&rest args)
+  "Save the ECA chat after loading completes.
+ARGS contains the advised function's arguments."
+  (when (not (cadr args))
+    (cfg-tools/eca-chat-auto-save-h)))
+
+(cfg-tools/advice-add-once
+ 'eca-chat--set-chat-loading :after
+ #'cfg-tools/eca-chat-auto-save-loading-advice)
 
 ;; Also save when killing the buffer
 (add-hook 'eca-chat-mode-hook
@@ -552,7 +570,8 @@ Useful if the index gets out of sync or files are manually deleted."
                 (message "ECA: Chat backed up and indexed: %s" (file-name-nondirectory backup))))))))))
 
 ;; Advice to backup the chat file before it's reset/cleared
-(advice-add 'eca-chat-reset :before #'cfg-tools/eca-chat-rename-to-backup-h)
+(cfg-tools/advice-add-once
+ 'eca-chat-reset :before #'cfg-tools/eca-chat-rename-to-backup-h)
 
 ;; Navigation commands
 (defun cfg-tools/eca-chat-mark-buffer (&optional proj-context)
@@ -642,7 +661,8 @@ Preserves the current project context when opening linked files.
       ;; For all other cases, use the original function
       (apply orig-fun args))))
 
-(advice-add 'org-open-at-point :around #'cfg-tools/eca-chat-follow-link-no-project)
+(cfg-tools/advice-add-once
+ 'org-open-at-point :around #'cfg-tools/eca-chat-follow-link-no-project)
 
 ;; Recursion guard: This variable prevents the function from calling itself
 ;; while it is already trying to resolve a context. Without this, TRAMP
@@ -688,7 +708,8 @@ This avoids infinite recursion by not calling filesystem primitives like
       ;; Now it is safe to let Emacs run the standard project discovery.
       (apply orig-fun args))))
 
-(advice-add 'project-current :around #'cfg-tools/eca-chat-restore-project-context)
+(cfg-tools/advice-add-once
+ 'project-current :around #'cfg-tools/eca-chat-restore-project-context)
 #+end_src
 
 *** Token Optimization
