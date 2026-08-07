@@ -18,6 +18,78 @@ and additional completion backends via `cape`.
 (defvar company-mode)
 (defvar company-backends)
 (defvar lsp-completion-show-kind)
+(defvar lsp--buffer-workspaces)
+(declare-function lsp--workspace-server-id "lsp-mode")
+
+(defcustom cfg-completion/corfu-server-policies
+  '((vtsls :automatic-lsp t
+           :manual-lsp t
+           :local-capf t
+           :corfu-auto t
+           :auto-delay 0.5
+           :auto-prefix 3))
+  "Sample completion policies keyed by active LSP server ID.
+`:automatic-lsp' controls whether automatic Corfu requests may reach LSP.
+`:manual-lsp' controls explicit completion requests. `:local-capf' documents
+whether local CAPFs remain available. The Corfu settings control only the
+automatic popup; manual completion remains available independently.
+
+The VTSLS entry is intentionally a non-disabling sample: automatic LSP
+completion remains enabled while using a slightly longer popup delay. Adjust or
+remove the entry to tune a server after measuring its behavior."
+  :type '(alist :key-type symbol :value-type plist)
+  :group 'corfu)
+
+(defcustom cfg-completion/corfu-mode-policies nil
+  "Completion policy overrides keyed by major mode.
+Each entry is `(MODE . PLIST)', where PLIST uses the same keys as
+`cfg-completion/corfu-server-policies'. Mode policies override server policies."
+  :type '(alist :key-type symbol :value-type plist)
+  :group 'corfu)
+
+(defvar cfg-completion/corfu--manual-request nil
+  "Non-nil while an explicit completion request is being performed.")
+
+(defun cfg-completion/corfu-active-server-id ()
+  "Return the first active LSP server ID in the current buffer, if any."
+  (when (boundp 'lsp--buffer-workspaces)
+    (when-let ((workspace (car lsp--buffer-workspaces)))
+      (when (fboundp 'lsp--workspace-server-id)
+        (lsp--workspace-server-id workspace)))))
+
+(defun cfg-completion/corfu-completion-policy ()
+  "Return the effective completion policy for the current buffer."
+  (let* ((server-policy
+          (cdr (assq (cfg-completion/corfu-active-server-id)
+                     cfg-completion/corfu-server-policies)))
+         (mode-policy (cdr (assq major-mode cfg-completion/corfu-mode-policies))))
+    (append mode-policy server-policy
+            '(:automatic-lsp t :manual-lsp t :local-capf t
+              :corfu-auto t :auto-delay 0.3 :auto-prefix 3))))
+
+(defun cfg-completion/corfu-automatic-lsp-enabled-p ()
+  "Return non-nil when automatic completion may query the active LSP."
+  (plist-get (cfg-completion/corfu-completion-policy) :automatic-lsp))
+
+(defun cfg-completion/corfu-apply-policy ()
+  "Apply the effective automatic-popup policy buffer-locally."
+  (let ((policy (cfg-completion/corfu-completion-policy)))
+    (when (boundp 'corfu-auto)
+      (setq-local corfu-auto (plist-get policy :corfu-auto)))
+    (when (boundp 'corfu-auto-delay)
+      (setq-local corfu-auto-delay (plist-get policy :auto-delay)))
+    (when (boundp 'corfu-auto-prefix)
+      (setq-local corfu-auto-prefix (plist-get policy :auto-prefix)))))
+
+(defun cfg-completion/corfu-lsp-capf-policy (orig-fun &rest args)
+  "Keep automatic LSP completion disabled for opted-in server policies.
+Manual completion sets `cfg-completion/corfu--manual-request' and continues to
+use LSP even when automatic LSP completion is disabled.
+ORIG-FUN is the advised completion function. ARGS are its arguments."
+  (if (and (not cfg-completion/corfu--manual-request)
+           (not (cfg-completion/corfu-automatic-lsp-enabled-p)))
+      nil
+    (apply orig-fun args)))
 
 (defvar-local cfg-completion/corfu-auto-before-snippet :unset
   "Previous local `corfu-auto' value saved while a snippet is active.
@@ -131,6 +203,8 @@ ORIG-FUN is the advised function. ARGS are its arguments."
                       #'lsp-completion-at-point nil t))))))
 
 (add-hook 'corfu-mode-hook #'cfg-completion/disable-company-in-corfu-buffer)
+(add-hook 'corfu-mode-hook #'cfg-completion/corfu-apply-policy)
+(add-hook 'lsp-mode-hook #'cfg-completion/corfu-apply-policy)
 
 (with-eval-after-load 'company
   ;; Catch Company activation that happens after Corfu or LSP initialization.
@@ -143,6 +217,9 @@ ORIG-FUN is the advised function. ARGS are its arguments."
 (with-eval-after-load 'lsp-completion
   ;; kind-icon renders kinds in Corfu's margin; suppress LSP's textual kind.
   (setq lsp-completion-show-kind nil)
+  (advice-add 'lsp-completion-at-point
+              :around
+              #'cfg-completion/corfu-lsp-capf-policy)
   (advice-add 'lsp-completion-mode
               :around
               #'cfg-lsp/lsp-completion-mode-without-company-for-corfu))
@@ -201,19 +278,20 @@ have silently completed."
         (run-at-time cfg-completion/corfu-manual-completion-timeout nil
                      #'cfg-completion/corfu-manual-completion-timeout
                      (current-buffer)))
-  (let ((result (let ((non-essential t))
-                  (completion-at-point))))
-    ;; A cache hit or local CAPF opens completion synchronously. In that case
-    ;; there is no pending LSP request for this command to report.
-  (when (or result (bound-and-true-p completion-in-region-mode))
-      (cfg-completion/corfu--finish-manual-completion))
-    (when (and (null result)
-               (not (bound-and-true-p completion-in-region-mode))
-               (or (not (boundp 'cfg-lsp/lsp-completion--context-key))
-                   (null cfg-lsp/lsp-completion--context-key)))
-      (cfg-completion/corfu--finish-manual-completion
-       "No completion is available at point"))
-    result))
+  (let ((cfg-completion/corfu--manual-request t))
+    (let ((result (let ((non-essential t))
+                    (completion-at-point))))
+      ;; A cache hit or local CAPF opens completion synchronously. In that case
+      ;; there is no pending LSP request for this command to report.
+      (when (or result (bound-and-true-p completion-in-region-mode))
+        (cfg-completion/corfu--finish-manual-completion))
+      (when (and (null result)
+                 (not (bound-and-true-p completion-in-region-mode))
+                 (or (not (boundp 'cfg-lsp/lsp-completion--context-key))
+                     (null cfg-lsp/lsp-completion--context-key)))
+        (cfg-completion/corfu--finish-manual-completion
+         "No completion is available at point"))
+      result)))
 
 (defun cfg-completion/corfu-refresh-after-lsp-async
     (buf &optional context-key generation saved-tick saved-point)

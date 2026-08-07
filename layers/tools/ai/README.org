@@ -755,6 +755,7 @@ you type.
 (declare-function corfu-insert "corfu")
 (declare-function corfu-terminal--visible-p "corfu-terminal")
 (declare-function yas-next-field-or-maybe-expand "yasnippet")
+(declare-function copilot--overlay-visible "copilot")
 (declare-function eca-completion--overlay-visible "eca-completion")
 (declare-function eca-completion--clear-overlay "eca-completion")
 (defvar copilot-mode)
@@ -784,7 +785,8 @@ the buffer changed or point moved."
 (defun cfg-tools/eca-ghost-text-visible-p ()
   "Return non-nil when a current, usable ECA ghost text is visible.
 The overlay must be enabled for this buffer, belong to the current buffer, and
-still start at point so stale inline completions cannot claim TAB or C-g."
+still start at point so stale inline completions cannot claim the keyboard
+cancellation command."
   (and (bound-and-true-p eca-completion-mode)
        (boundp 'eca-completion--overlay)
        (overlayp eca-completion--overlay)
