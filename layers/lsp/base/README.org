@@ -337,6 +337,28 @@ on a dynamic binding that can silently fail, we intercept ALL
     (defvar-local cgf-lsp/lsp-completion--refresh-timer nil
       "Timer to debounce corfu refresh after async resolve completes.")
 
+    (defun cfg-lsp/lsp-completion-clear-caches ()
+      "Clear all buffer-local LSP/Corfu completion state.
+This clears lsp-mode's completion response, the custom response and resolve
+caches, and any pending Corfu refresh timer. When Corfu is active, also reset
+its current completion session. The helper is intentionally safe to call
+before optional completion packages have loaded."
+      (interactive)
+      (when (fboundp 'lsp-completion--clear-cache)
+        (lsp-completion--clear-cache))
+      (setq cgf-lsp/lsp-completion--last-resp nil
+            cgf-lsp/lsp-completion--last-resp-time 0
+            cgf-lsp/lsp-completion--last-resp-bounds nil
+            cgf-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal)
+            lsp-completion--cache nil)
+      (when (timerp cgf-lsp/lsp-completion--refresh-timer)
+        (cancel-timer cgf-lsp/lsp-completion--refresh-timer)
+        (setq cgf-lsp/lsp-completion--refresh-timer nil))
+      (when (and (fboundp 'corfu-reset)
+                 (bound-and-true-p completion-in-region-mode)
+                 (bound-and-true-p completion-in-region--data))
+        (corfu-reset)))
+
     (defun cgf-lsp/lsp-completion--ld-key (item)
       "Return a string cache key for CompletionItem ITEM."
       (format "%s|%s"
