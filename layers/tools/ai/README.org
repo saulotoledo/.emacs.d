@@ -755,40 +755,95 @@ you type.
 (declare-function corfu-insert "corfu")
 (declare-function corfu-terminal--visible-p "corfu-terminal")
 (declare-function yas-next-field-or-maybe-expand "yasnippet")
+(declare-function eca-completion--overlay-visible "eca-completion")
+(declare-function eca-completion--clear-overlay "eca-completion")
+(defvar copilot-mode)
+(defvar copilot--overlay)
+(defvar eca-completion-mode)
+(defvar eca-completion--overlay)
 (declare-function cfg-tools/copilot-kubernetes-sensitive-p nil)
 (declare-function cfg-tools/copilot-excluded-file-p nil)
+
+(defun cfg-tools/copilot-ghost-text-visible-p ()
+  "Return non-nil when a current, usable Copilot ghost text is visible.
+The overlay must be enabled for this buffer, belong to the current buffer, and
+still start at point. The last condition rejects suggestions left behind after
+the buffer changed or point moved."
+  (and (bound-and-true-p copilot-mode)
+       (boundp 'copilot--overlay)
+       (overlayp copilot--overlay)
+       (eq (overlay-buffer copilot--overlay) (current-buffer))
+       (or (not (fboundp 'copilot--overlay-visible))
+           (copilot--overlay-visible))
+       (stringp (overlay-get copilot--overlay 'completion))
+       (= (or (overlay-get copilot--overlay 'start) -1)
+          (point))
+       (= (or (overlay-start copilot--overlay) -1)
+          (point))))
+
+(defun cfg-tools/eca-ghost-text-visible-p ()
+  "Return non-nil when a current, usable ECA ghost text is visible.
+The overlay must be enabled for this buffer, belong to the current buffer, and
+still start at point so stale inline completions cannot claim TAB or C-g."
+  (and (bound-and-true-p eca-completion-mode)
+       (boundp 'eca-completion--overlay)
+       (overlayp eca-completion--overlay)
+       (eq (overlay-buffer eca-completion--overlay) (current-buffer))
+       (or (not (fboundp 'eca-completion--overlay-visible))
+           (eca-completion--overlay-visible))
+       (stringp (overlay-get eca-completion--overlay 'completion))
+       (= (or (overlay-get eca-completion--overlay 'start) -1)
+          (point))
+       (= (or (overlay-start eca-completion--overlay) -1)
+          (point))))
 
 (defun cfg-tools/tab-indent-or-complete ()
   "Dispatch TAB according to the currently visible completion context."
   (interactive)
-  (let* ((at-point (overlays-at (point)))
-         (copilot-ov (and (bound-and-true-p copilot--overlay)
-                          (overlay-buffer copilot--overlay)
-                          copilot--overlay))
-         (eca-ov (cl-find-if (lambda (ov) (overlay-get ov 'completion)) at-point)))
-    (cond
-     ;; Yasnippet always wins: Copilot must never consume field navigation.
-     ((and (fboundp 'yas-active-snippets)
-           (yas-active-snippets)
-           (fboundp 'yas-next-field-or-maybe-expand))
-      (yas-next-field-or-maybe-expand))
-     ;; Ghost text wins over a visible Corfu popup on TAB. Close Corfu first
-     ;; so the accepted text is not hidden behind a stale child frame.
-     (copilot-ov
-      (when (fboundp 'corfu-quit)
-        (corfu-quit))
-      (copilot-accept-completion))
-     (eca-ov
-      (when (fboundp 'corfu-quit)
-        (corfu-quit))
-      (if (fboundp 'eca-completion-accept)
-          (eca-completion-accept)
-        (indent-for-tab-command)))
-     ((and (fboundp 'cfg-completion/corfu-visible-p)
-           (cfg-completion/corfu-visible-p))
-      (corfu-complete))
-     (t
-      (indent-for-tab-command)))))
+  (cond
+   ;; Yasnippet always wins: Copilot must never consume field navigation.
+   ((and (fboundp 'yas-active-snippets)
+         (yas-active-snippets)
+         (fboundp 'yas-next-field-or-maybe-expand))
+    (yas-next-field-or-maybe-expand))
+   ;; Ghost text wins over a visible Corfu popup on TAB. Close Corfu first
+   ;; so the accepted text is not hidden behind a stale child frame.
+   ((cfg-tools/copilot-ghost-text-visible-p)
+    (when (fboundp 'corfu-quit)
+      (corfu-quit))
+    (copilot-accept-completion))
+   ((cfg-tools/eca-ghost-text-visible-p)
+    (when (fboundp 'corfu-quit)
+      (corfu-quit))
+    (if (fboundp 'eca-completion-accept)
+        (eca-completion-accept)
+      (indent-for-tab-command)))
+   ((and (fboundp 'cfg-completion/corfu-visible-p)
+         (cfg-completion/corfu-visible-p))
+    (corfu-complete))
+   (t
+    (indent-for-tab-command))))
+
+(defun cfg-tools/quit-completion-context ()
+  "Dismiss the highest-priority visible completion context.
+When Corfu and ghost text overlap, the popup is dismissed first so the ghost
+text remains available for inspection and later acceptance."
+  (interactive)
+  (cond
+   ((and (fboundp 'cfg-completion/corfu-visible-p)
+         (cfg-completion/corfu-visible-p)
+         (fboundp 'corfu-quit))
+    (corfu-quit))
+   ((cfg-tools/copilot-ghost-text-visible-p)
+    (when (fboundp 'copilot-clear-overlay)
+      (copilot-clear-overlay)))
+   ((cfg-tools/eca-ghost-text-visible-p)
+    (if (fboundp 'eca-completion--clear-overlay)
+        (eca-completion--clear-overlay)
+      (when (fboundp 'cfg-completion/clear-eca-overlays)
+        (cfg-completion/clear-eca-overlays))))
+   (t
+    (keyboard-quit))))
 
 (defun cfg-tools/copilot-chat-yank-pop-previous ()
   "Pop the previous yanked code block from `copilot-chat` history."
@@ -969,10 +1024,11 @@ Registers keybindings for AI tools, ECA chat sessions, Copilot, and Copilot Chat
 ;; Completion overlay maps (Active when ghost text / popup is visible)
 (with-eval-after-load 'corfu
   (define-key corfu-map (kbd "TAB") #'cfg-tools/tab-indent-or-complete)
-  (define-key corfu-map (kbd "<tab>") #'cfg-tools/tab-indent-or-complete))
+  (define-key corfu-map (kbd "<tab>") #'cfg-tools/tab-indent-or-complete)
+  (define-key corfu-map (kbd "C-g") #'cfg-tools/quit-completion-context))
 
 (with-eval-after-load 'copilot
-  (define-key copilot-completion-map (kbd "C-g") #'copilot-clear-overlay)
+  (define-key copilot-completion-map (kbd "C-g") #'cfg-tools/quit-completion-context)
   (define-key copilot-completion-map (kbd "M-p") #'copilot-previous-completion)
   (define-key copilot-completion-map (kbd "M-n") #'copilot-next-completion)
   (define-key copilot-completion-map (kbd "TAB") #'cfg-tools/tab-indent-or-complete))
