@@ -65,7 +65,7 @@ to place the cursor while typing interactively."
 ;; Register accepted extensions for workspace folder filtering
 (when (boundp 'cfg-lsp/server-file-extensions)
   (add-to-list 'cfg-lsp/server-file-extensions
-	       '(clangd . ("c" "cpp" "h" "hpp" "cc" "cxx" "cu"))))
+               '(clangd . ("c" "cpp" "h" "hpp" "cc" "cxx" "cu"))))
 #+end_src
 
 ** Code Formatting (Apheleia & clang-format)
@@ -75,7 +75,7 @@ to place the cursor while typing interactively."
 If a local .clang-format exists, use -style=file.
 Otherwise, use our custom configuration string."
   (let ((config-file (locate-dominating-file
-		      (or (buffer-file-name) default-directory)
+                      (or (buffer-file-name) default-directory)
                                              ".clang-format")))
     (if config-file
         "-style=file"

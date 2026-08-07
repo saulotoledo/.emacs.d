@@ -86,6 +86,8 @@ Enter is consumed while Corfu's keymap is active."
           (copilot-clear-overlay))
         (cfg-completion/clear-eca-overlays)
         (corfu-insert))
+    (when (fboundp 'corfu-quit)
+      (corfu-quit))
     (newline)))
 
 (defun cfg-completion/disable-company-in-corfu-buffer ()
@@ -404,7 +406,7 @@ or blocking behavior.
   ;; inserting the buffer's newline.
   (add-to-list 'corfu-continue-commands
                #'cfg-completion/corfu-return-or-newline)
-  (define-key corfu-map (kbd "C-<return>") #'corfu-insert)
+  (define-key corfu-map (kbd "C-<return>") #'cfg-completion/corfu-return-or-newline)
   (define-key corfu-map (kbd "<return>") #'cfg-completion/corfu-return-or-newline)
   (define-key corfu-map (kbd "RET") #'cfg-completion/corfu-return-or-newline)
   (define-key corfu-map (kbd "C-m") #'cfg-completion/corfu-return-or-newline)
