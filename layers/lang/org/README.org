@@ -105,7 +105,7 @@ conflicting with ~org-adapt-indentation~.
         org-list-indent-offset 2
         org-special-ctrl-a/e t
         org-insert-heading-respect-content t
-        org-src-content-indentation 0
+        org-edit-src-content-indentation 0
         org-src-preserve-indentation nil))
 
 ;; Use org-indent to visually indent content under headings and lists
