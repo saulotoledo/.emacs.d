@@ -6,6 +6,10 @@
 Provides editing support, LSP registration, target execution, and smart
 compilation for standard GNU Makefiles.
 
+Smart compile selects targets in order ~compile~ -> ~build~ -> default, and
+supports a per-project debug/release toggle that injects language-specific
+overrides (e.g., ~CFLAGS+=~ / ~CXXFLAGS+=~ for C/C++).
+
 Makefiles have specific requirements: all recipe lines must be indented with a
 tab character by default for =make= to work correctly.
 
@@ -28,53 +32,104 @@ even if Emacs is configured to use tabs. Ensure your =.editorconfig= uses
 #+end_src
 
 ** Smart Compilation Helper
+Uses Makefile target chain ~compile~ -> ~build~ -> default (~make -k~). Debug
+builds append language-specific Make overrides via
+~cfg-lang/debug-make-overrides-function~ (e.g. C/C++ injects ~CFLAGS+=~ /
+~CXXFLAGS+=~).
+
 #+begin_src emacs-lisp
+(defvar-local cfg-lang/debug-make-overrides-function nil
+  "If non-nil, called with no args; returns Make override string for debug.
+Example: \"CFLAGS+='-g3 -O0' CXXFLAGS+='-g3 -O0'\".
+Nil means this language has no make debug overrides (skip injection).")
+
+(defvar cfg-lang/build-debug-by-root (make-hash-table :test #'equal)
+  "Project-root -> non-nil when session build config is debug.")
+
+(defvar cfg-lang/last-build-debug-by-root (make-hash-table :test #'equal)
+  "Project-root -> non-nil when last smart-compile used debug flags.")
+
+(defun cfg-lang/smart-compile-root ()
+  "Return Makefile directory (preferred) or project root as build-config key."
+  (or (locate-dominating-file default-directory "Makefile")
+      (and (fboundp 'project-current)
+           (when-let ((proj (project-current nil)))
+             (project-root proj)))
+      default-directory))
+
+(defun cfg-lang/build-debug-p (&optional root)
+  "Return non-nil if ROOT (or current root) is in debug build mode."
+  (gethash (or root (cfg-lang/smart-compile-root))
+           cfg-lang/build-debug-by-root))
+
+(defun cfg-lang/toggle-build-debug ()
+  "Toggle per-project debug vs release for `cfg-lang/smart-compile'."
+  (interactive)
+  (let* ((root (cfg-lang/smart-compile-root))
+         (new (not (cfg-lang/build-debug-p root))))
+    (puthash root new cfg-lang/build-debug-by-root)
+    (message "Build config: %s (%s)" (if new "debug" "release") root)
+    new))
+
+(defun cfg-lang/makefile-has-target-p (makefile target)
+  "Return non-nil if MAKEFILE has TARGET as a rule."
+  (with-temp-buffer
+    (insert-file-contents makefile)
+    (re-search-forward (format "^%s[ \t]*:" (regexp-quote target)) nil t)))
+
+(defun cfg-lang/smart-compile-pick-target (makefile)
+  "Pick make target on MAKEFILE: compile, else build, else empty (default goal)."
+  (cond
+   ((cfg-lang/makefile-has-target-p makefile "compile") "compile")
+   ((cfg-lang/makefile-has-target-p makefile "build") "build")
+   (t "")))
+
+(defun cfg-lang/smart-compile-make-command (makefile debug-p)
+  "Build a `make -k' command string for MAKEFILE.
+DEBUG-P non-nil forces a debug compile (clean + overrides)."
+  (let* ((root (file-name-directory makefile))
+         (want-debug (or debug-p (cfg-lang/build-debug-p root)))
+         (has-clean (cfg-lang/makefile-has-target-p makefile "clean"))
+         (last-debug (gethash root cfg-lang/last-build-debug-by-root))
+         ;; Clean when forcing debug, or when debug/release mode switched.
+         (need-clean (and has-clean
+                          (or debug-p
+                              (not (eq (and want-debug t)
+                                       (and last-debug t))))))
+         (target (cfg-lang/smart-compile-pick-target makefile))
+         (overrides (and want-debug
+                         cfg-lang/debug-make-overrides-function
+                         (funcall cfg-lang/debug-make-overrides-function)))
+         (parts (delq nil
+                      (list "make" "-k"
+                            (and need-clean "clean")
+                            (and (not (string-empty-p target)) target)
+                            overrides))))
+    (string-join parts " ")))
+
 (defun cfg-lang/smart-compile (&optional debug-p)
-  "Build the project using a Makefile if found, otherwise prompt for a command.
-If DEBUG-P is non-nil (e.g., via `\\[universal-argument]'), validate that
-the Makefile contains the `DEBUG' variable, as well as `clean' and `build'
-targets before attempting a debug build. If any are missing, alert the user
-and fall back to a manual prompt. Standard builds (non-debug) proceed with
-`make -k compile' if the `compile' target exists, otherwise `make -k'."
+  "Build via nearest Makefile, otherwise prompt for a compile command.
+
+Target chain: compile -> build -> default (`make -k').
+With DEBUG-P (C-u or `cfg-lang/smart-compile-debug'): force debug prep --
+`clean' (if present) + target + language overrides from
+`cfg-lang/debug-make-overrides-function'. Without DEBUG-P, follow
+`cfg-lang/build-debug-p' for the project."
   (interactive "P")
   (let* ((m-file-dir (locate-dominating-file default-directory "Makefile"))
-         (m-file (when m-file-dir (expand-file-name "Makefile" m-file-dir)))
-         (has-makefile (and m-file (file-exists-p m-file))))
-    (cond
-     ;; Debug requested. Perform the triple-check (Variable + Targets):
-     ((and debug-p has-makefile)
-      (let ((requirements-met
-             (with-temp-buffer
-               (insert-file-contents m-file)
-               (let ((has-var (re-search-forward "^[ \t]*DEBUG[ \t]*[?:]?=" nil t))
-                     (has-clean (progn (goto-char (point-min))
-                                       (re-search-forward "^clean[ \t]*:" nil t)))
-                     (has-build (progn (goto-char (point-min))
-                                       (re-search-forward "^build[ \t]*:" nil t))))
-                 (and has-var has-clean has-build)))))
-        (if requirements-met
-            (let ((default-directory m-file-dir))
-              (compile "make -k clean build DEBUG=1"))
-          (message "One or more missing in Makefile: DEBUG variable, clean target, or build target. Falling back...")
-          (sit-for 1.5)
-          (call-interactively 'compile))))
-     ;; Standard build (No prefix arg) with a Makefile:
-     ((and (not debug-p) has-makefile)
-      (let* ((has-compile-target
-              (with-temp-buffer
-                (insert-file-contents m-file)
-                (re-search-forward "^compile[ \t]*:" nil t)))
-             (make-cmd (if has-compile-target
-                           "make -k compile"
-                         "make -k"))
-             (default-directory m-file-dir))
-        (compile make-cmd)))
-
-     ;; Fallback (No Makefile found or other cases):
-     (t (call-interactively 'compile)))))
+         (m-file (when m-file-dir (expand-file-name "Makefile" m-file-dir))))
+    (if (not (and m-file (file-exists-p m-file)))
+        (call-interactively 'compile)
+      (let* ((default-directory m-file-dir)
+             (want-debug (or debug-p (cfg-lang/build-debug-p m-file-dir)))
+             (cmd (cfg-lang/smart-compile-make-command m-file debug-p)))
+        (when (and want-debug (not cfg-lang/debug-make-overrides-function))
+          (message "Debug build: no language overrides set"))
+        (compile cmd)
+        (puthash m-file-dir want-debug cfg-lang/last-build-debug-by-root)))))
 
 (defun cfg-lang/smart-compile-debug ()
-  "Interactive command to run smart compile with debug active."
+  "Force a debug smart-compile (clean + overrides when available)."
   (interactive)
   (cfg-lang/smart-compile t))
 #+end_src
@@ -117,15 +172,16 @@ and fall back to a manual prompt. Standard builds (non-debug) proceed with
 ;; Global build shortcuts
 (define-key cfg-keys-map (kbd "<f4>") #'cfg-lang/smart-compile)
 (define-key cfg-keys-map (kbd "C-<f4>") #'cfg-lang/smart-compile-debug)
+(define-key cfg-keys-map (kbd "S-<f4>") #'cfg-lang/toggle-build-debug)
 (define-key cfg-keys-map (kbd "M-<f4>") #'compile)
 
-;; Leader bindings under Major Mode / Build
 (cfg-keys/leader-def
   "m"     '(:ignore t :which-key "major-mode")
   "m m"   '(:ignore t :which-key "make")
   "m m e" '(cfg-lang/makefile-executor-smart-run :which-key "Run Target (Executor)")
   "m m c" '(cfg-lang/smart-compile :which-key "Smart Compile")
-  "m m d" '(cfg-lang/smart-compile-debug :which-key "Smart Compile (Debug)"))
+  "m m d" '(cfg-lang/smart-compile-debug :which-key "Smart Compile (Debug)")
+  "m m t" '(cfg-lang/toggle-build-debug :which-key "Toggle Build Debug"))
 #+end_src
 
 * System Setup

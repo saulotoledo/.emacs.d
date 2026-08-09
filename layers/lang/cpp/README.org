@@ -107,7 +107,30 @@ Otherwise, use our custom configuration string."
   (setf (alist-get 'c++-ts-mode apheleia-mode-alist) 'clang-format-cpp))
 #+end_src
 
+** Make debug overrides
+Registers C/C++ Make flag injection for ~cfg-lang/smart-compile~ debug builds
+(~CFLAGS+=~ / ~CXXFLAGS+=~).
+
+#+begin_src emacs-lisp
+(defun cfg-lang/cpp-debug-make-overrides ()
+  "Return Make variable overrides that force a debuggable C/C++ build."
+  (let ((flags "-g3 -ggdb -O0 -fno-omit-frame-pointer -UNDEBUG"))
+    (format "CFLAGS+='%s' CXXFLAGS+='%s'" flags flags)))
+
+(defun cfg-lang/cpp-enable-debug-make-overrides ()
+  "Enable Make debug overrides in the current C/C++ buffer."
+  (setq-local cfg-lang/debug-make-overrides-function
+              #'cfg-lang/cpp-debug-make-overrides))
+
+(dolist (hook '(c-mode-hook c++-mode-hook c-ts-mode-hook c++-ts-mode-hook))
+  (add-hook hook #'cfg-lang/cpp-enable-debug-make-overrides))
+#+end_src
+
 ** DAP Integration & Smart Debug Launch
+F5 runs ~cfg-lang/smart-compile~ with debug forced (~clean~ + target chain
+~compile~ -> ~build~ -> default + C/C++ ~CFLAGS+=~ / ~CXXFLAGS+=~ overrides),
+then launches GDB. Same path as ~C-<f4>~.
+
 #+begin_src emacs-lisp
 (defvar cfg-lang/dap-compilation-source-buffer nil
   "Global storage for the buffer that started a debug compile.")
@@ -152,7 +175,7 @@ Otherwise, use our custom configuration string."
              cfg-lang/dap-compilation-source-buffer)))
 
 (defun cfg-lang/dap-cpp-launch ()
-  "The entry point: Remember the buffer, then compile."
+  "Compile with debug overrides via smart-compile, then start GDB."
   (interactive)
   (setq cfg-lang/dap-compilation-source-buffer (current-buffer))
   (message "Source buffer saved: %s" (buffer-name cfg-lang/dap-compilation-source-buffer))
