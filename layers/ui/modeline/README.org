@@ -3,17 +3,32 @@
 #+PROPERTY: header-args:emacs-lisp :tangle yes
 
 * Description
-Configures the Emacs mode line layout using doom-modeline, buffer location scroll indicators with mlscroll, and function context tracking via which-func.
+Configures the Emacs mode line layout using doom-modeline, a compact minor-mode
+menu with minions, buffer location scroll indicators with mlscroll, and function
+context tracking via which-func.
 
 * Emacs Configuration
 ** Doom Modeline Configuration
 #+begin_src emacs-lisp
 (use-package doom-modeline
-  :after all-the-icons nerd-icons
+  :demand t
   :init (doom-modeline-mode 1)
   :custom
   (doom-modeline-height 15)
-  (doom-modeline-icon t))
+  (doom-modeline-icon t)
+  (doom-modeline-minor-modes t))
+#+end_src
+
+** Minor Mode Menu
+#+begin_src emacs-lisp
+(use-package minions
+  :after doom-modeline
+  :demand t
+  :custom
+  ;; Keep the Doom Modeline segment to Minions' menu marker only.
+  (minions-prominent-modes nil)
+  :config
+  (minions-mode 1))
 #+end_src
 
 ** Scrollbar on the modeline
