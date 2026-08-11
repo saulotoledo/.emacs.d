@@ -8,43 +8,6 @@ inspection, commit staging, PR/issue management, and real-time ANSI process outp
 Also integrates Git status icons into the Treemacs sidebar via ~treemacs-magit~.
 
 * Emacs Configuration
-** Compat Dependency
-Magit often requires a newer `compat' version, and this might not be built-in
-with the local Emacs version. We declare it explicitly so package.el
-installs/upgrades the real package instead of silently trusting the built-in
-stub version.
-
-#+begin_src emacs-lisp
-(use-package compat)
-#+end_src
-
-** Transient Dependency
-`transient' (Magit's command-dispatch library, also used by =rg= and =npm=) uses
-`compat' macros like `static-when' at byte-compile time. When `compat' is
-upgraded without recompiling `transient' against it, the stale =.elc= leaves an
-unexpanded `static-when' call as a runtime function call, which fails with
-"Invalid function: static-when" the first time `transient' loads -- and can
-leave `transient--init-suffix-key' partially defined, breaking later loads with
-"already defined as something else than a generic function". Declaring
-`transient' explicitly here keeps it a tracked, upgradable package instead of an
-implicit transitive dependency, and `package-recompile` (see below) can be
-re-run whenever `compat' is upgraded.
-
-#+begin_src emacs-lisp
-(use-package transient)
-#+end_src
-
-** Cond-Let Dependency
-Magit often requires an updated `cond-let', but `cond-let' is a plain
-(non-built-in) ELPA package that package.el never auto-upgrades once installed.
-Left implicit, it can sit at whatever old version was first pulled in as a
-transitive dependency. Declaring it explicitly keeps it a tracked, upgradable
-dependency like `compat' and `transient' above.
-
-#+begin_src emacs-lisp
-(use-package cond-let)
-#+end_src
-
 ** Magit Main Setup
 #+begin_src emacs-lisp
 (use-package magit

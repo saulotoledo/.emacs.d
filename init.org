@@ -253,16 +253,18 @@ the distribution]]. However, this configuration retains the traditional bootstra
 steps to preserve compatibility with older Emacs versions.
 
 We also ensure GNU ELPA signing keys stay updated via ~gnu-elpa-keyring-update~
-and allow ~package.el~ to upgrade built-in libraries (like ~transient~ and
-~compat~). Emacs disables the built-in libraries upgrade by default to preserve
-base-system stability, but modern packages frequently require newer versions of
-core dependencies than what Emacs ships with.
+and allow ~package.el~ to upgrade built-in libraries. Emacs disables built-in
+library upgrades by default to preserve base-system stability, but modern
+packages frequently require newer versions of shared dependencies than what
+Emacs ships with. The core package compatibility layer applies the relevant
+minimum versions before the rest of the package configuration is loaded.
 
 #+begin_src emacs-lisp
 (require 'package)
 (setq package-enable-at-startup nil)
 
-;; Allow package.el to upgrade built-in packages (e.g., transient, compat)
+;; Allow package.el to upgrade built-in packages when newer external versions
+;; are required for compatibility with modern packages.
 (setq package-install-upgrade-built-in t)
 
 ;; Configure package directories to use user's elpa directory

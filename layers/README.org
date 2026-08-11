@@ -4,6 +4,7 @@
 * Index
 - Core
   - [[file:core/keys/README.org][keys]]
+  - [[file:core/packages/README.org][packages]]
   - [[file:core/auth/README.org][auth]]
   - [[file:core/editor/README.org][editor]]
   - [[file:core/env/README.org][env]]
