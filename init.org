@@ -183,20 +183,35 @@ unnecessarily slow down startup. The configuration below temporarily:
 - Clears ~file-name-handler-alist~, eliminating file handler checks during
   initialization.
 
-Once Emacs has finished starting, an ~emacs-startup-hook~ restores the original
-~file-name-handler-alist~ and sets ~gc-cons-threshold~ to a reasonable
-post-startup value, balancing performance and memory usage. Finally,
-~inhibit-default-init~ prevents Emacs from loading system-wide default
-initialization files in addition to your own configuration.
+Once Emacs has completed its initial loading phase, the following restoration
+steps occur:
+
+- *Restore File Handlers (after-init-hook)*: The ~file-name-handler-alist~ is
+  restored on ~after-init-hook~. This timing is critical because it executes
+  before command-line files are visited but after your configuration is loaded.
+  If this restoration were delayed until ~emacs-startup-hook~, files passed as
+  arguments (e.g., =emacs foo.gpg=) would open before handlers are re-enabled.
+  Consequently, EasyPG would fail to intercept the =.gpg= extension, leaving the
+  buffer displaying raw ciphertext until manually reverted.
+- *Restore Garbage Collection (~emacs-startup-hook~)*; GC thresholds are reset
+  on ~emacs-startup-hook~. By deferring this until the very end of the startup
+  sequence, Emacs avoids the performance penalty of frequent garbage collection
+  during the intensive loading phase.
+- *Suppress System Defaults (~inhibit-default-init~)*: Setting
+  ~inhibit-default-init~ to non-nil prevents Emacs from loading the system-wide
+  =default.el= library. This ensures that only your personal initialization file
+  is processed, avoiding potential conflicts with site-specific customizations.
 
 #+begin_src emacs-lisp :tangle early-init.el
 (let ((file-name-handler-alist-old file-name-handler-alist))
+  (add-hook 'after-init-hook
+            (lambda ()
+              (setq file-name-handler-alist file-name-handler-alist-old)))
   (add-hook 'emacs-startup-hook
             (lambda ()
               ;; Restore reasonable defaults after startup
               (setq gc-cons-threshold (* 100 1024 1024)) ;; 100 MB
-              (setq gc-cons-percentage 0.1)
-              (setq file-name-handler-alist file-name-handler-alist-old)))
+              (setq gc-cons-percentage 0.1)))
   ;; During startup, minimize overhead
   (setq gc-cons-threshold most-positive-fixnum)
   (setq file-name-handler-alist nil))
