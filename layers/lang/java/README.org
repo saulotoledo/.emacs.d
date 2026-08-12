@@ -10,7 +10,7 @@ and Google Java Format via Apheleia.
 
 * Emacs Configuration
 ** Java Agent Loader (JAL)
-**Java Agent Loader (JAL)** is a utility package I develop and maintain to
+*Java Agent Loader (JAL)* is a utility package I develop and maintain to
 streamline the detection, configuration, and management of Java Agents within
 your Java applications. Java Agents are special components that can instrument
 Java bytecode at runtime, enabling advanced features such as monitoring,
@@ -22,25 +22,25 @@ projects, eliminating the need for manual setup. This ensures your applications
 are always instrumented with the necessary tools for observability, diagnostics,
 or specialized runtime enhancements.
 
-**Common examples of Java Agents include:**
-- **Monitoring tools** (e.g., New Relic, AppDynamics, Java Flight Recorder)
-- **Profilers** (e.g., YourKit, VisualVM)
-- **Code coverage analyzers** (e.g., JaCoCo)
-- **Security and tracing agents** (e.g., OpenTelemetry Java agent, Dynatrace)
+*Common examples of Java Agents include:*
+- *Monitoring tools* (e.g., New Relic, AppDynamics, Java Flight Recorder)
+- *Profilers* (e.g., YourKit, VisualVM)
+- *Code coverage analyzers* (e.g., JaCoCo)
+- *Security and tracing agents* (e.g., OpenTelemetry Java agent, Dynatrace)
 
-In addition to that, while not a traditional Java Agent, **Lombok** is often
-configured in a similar manner, using the `-javaagent` parameter in the JVM
+In addition to that, while not a traditional Java Agent, *Lombok* is often
+configured in a similar manner, using the =-javaagent= parameter in the JVM
 options. This means Lombok is specified on the command line or in IDE
 configurations as if it were a Java agent, even though it acts as an *annotation
 processor* at compile time rather than as a runtime bytecode modifier.
 
-JAL seamlessly integrates with popular build systems such as **Gradle** and
-**Maven**, making agent management part of your standard build pipeline.
-Additionally, it supports Java language servers like **LSP-java** and
-**eglot-java**, ensuring agent configuration works smoothly during development
-for in-editor tooling and code analysis.
+JAL seamlessly integrates with popular build systems such as *Gradle* and
+*Maven*, making agent management part of your standard build pipeline.
+Additionally, it supports Java language servers like *LSP-java* and
+*eglot-java*, ensuring agent configuration works smoothly during development for
+in-editor tooling and code analysis.
 
-JAL must be configured **before** ~lsp-java~.
+JAL must be configured *before* ~lsp-java~.
 
 #+begin_src emacs-lisp
 (use-package jal
@@ -1466,13 +1466,13 @@ registration then routes any =launch= configuration that targets
 
 | Field                 | Purpose                                                          |
 |-----------------------+------------------------------------------------------------------|
-| =dap-compilation=     | **Optional.** Shell command run by dap-mode *before* launching.  |
+| =dap-compilation=     | /Optional./ Shell command run by dap-mode *before* launching.    |
 |                       | If omitted, auto-detected as described above.                    |
-| =dap-compilation-dir= | **Optional.** Directory for =dap-compilation=.                   |
+| =dap-compilation-dir= | /Optional./ Directory for =dap-compilation=.                     |
 |                       | If omitted, defaults to =${workspaceFolder}=.                    |
 
 Fields prefixed with =dap-= (e.g. =dap-compilation=, =dap-compilation-dir=) are
-**optional** Emacs extensions. If omitted, our ~dap-mode~ helpers provide
+/optional/ Emacs extensions. If omitted, our ~dap-mode~ helpers provide
 sensible fallbacks:
 
 - If =dap-compilation= is missing, we will attempt to auto-detect the build tool

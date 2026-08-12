@@ -108,10 +108,10 @@ The ~cfg-tools/eca-install-config~ function syncs =eca-config.json= from your
 Emacs directory to =~/.config/eca/config.json=. It supports overriding the
 =defaultModel= setting via a local variable:
 
-1. **Default model in config**: The =eca-config.json= file has =defaultModel=
-   set to a copilot model by default.
+1. *Default model in config*: The =eca-config.json= file has =defaultModel= set
+   to a copilot model by default.
 
-2. **Local override variable**: You can set ~cfg-tools/eca-default-model~ in
+2. *Local override variable*: You can set ~cfg-tools/eca-default-model~ in
    =local.el= to override the default model for your machine:
 
 #+begin_src emacs-lisp :tangle no
@@ -128,7 +128,7 @@ Emacs directory to =~/.config/eca/config.json=. It supports overriding the
 (setq cfg-tools/eca-default-model "openrouter/openrouter/free")
 #+end_src
 
-3. **Replacement process**: When ~cfg-tools/eca-install-config~ runs:
+3. *Replacement process*: When ~cfg-tools/eca-install-config~ runs:
    - It reads the source =eca-config.json= file
    - If ~cfg-tools/eca-default-model~ is set, it replaces the =defaultModel=
      value in the JSON content before comparing or copying
@@ -136,7 +136,7 @@ Emacs directory to =~/.config/eca/config.json=. It supports overriding the
      so the comparison uses the processed content
    - The processed content is then written to =~/.config/eca/config.json=
 
-4. **Benefits**: This allows you to:
+4. *Benefits*: This allows you to:
    - Keep ="copilot"= as the default in version control
    - Override it per-machine via =local.el= (which is typically not versioned)
    - Have different models on different machines without conflicts

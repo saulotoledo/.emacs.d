@@ -22,15 +22,15 @@ indents according to the source block's language mode.
 
 The following languages are configured with their respective formatters:
 
-- **Emacs Lisp** (~emacs-lisp-mode~, ~lisp-interaction-mode~) -> Built-in
+- *Emacs Lisp* (~emacs-lisp-mode~, ~lisp-interaction-mode~) -> Built-in
   ~lisp-indent~
-- **JavaScript** (~js-mode~, ~js-ts-mode~) -> Prettier (local installation)
-- **TypeScript** (~typescript-mode~, ~typescript-ts-mode~, ~tsx-ts-mode~) ->
+- *JavaScript* (~js-mode~, ~js-ts-mode~) -> Prettier (local installation)
+- *TypeScript* (~typescript-mode~, ~typescript-ts-mode~, ~tsx-ts-mode~) ->
   Prettier (local installation)
-- **Python** (~python-mode~, ~python-ts-mode~) -> Prettier with
+- *Python* (~python-mode~, ~python-ts-mode~) -> Prettier with
   =@prettier/plugin-python=
-- **JSON** (~json-mode~, ~json-ts-mode~) -> Prettier (local installation)
-- **Web/HTML** (~web-mode~) -> Prettier (local installation)
+- *JSON* (~json-mode~, ~json-ts-mode~) -> Prettier (local installation)
+- *Web/HTML* (~web-mode~) -> Prettier (local installation)
 
 Note: Prettier is installed locally in =~/.emacs.d/nodejs_tools/= with the
 Python plugin.

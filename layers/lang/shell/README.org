@@ -9,12 +9,12 @@ with ~lsp-mode~ and ~bash-language-server~ for IDE-grade features including
 real-time diagnostics, code navigation, and context-aware completion.
 
 Key capabilities:
-- **Corfu & CAPF Integration**: Asynchronous completion via Emacs' standard
+- *Corfu & CAPF Integration*: Asynchronous completion via Emacs' standard
   Completion-At-Point Function (CAPF) interface, powered by Corfu for a
   responsive, non-blocking workflow.
-- **Static Analysis**: Integrated linting via =shellcheck= to catch syntax
-  errors, portability issues, and common logic bugs early.
-- **Interactive Shell Completion**: Enhanced command-line completion in
+- *Static Analysis*: Integrated linting via =shellcheck= to catch syntax errors,
+  portability issues, and common logic bugs early.
+- *Interactive Shell Completion*: Enhanced command-line completion in
   ~shell-mode~ buffers using ~bash-completion~.
 
 * Emacs Configuration

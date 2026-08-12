@@ -11,10 +11,14 @@ Server wrapper) via ~lsp-mode~, ~dap-js~ for debugging, ~npm-el~ for package
 management, and ~nodejs-repl~.
 
 Key features:
-- **Package Manager Detection**: Automatic detection of =npm=, =yarn=, or =pnpm= via project lockfiles.
-- **vtsls LSP Integration**: Uses =@vtsls/language-server= for high-fidelity VS Code parity, supporting workspace TSDK auto-detection and snippet completions.
-- **DAP Debugging**: Integrated Node.js debugging via ~dap-js~ with auto-patching for process environment inheritance and terminal attaching.
-- **Linting & Execution**: Dynamic ESLint invocation via Flycheck and Transient menu interface via ~npm.el~.
+- *Package Manager Detection*: Automatic detection of =npm=, =yarn=, or =pnpm=
+  via project lockfiles.
+- *vtsls LSP Integration*: Uses =@vtsls/language-server= for high-fidelity VS
+  Code parity, supporting workspace TSDK auto-detection and snippet completions.
+- *DAP Debugging*: Integrated Node.js debugging via ~dap-js~ with auto-patching
+  for process environment inheritance and terminal attaching.
+- *Linting & Execution*: Dynamic ESLint invocation via Flycheck and Transient
+  menu interface via ~npm.el~.
 
 * Emacs Configuration
 ** Package Manager & Flycheck Helpers
