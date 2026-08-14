@@ -1,36 +1,36 @@
-#+TITLE: Treesitter Layer
+#+TITLE: Treesit Layer
 #+CATEGORY: lang
 #+PROPERTY: header-args:emacs-lisp :tangle yes
 
 * Description
-Provides automatic Tree-sitter grammar management and code folding for all
-programming languages. Uses treesit-auto to transparently redirect major modes
-to their tree-sitter (-ts-mode) counterparts, and treesit-fold for
-syntax-aware code folding with fringe indicators.
+Provides automatic Emacs treesit grammar management and code folding for
+programming languages. Uses treesit-auto to redirect major modes to their
+Tree-sitter-backed (-ts-mode) counterparts, and treesit-fold for syntax-aware
+code folding with fringe indicators.
 
 * Emacs Configuration
 ** treesit-auto: Automatic Grammar Management
-Treesit is a modern incremental parsing library that provides fast,
-accurate syntax trees for programming languages. Originally known
-as ~tree-sitter~, it was included into Emacs 29+ as a built-in
-functonality and known as ~treesit~, which provides ~*-ts-mode~
-modes with excellent syntax highlighting and structural editing.
+Emacs' built-in ~treesit~ API integrates the Tree-sitter parser runtime and
+language grammars. Emacs 29+ provides ~treesit~ and the corresponding
+~*-ts-mode~ modes for fast syntax highlighting and structural editing;
+~treesit-auto~ manages their mode remapping and grammar installation.
 
-Remember to upgrade the versions when possible. New versions might
-not be compatible with your current Emacs build.
+Remember to upgrade the versions when possible. New versions might not be
+compatible with your current Emacs build.
 
 #+begin_src emacs-lisp
 (use-package treesit-auto
   :pin "MELPA Unstable"
   :config
-  (global-treesit-auto-mode)
-  (treesit-auto-add-to-auto-mode-alist 'all)
+  (setq treesit-auto-langs
+        '(xml yaml typescript tsx javascript python java bash json c cpp)
+        treesit-auto-install t)
 
-  ;; Preferred grammar sources (pinned versions for reproducibility)
+  ;; Explicitly pinned sources. Languages not listed here use the
+  ;; corresponding treesit-auto recipe, which selects an ABI-compatible
+  ;; revision when one is available.
   (add-to-list 'treesit-language-source-alist
-               '(xml "https://github.com/tree-sitter-grammars/tree-sitter-xml" "master" "xml/src"))
-  (add-to-list 'treesit-language-source-alist
-               '(yaml "https://github.com/ikatyang/tree-sitter-yaml"))
+               '(xml "https://github.com/tree-sitter-grammars/tree-sitter-xml" "v0.7.0" "xml/src"))
   (add-to-list 'treesit-language-source-alist
                '(typescript "https://github.com/tree-sitter/tree-sitter-typescript" "v0.23.2" "typescript/src"))
   (add-to-list 'treesit-language-source-alist
@@ -42,20 +42,22 @@ not be compatible with your current Emacs build.
   (add-to-list 'treesit-language-source-alist
                '(java "https://github.com/tree-sitter/tree-sitter-java" "v0.23.5" "src"))
   (add-to-list 'treesit-language-source-alist
-               '(bash "https://github.com/tree-sitter/tree-sitter-bash"))
+               '(c "https://github.com/tree-sitter/tree-sitter-c" "v0.23.6" "src"))
   (add-to-list 'treesit-language-source-alist
-               '(json "https://github.com/tree-sitter/tree-sitter-json"))
-  (add-to-list 'treesit-language-source-alist
-               '(c "https://github.com/tree-sitter/tree-sitter-c"))
-  (add-to-list 'treesit-language-source-alist
-               '(cpp "https://github.com/tree-sitter/tree-sitter-cpp")))
+               '(cpp "https://github.com/tree-sitter/tree-sitter-cpp" "v0.23.4" "src"))
+
+  ;; Install the managed set before calculating mode remappings. With
+  ;; `treesit-auto-install' non-nil this is unattended for these languages.
+  (treesit-auto-install-all)
+  (treesit-auto-add-to-auto-mode-alist treesit-auto-langs)
+  (global-treesit-auto-mode))
 #+end_src
 
 ** treesit-fold: Syntax-Aware Code Folding
-~treesit-fold~ is a syntax-aware folding engine built for the Treesit system
-in Emacs 29+. Unlike traditional folding that relies on indentation "guessing,"
-it uses a concrete parser to identify the precise boundaries of YAML blocks,
-maps, and lists. This allows for lightning-fast, reliable collapsing of massive
+~treesit-fold~ is a syntax-aware folding engine built for the Treesit system in
+Emacs 29+. Unlike traditional folding that relies on indentation "guessing," it
+uses a concrete parser to identify the precise boundaries of YAML blocks, maps,
+and lists. This allows for lightning-fast, reliable collapsing of massive
 datasets, often enhanced by visual indicators in the margin that let you
 navigate complex hierarchies with the same ease as an Org-mode document.
 

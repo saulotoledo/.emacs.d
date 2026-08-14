@@ -50,7 +50,7 @@
   - [[file:lang/shell/README.org][shell]]
   - [[file:lang/sql/README.org][sql]]
   - [[file:lang/terraform/README.org][terraform]]
-  - [[file:lang/treesitter/README.org][treesitter]]
+  - [[file:lang/treesit/README.org][treesit]]
   - [[file:lang/web/README.org][web]]
   - [[file:lang/xml/README.org][xml]]
   - [[file:lang/yaml/README.org][yaml]]

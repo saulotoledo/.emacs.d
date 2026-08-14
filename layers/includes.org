@@ -42,7 +42,7 @@
 #+INCLUDE: "lang/shell/README.org"
 #+INCLUDE: "lang/sql/README.org"
 #+INCLUDE: "lang/terraform/README.org"
-#+INCLUDE: "lang/treesitter/README.org"
+#+INCLUDE: "lang/treesit/README.org"
 #+INCLUDE: "lang/web/README.org"
 #+INCLUDE: "lang/xml/README.org"
 #+INCLUDE: "lang/yaml/README.org"
