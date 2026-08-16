@@ -42,7 +42,7 @@ annotations using blamer.el.
   "g"     '(:ignore t :which-key "git")
   "g b"   '(:ignore t :which-key "blamer")
   "g b i" '(blamer-show-commit-info :which-key "Show Commit Info")
-  "g b i" '(blamer-show-posframe-commit-info :which-key "Show Commit Info in Posframe")
+  "g b I" '(blamer-show-posframe-commit-info :which-key "Show Commit Info in Posframe")
   "t"     '(:ignore t :which-key "toggles")
   "t b"   '(cfg-vc/toggle-blamer :which-key "Blamer Inline Annotations"))
 #+end_src
