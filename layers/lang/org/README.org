@@ -133,8 +133,8 @@ conflicting with ~org-adapt-indentation~.
 #+end_src
 
 * Keybindings
-Registers keybindings for table of contents and structure editing in
-Org buffers.
+Registers keybindings for table of contents in Org buffers. Visual-indent toggle
+is Org-only via ~cfg-keys/mode-leader-def~.
 
 #+begin_src emacs-lisp
 ;; Leader keybindings under +lang/code -> +org
@@ -142,6 +142,10 @@ Org buffers.
   "L"     '(:ignore t :which-key "lang/code")
   "L o"   '(:ignore t :which-key "org")
   "L o t" #'toc-org-insert-toc)
+
+(cfg-keys/mode-leader-def org-mode
+  "t"   '(:ignore t :which-key "toggles")
+  "t i" '(org-indent-mode :which-key "Org Visual Indent"))
 #+end_src
 
 * System Setup
