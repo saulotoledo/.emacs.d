@@ -221,9 +221,11 @@ Warn only when shadowing a different command."
          (gcmd (and g (not (numberp g)) (not (cfg-keys--unwrap-keymap g)) g)))
     (pcase spec
       (`(:prefix ,label)
-       (let ((km (make-sparse-keymap))
-             (gkm (cfg-keys--unwrap-keymap g)))
-         (when gkm (set-keymap-parent km gkm))
+       (let* ((existing (cfg-keys--unwrap-keymap (lookup-key leader (kbd key))))
+              (km (or existing (make-sparse-keymap)))
+              (gkm (cfg-keys--unwrap-keymap g)))
+         (unless existing
+           (when gkm (set-keymap-parent km gkm)))
          (cfg-keys--mode-bind leader key (cons label km))))
       ((and `(,label . ,cmd) (guard (stringp label)))
        (when (and gcmd (not (eq gcmd cmd)))
