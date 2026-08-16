@@ -175,7 +175,7 @@ With DEBUG-P (C-u or `cfg-lang/smart-compile-debug'): force debug prep --
 (define-key cfg-keys-map (kbd "S-<f4>") #'cfg-lang/toggle-build-debug)
 (define-key cfg-keys-map (kbd "M-<f4>") #'compile)
 
-(cfg-keys/leader-def
+(cfg-keys/mode-leader-def (makefile-mode makefile-gmake-mode)
   "m"     '(:ignore t :which-key "major-mode")
   "m m"   '(:ignore t :which-key "make")
   "m m e" '(cfg-lang/makefile-executor-smart-run :which-key "Run Target (Executor)")

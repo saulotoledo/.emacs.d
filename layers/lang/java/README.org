@@ -1982,12 +1982,13 @@ to update package declarations and references before the directory moves."
 
   (define-key lsp-command-map (kbd "j p") #'cfg-lang/lsp-java-move-package))
 
-(cfg-keys/leader-def
+(cfg-keys/mode-leader-def (java-mode java-ts-mode)
   "L"     '(:ignore t :which-key "lang/code")
   "L j"   '(:ignore t :which-key "java")
-  "L j v" '(cfg-lang/java-switch-version :which-key "Switch Java Version")
   "L j c" '(cfg-lang/clean-jdtls-full :which-key "Clean JDTLS Cache")
-  "L j d" '(cfg-lang/dap-java--start-debug :which-key "Debug Java Program"))
+  "L j d" '(cfg-lang/dap-java--start-debug :which-key "Debug Java Program")
+  "L j v" '(cfg-lang/java-switch-version :which-key "Switch Java Version")
+  "L j p" '(cfg-lang/lsp-java-move-package :which-key "Move Package"))
 #+end_src
 
 * System Setup

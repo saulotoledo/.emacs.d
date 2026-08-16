@@ -319,7 +319,7 @@ pwa-node launch for the current file otherwise."
 
 * Keybindings
 #+begin_src emacs-lisp
-(cfg-keys/leader-def
+(cfg-keys/mode-leader-def (js-ts-mode tsx-ts-mode typescript-ts-mode)
   "L"     '(:ignore t :which-key "lang/code")
   "L J"   '(:ignore t :which-key "javascript")
   "L J n" '(npm :which-key "NPM Menu")

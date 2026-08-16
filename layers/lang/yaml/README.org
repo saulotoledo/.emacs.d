@@ -78,18 +78,14 @@ to manipulate safely.
 Registers keybindings for YAML structural navigation and features.
 
 #+begin_src emacs-lisp
-;; Mode-specific bindings inside yaml-pro buffers
-(with-eval-after-load 'yaml-pro
-  (define-key yaml-pro-mode-map (kbd "C-c v k") #'yaml-pro-move-up)
-  (define-key yaml-pro-mode-map (kbd "C-c v j") #'yaml-pro-move-down)
-  (define-key yaml-pro-mode-map (kbd "C-c v h") #'yaml-pro-up-level)
-  (define-key yaml-pro-mode-map (kbd "C-c v l") #'yaml-pro-down-level)
-  (define-key yaml-pro-mode-map (kbd "C-c v c") #'yaml-pro-convolute-tree)
-  (define-key yaml-pro-mode-map (kbd "C-c v a") #'cfg-lang/yaml-pro-toggle-anchors)
-  (define-key yaml-pro-mode-map (kbd "C-c v t") #'cfg-lang/yaml-pro-toggle-tags))
-
-;; Static Leader Keybindings under +lang/code -> +yaml
-(cfg-keys/leader-def
+(cfg-keys/mode-leader-def yaml-pro-mode
+  "v k"   #'yaml-pro-move-up
+  "v j"   #'yaml-pro-move-down
+  "v h"   #'yaml-pro-up-level
+  "v l"   #'yaml-pro-down-level
+  "v c"   #'yaml-pro-convolute-tree
+  "v a"   #'cfg-lang/yaml-pro-toggle-anchors
+  "v t"   #'cfg-lang/yaml-pro-toggle-tags
   "L"     '(:ignore t :which-key "lang/code")
   "L y"   '(:ignore t :which-key "yaml")
   ;; Structural Movement

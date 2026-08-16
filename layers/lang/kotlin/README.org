@@ -4,7 +4,8 @@
 #+PROPERTY: header-args:sh :tangle setup.sh
 
 * Description
-Provides IDE capabilities for Kotlin development using Kotlin Language Server (KLS) and ~kotlin-mode~ with ~dap-mode~ integration.
+Provides IDE capabilities for Kotlin development using Kotlin Language Server
+(KLS) and ~kotlin-mode~ with ~dap-mode~ integration.
 
 * Emacs Configuration
 ** Kotlin Mode Configuration
@@ -39,7 +40,7 @@ Provides IDE capabilities for Kotlin development using Kotlin Language Server (K
 
 * Keybindings
 #+begin_src emacs-lisp
-(cfg-keys/leader-def
+(cfg-keys/mode-leader-def (kotlin-mode kotlin-ts-mode)
   "L"     '(:ignore t :which-key "lang/code")
   "L k"   '(:ignore t :which-key "kotlin")
   "L k d" '(dap-debug :which-key "Debug Kotlin"))

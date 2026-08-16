@@ -19,13 +19,14 @@ shell interpreter and resolves syntax/sexp navigation issues in Python mode.
   :ensure nil ; built-in
   :custom
   (python-shell-interpreter "python3.12")
-  :hook (python-mode . cfg-lang/python-mode-setup))
+  :hook ((python-mode . cfg-lang/python-mode-setup)
+         (python-ts-mode . cfg-lang/python-mode-setup)))
 #+end_src
 
 * Keybindings
 #+begin_src emacs-lisp
 ;; Leader bindings for Python environment
-(cfg-keys/leader-def
+(cfg-keys/mode-leader-def (python-mode python-ts-mode)
   "L"     '(:ignore t :which-key "lang/code")
   "L p"   '(:ignore t :which-key "python")
   "L p r" '(run-python :which-key "Start REPL"))

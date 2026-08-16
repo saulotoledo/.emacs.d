@@ -61,7 +61,7 @@ The server is installed via =nodejs_tools= and pointed to via
 (declare-function web-mode-element-highlight-min "web-mode")
 (declare-function web-mode-element-rename "web-mode")
 
-(cfg-keys/leader-def
+(cfg-keys/mode-leader-def web-mode
   "m"     '(:ignore t :which-key "major-mode")
   "m w"   '(:ignore t :which-key "web")
   "m w h" '(web-mode-element-highlight-min :which-key "Highlight Element")

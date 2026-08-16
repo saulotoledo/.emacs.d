@@ -31,7 +31,8 @@ Preview), mdopen or go-grip.
 #+begin_src emacs-lisp
 (with-eval-after-load 'markdown-mode
   (define-key markdown-mode-command-map (kbd "g") #'grip-mode))
-(cfg-keys/leader-def
+
+(cfg-keys/mode-leader-def markdown-mode
   "L"     '(:ignore t :which-key "lang/code")
   "L m"   '(:ignore t :which-key "markdown")
   "L m g" #'grip-mode)

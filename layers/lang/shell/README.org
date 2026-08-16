@@ -38,7 +38,7 @@ Key capabilities:
 * Keybindings
 #+begin_src emacs-lisp
 ;; Major mode leader bindings for Shell scripts
-(cfg-keys/leader-def
+(cfg-keys/mode-leader-def (sh-mode shell-mode)
   "m"   '(:ignore t :which-key "major-mode")
   "m c" '(bash-completion-mode :which-key "Toggle Bash Completion"))
 #+end_src

@@ -46,13 +46,8 @@ Registers keybindings for previewing and editing diagrams.
 
 #+begin_src emacs-lisp
 (declare-function plantuml-preview "plantuml-mode")
-
-;; Mode-specific shortcuts for PlantUML buffers
-(with-eval-after-load 'plantuml-mode
-  (define-key plantuml-mode-map (kbd "C-c C-c") #'plantuml-preview))
-
-;; Leader keybindings under +lang/code -> +diagrams
-(cfg-keys/leader-def
+(cfg-keys/mode-leader-def plantuml-mode
+  "C-c"   #'plantuml-preview
   "L"     '(:ignore t :which-key "lang/code")
   "L d"   '(:ignore t :which-key "diagrams")
   "L d p" #'plantuml-preview)

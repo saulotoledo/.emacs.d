@@ -138,14 +138,12 @@ is Org-only via ~cfg-keys/mode-leader-def~.
 
 #+begin_src emacs-lisp
 ;; Leader keybindings under +lang/code -> +org
-(cfg-keys/leader-def
+(cfg-keys/mode-leader-def org-mode
   "L"     '(:ignore t :which-key "lang/code")
   "L o"   '(:ignore t :which-key "org")
-  "L o t" #'toc-org-insert-toc)
-
-(cfg-keys/mode-leader-def org-mode
-  "t"   '(:ignore t :which-key "toggles")
-  "t i" '(org-indent-mode :which-key "Org Visual Indent"))
+  "L o t" #'toc-org-insert-toc
+  "t"     '(:ignore t :which-key "toggles")
+  "t i"   '(org-indent-mode :which-key "Org Visual Indent"))
 #+end_src
 
 * System Setup

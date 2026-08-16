@@ -20,7 +20,7 @@ managing Infrastructure as Code (IaC).
 * Keybindings
 #+begin_src emacs-lisp
 (declare-function terraform-format-buffer "terraform-mode")
-(cfg-keys/leader-def
+(cfg-keys/mode-leader-def terraform-mode
   "m"   '(:ignore t :which-key "major-mode")
   "m f" '(terraform-format-buffer :which-key "Format Buffer"))
 #+end_src
