@@ -135,6 +135,160 @@ Detects conflicts dynamically via `cfg-keys--bind-prefix-label',
           `(cfg-keys--bind-plain ,key ,fn))))))
 #+end_src
 
+** Mode-local Leader Definition
+Define mode-specific leader bindings using the same syntax and interface as
+~cfg-keys/leader-def~.
+
+Registers bindings to a buffer-local leader keymap constructed on ~MODE-hook~.
+This mode-specific map automatically inherits from the global leader keymap,
+mirroring its global prefix structures.
+
+- *Global Access*: Keeps global leader bindings accessible alongside
+  mode-specific ones.
+- *Robust Mapping*: Rebuilds fresh maps on hook execution to prevent stale
+  parent references or cyclic inheritance.
+- *Override Protection*: Emits a warning whenever a mode-specific binding
+  overrides a global command.
+
+#+begin_src emacs-lisp
+(defvar cfg-keys--mode-bindings (make-hash-table :test #'eq)
+  "MODE -> list of (KEY . SPEC) for `cfg-keys/mode-leader-def'.
+SPEC is (:prefix LABEL), (LABEL . COMMAND), or COMMAND.")
+
+(defvar cfg-keys--mode-hooks-installed (make-hash-table :test #'eq)
+  "Modes that already have a mode-leader install hook.")
+
+(defun cfg-keys--unwrap-keymap (def)
+  "Return keymap from DEF, unwrapping which-key `(LABEL . KEYMAP)' conses."
+  (cond ((keymapp def) def)
+        ((and (consp def) (stringp (car def)) (keymapp (cdr def))) (cdr def))))
+
+(defun cfg-keys--map-own (map event)
+  "Return MAP's own binding for EVENT (ignore parent)."
+  (let ((raw (assq event (cdr map))))
+    (and raw (if (stringp (cadr raw)) (cddr raw) (cdr raw)))))
+
+(defun cfg-keys--mode-bind (leader key def)
+  "Bind KEY to DEF on LEADER without mutating parent keymaps.
+Creates local prefix maps parented to the matching global prefixes."
+  (let* ((keyseq (kbd key))
+         (n (length keyseq))
+         (map leader)
+         (prefix []))
+    (dotimes (i n)
+      (let* ((event (aref keyseq i))
+             (last (= i (1- n)))
+             (own (cfg-keys--unwrap-keymap (cfg-keys--map-own map event))))
+        (setq prefix (vconcat prefix (vector event)))
+        (cond
+         (last (define-key map (vector event) def))
+         ((keymapp own) (setq map own))
+         (t
+          (let* ((g (cfg-keys--unwrap-keymap
+                     (lookup-key cfg-keys-leader-map prefix)))
+                 (raw (cfg-keys--raw-binding
+                       cfg-keys-leader-map (key-description prefix)))
+                 (label (and raw (stringp (cadr raw)) (cadr raw)))
+                 (km (make-sparse-keymap)))
+            (when g (set-keymap-parent km g))
+            (define-key map (vector event) (if label (cons label km) km))
+            (setq map km))))))))
+
+(defun cfg-keys--mode-register (mode key spec)
+  "Record SPEC for KEY under MODE. Skip duplicate mode keys."
+  (let* ((entries (gethash mode cfg-keys--mode-bindings))
+         (existing (alist-get key entries nil nil #'equal)))
+    (if existing
+        (cfg-keys--log-conflict key existing spec)
+      (puthash mode (cons (cons key spec) entries) cfg-keys--mode-bindings))))
+
+(defun cfg-keys--mode-apply (leader mode key spec)
+  "Apply SPEC for KEY onto LEADER under MODE.
+Warn only when shadowing a different command."
+  (let* ((g (lookup-key cfg-keys-leader-map (kbd key)))
+         (gcmd (and g (not (numberp g)) (not (cfg-keys--unwrap-keymap g)) g)))
+    (pcase spec
+      (`(:prefix ,label)
+       (let ((km (make-sparse-keymap))
+             (gkm (cfg-keys--unwrap-keymap g)))
+         (when gkm (set-keymap-parent km gkm))
+         (cfg-keys--mode-bind leader key (cons label km))))
+      ((and `(,label . ,cmd) (guard (stringp label)))
+       (when (and gcmd (not (eq gcmd cmd)))
+         (message "[cfg-keys] Mode `%s' overrides global \"%s\" (`%s' -> `%s')."
+                  mode key gcmd cmd))
+       (cfg-keys--mode-bind leader key (cons label cmd)))
+      (cmd
+       (when (and gcmd (not (eq gcmd cmd)))
+         (message "[cfg-keys] Mode `%s' overrides global \"%s\" (`%s' -> `%s')."
+                  mode key gcmd cmd))
+       (cfg-keys--mode-bind leader key cmd)))))
+
+(defun cfg-keys--leader-keyseqs ()
+  "Return key sequences on `cfg-keys-map' bound to `cfg-keys-leader-map'."
+  (let (keys)
+    (map-keymap-internal
+     (lambda (event def)
+       (when (eq def 'cfg-keys-leader-map)
+         (push (vector event) keys)))
+     cfg-keys-map)
+    keys))
+
+(defun cfg-keys--install-mode-leader (mode)
+  "Activate MODE's leader bindings in the current buffer."
+  (let* ((leader (make-sparse-keymap))
+         (map (make-sparse-keymap))
+         (leader-keys (cfg-keys--leader-keyseqs)))
+    (unless leader-keys
+      (error "[cfg-keys] No leader key bound to `cfg-keys-leader-map' on `cfg-keys-map'"))
+    (set-keymap-parent leader cfg-keys-leader-map)
+    (dolist (entry (reverse (gethash mode cfg-keys--mode-bindings)))
+      (cfg-keys--mode-apply leader mode (car entry) (cdr entry)))
+    (set-keymap-parent map cfg-keys-map)
+    (dolist (key leader-keys)
+      (define-key map key leader))
+    (setq-local minor-mode-overriding-map-alist
+                (cons (cons 'cfg-keys-mode map)
+                      (assq-delete-all
+                       'cfg-keys-mode
+                       (copy-sequence
+                        (or minor-mode-overriding-map-alist
+                            (default-value 'minor-mode-overriding-map-alist)
+                            '())))))))
+
+(defun cfg-keys--ensure-mode-hook (mode)
+  "Add a one-shot `MODE-hook' for MODE to install mode-local leader bindings."
+  (unless (gethash mode cfg-keys--mode-hooks-installed)
+    (add-hook (intern (format "%s-hook" mode))
+              (lambda () (cfg-keys--install-mode-leader mode)))
+    (puthash mode t cfg-keys--mode-hooks-installed)))
+
+(defmacro cfg-keys/mode-leader-def (mode &rest keybinds)
+  "Like `cfg-keys/leader-def', but KEYBINDS apply only in MODE buffers."
+  (declare (indent 1))
+  `(progn
+     (cfg-keys--ensure-mode-hook ',mode)
+     ,@(cl-loop
+        for (key fn) on keybinds by #'cddr
+        for form = (if (eq (car-safe fn) 'quote) (cadr fn) fn)
+        for ignore-label = (and (eq (car-safe form) :ignore)
+                                (plist-get form :which-key))
+        for cmd-label = (and (consp form)
+                              (not (eq (car form) :ignore))
+                              (not (eq (car form) 'function))
+                              (not (eq (car form) 'lambda))
+                              (plist-get (cdr form) :which-key))
+        collect
+        (cond
+         (ignore-label
+          `(cfg-keys--mode-register ',mode ,key (list :prefix ,ignore-label)))
+         (cmd-label
+          `(cfg-keys--mode-register ',mode ,key
+                                    (cons ,cmd-label #',(car form))))
+         (t
+          `(cfg-keys--mode-register ',mode ,key ,fn))))))
+#+end_src
+
 ** Keybindings Tree Printer
 Renders all bindings under ~cfg-keys-leader-map~ as a tree in a dedicated
 buffer, so the full ~C-c~ leader map can be inspected at a glance instead of
