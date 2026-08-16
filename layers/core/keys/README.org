@@ -311,6 +311,11 @@ Renders all bindings under ~cfg-keys-leader-map~ as a tree in a dedicated
 buffer, so the full ~C-c~ leader map can be inspected at a glance instead of
 navigating ~which-key~ one level at a time.
 
+Always appends a second section for mode-local leader keys registered via
+~cfg-keys/mode-leader-def~ (from ~cfg-keys--mode-bindings~). Those are listed
+per major mode, using the same tree layout as the global map, without inheriting
+global prefix contents.
+
 #+begin_src emacs-lisp
 (defun cfg-keys--unwrap-def (def)
   "Extract (REAL-DEF . LABEL) from DEF.
@@ -380,6 +385,93 @@ If IS-LAST is non-nil, use a corner leaf connector."
                               (cfg-keys--format-tree-line key-str target depth is-last))))))))))
     output))
 
+(defun cfg-keys--leader-map-parts (leader-map)
+  "Return (DIRECT-BINDINGS . PREFIX-GROUPS) from LEADER-MAP.
+DIRECT-BINDINGS is a sorted alist of (KEY-STRING . TARGET-STRING).
+PREFIX-GROUPS is a sorted list of (KEY-STRING KEYMAP LABEL)."
+  (let ((direct-bindings '())
+        (prefix-groups '()))
+    (when (keymapp leader-map)
+      (map-keymap
+       (lambda (event def)
+         (let* ((key-str (single-key-description event))
+                (unwrapped (cfg-keys--unwrap-def def))
+                (real-def (car unwrapped))
+                (label (cdr unwrapped)))
+           (if (keymapp real-def)
+               (push (list key-str real-def label) prefix-groups)
+             (push (cons key-str (cfg-keys--format-target-string real-def label))
+                   direct-bindings))))
+       leader-map))
+    (cons (sort direct-bindings (lambda (a b) (string< (car a) (car b))))
+          (sort prefix-groups (lambda (a b) (string< (car a) (car b)))))))
+
+(defun cfg-keys--insert-leader-parts (direct-bindings prefix-groups)
+  "Insert DIRECT-BINDINGS then PREFIX-GROUPS into the current buffer."
+  (when direct-bindings
+    (insert "Direct Leader Shortcuts:\n")
+    (insert (make-string 30 ?-) "\n")
+    (dolist (b direct-bindings)
+      (insert (format "  C-c %-10s ->  %s\n" (car b) (cdr b))))
+    (insert "\n"))
+  (when prefix-groups
+    (insert "Prefix Groups:\n")
+    (insert (make-string 30 ?-) "\n")
+    (dolist (group prefix-groups)
+      (let* ((key-str (nth 0 group))
+             (km (nth 1 group))
+             (label (nth 2 group))
+             (full-prefix (concat "C-c " key-str)))
+        (insert (format "\n[%s] (%s)\n" (or label "Prefix") full-prefix))
+        (insert (make-string 45 ?-) "\n")
+        (insert (cfg-keys--render-prefix-tree km key-str 0))))))
+
+(defun cfg-keys--mode-leader-keymap (mode)
+  "Build a keymap of MODE's `cfg-keys/mode-leader-def' bindings only.
+Does not parent prefix maps to the global leader, so the printer does not
+mix in global keys."
+  (let ((leader (make-sparse-keymap)))
+    (dolist (entry (reverse (gethash mode cfg-keys--mode-bindings)))
+      (let ((key (car entry))
+            (spec (cdr entry)))
+        (pcase spec
+          (`(:prefix ,label)
+           (let* ((existing (lookup-key leader (kbd key)))
+                  (km (or (cfg-keys--unwrap-keymap existing)
+                          (make-sparse-keymap))))
+             (define-key leader (kbd key) (cons label km))))
+          ((and `(,label . ,cmd) (guard (stringp label)))
+           (define-key leader (kbd key) (cons label cmd)))
+          (cmd
+           (define-key leader (kbd key) cmd)))))
+    leader))
+
+(defun cfg-keys--sorted-mode-leader-modes ()
+  "Return major modes that have `cfg-keys/mode-leader-def' bindings, sorted."
+  (let (modes)
+    (maphash (lambda (mode _bindings) (push mode modes))
+             cfg-keys--mode-bindings)
+    (sort modes (lambda (a b) (string< (symbol-name a) (symbol-name b))))))
+
+(defun cfg-keys--insert-mode-leader-section ()
+  "Insert per-mode leader trees from `cfg-keys--mode-bindings'."
+  (insert "\n\nMode-specific Leader Bindings (`cfg-keys/mode-leader-def`):\n")
+  (insert (make-string 65 ?=) "\n")
+  (let ((modes (cfg-keys--sorted-mode-leader-modes)))
+    (if (null modes)
+        (insert "\n  No mode-specific leader bindings registered.\n")
+      (dolist (mode modes)
+        (let* ((name (symbol-name mode))
+               (parts (cfg-keys--leader-map-parts
+                       (cfg-keys--mode-leader-keymap mode)))
+               (direct (car parts))
+               (prefixes (cdr parts)))
+          (insert (format "\n=%s=\n" name))
+          (insert (make-string (max 30 (length name)) ?=) "\n\n")
+          (if (and (null direct) (null prefixes))
+              (insert "  No bindings.\n")
+            (cfg-keys--insert-leader-parts direct prefixes)))))))
+
 (defun cfg-keys--collect-non-leader-bindings ()
   "Collect bindings in `cfg-keys-map` other than the leader prefix.
 Returns a sorted alist of (KEY-STRING . TARGET-STRING)."
@@ -398,32 +490,17 @@ Returns a sorted alist of (KEY-STRING . TARGET-STRING)."
 
 (defun cfg-keys/print-tree (&optional show-all)
   "Print custom leader keybindings (`cfg-keys-leader-map') formatted as a tree.
+Always includes mode-local leader keys from `cfg-keys/mode-leader-def'.
 With prefix argument SHOW-ALL (\\[universal-argument]), also prints non-leader
 bindings in `cfg-keys-map` at the bottom."
   (interactive "P")
   (let ((buf (get-buffer-create "*CFG Keybindings Tree*"))
         (leader-map (and (boundp 'cfg-keys-leader-map)
                          (symbol-value 'cfg-keys-leader-map)))
-        (other-bindings (when show-all (cfg-keys--collect-non-leader-bindings)))
-        (direct-bindings '())
-        (prefix-groups '()))
+        (other-bindings (when show-all (cfg-keys--collect-non-leader-bindings))))
 
     (unless (keymapp leader-map)
       (error "`cfg-keys-leader-map` is not defined or valid"))
-
-    (map-keymap
-     (lambda (event def)
-       (let* ((key-str (single-key-description event))
-              (unwrapped (cfg-keys--unwrap-def def))
-              (real-def (car unwrapped))
-              (label (cdr unwrapped)))
-         (if (keymapp real-def)
-             (push (list key-str real-def label) prefix-groups)
-           (push (cons key-str (cfg-keys--format-target-string real-def label)) direct-bindings))))
-     leader-map)
-
-    (setq direct-bindings (sort direct-bindings (lambda (a b) (string< (car a) (car b)))))
-    (setq prefix-groups (sort prefix-groups (lambda (a b) (string< (car a) (car b)))))
 
     (with-current-buffer buf
       (read-only-mode -1)
@@ -432,24 +509,10 @@ bindings in `cfg-keys-map` at the bottom."
       (insert "Custom Leader Keybindings Tree (`C-c` Leader Map)\n")
       (insert (make-string 65 ?=) "\n\n")
 
-      (when direct-bindings
-        (insert "Direct Leader Shortcuts:\n")
-        (insert (make-string 30 ?-) "\n")
-        (dolist (b direct-bindings)
-          (insert (format "  C-c %-10s ->  %s\n" (car b) (cdr b))))
-        (insert "\n"))
+      (let ((parts (cfg-keys--leader-map-parts leader-map)))
+        (cfg-keys--insert-leader-parts (car parts) (cdr parts)))
 
-      (when prefix-groups
-        (insert "Prefix Groups:\n")
-        (insert (make-string 30 ?-) "\n")
-        (dolist (group prefix-groups)
-          (let* ((key-str (nth 0 group))
-                 (km (nth 1 group))
-                 (label (nth 2 group))
-                 (full-prefix (concat "C-c " key-str)))
-            (insert (format "\n[%s] (%s)\n" (or label "Prefix") full-prefix))
-            (insert (make-string 45 ?-) "\n")
-            (insert (cfg-keys--render-prefix-tree km key-str 0)))))
+      (cfg-keys--insert-mode-leader-section)
 
       (when show-all
         (insert "\n\nOther Mode Map Bindings (`cfg-keys-map`):\n")
@@ -463,7 +526,7 @@ bindings in `cfg-keys-map` at the bottom."
       (display-buffer buf))))
 
 (defun cfg-keys/print-tree-all ()
-  "Print custom leader keybindings tree + non-leader `cfg-keys-map' bindings."
+  "Print global+mode-local leader keys, and non-leader `cfg-keys-map' bindings."
   (interactive)
   (cfg-keys/print-tree t))
 #+end_src
