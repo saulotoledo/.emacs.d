@@ -170,6 +170,21 @@ comments in code buffers while enforcing strict wrapping for documentation.
     (auto-fill-mode 1)))
 #+end_src
 
+** Fill Column Indicator
+Draw a vertical ruler at =fill-column=. Face uses a light Sans Serif bar so it
+stays subtle against the buffer background.
+
+#+begin_src emacs-lisp
+(setq-default display-fill-column-indicator-character ?\|)
+(set-face-attribute 'fill-column-indicator nil
+                    :family "Sans Serif"
+                    :foreground "#444444"
+                    :background nil
+                    :weight 'ultra-light
+                    :height 1.7)
+(global-display-fill-column-indicator-mode 1)
+#+end_src
+
 ** General Whitespace and Special Characters Visualization
 Highlight tabs + non-ASCII spaces only. Normal ASCII spaces and newlines stay
 plain. Trailing whitespace uses a wave underline. Unicode homoglyphs + fancy
@@ -298,10 +313,15 @@ Enable essential built-in global modes for buffer editing and file management.
 #+end_src
 
 * Keybindings
-Registers keybindings for literal tab insertions inside the core keymap.
+Registers keybindings for literal tab insertions inside the core keymap, plus a
+leader toggle for the fill-column indicator.
 
 #+begin_src emacs-lisp
 (define-key cfg-keys-map (kbd "C-s-<tab>") (lambda () (interactive) (insert "\t")))
+
+(cfg-keys/leader-def
+  "t"   '(:ignore t :which-key "toggles")
+  "t r" '(display-fill-column-indicator-mode :which-key "Fill Column Indicator"))
 #+end_src
 
 * System Setup
