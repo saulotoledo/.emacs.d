@@ -3,18 +3,65 @@
 #+PROPERTY: header-args:emacs-lisp :tangle yes
 
 * Description
-Provides syntax-aware code and block folding for Tree-sitter modes via treesit-fold.
+Provides automatic Emacs treesit grammar management and code folding for
+programming languages. Uses treesit-auto to redirect major modes to their
+Tree-sitter-backed (-ts-mode) counterparts, and treesit-fold for syntax-aware
+code folding with fringe indicators.
 
 * Emacs Configuration
-** Treesit Fold
-#+begin_src emacs-lisp
-(defun cfg-editor/treesit-fold-toggle-all ()
-  "Toggle all folds in the current buffer."
-  (interactive)
-  (if (bound-and-true-p cfg-editor/treesit-folded-p)
-      (progn (treesit-fold-open-all) (setq-local cfg-editor/treesit-folded-p nil))
-    (progn (treesit-fold-close-all) (setq-local cfg-editor/treesit-folded-p t))))
+** treesit-auto: Automatic Grammar Management
+Emacs' built-in ~treesit~ API integrates the Tree-sitter parser runtime and
+language grammars. Emacs 29+ provides ~treesit~ and the corresponding
+~*-ts-mode~ modes for fast syntax highlighting and structural editing;
+~treesit-auto~ manages their mode remapping and grammar installation.
 
+Remember to upgrade the versions when possible. New versions might not be
+compatible with your current Emacs build.
+
+#+begin_src emacs-lisp
+(use-package treesit-auto
+  :pin "MELPA Unstable"
+  :config
+  (setq treesit-auto-langs
+        '(xml yaml typescript tsx javascript python java bash json c cpp)
+        treesit-auto-install t)
+
+  ;; Explicitly pinned sources. Languages not listed here use the
+  ;; corresponding treesit-auto recipe, which selects an ABI-compatible
+  ;; revision when one is available.
+  (add-to-list 'treesit-language-source-alist
+               '(xml "https://github.com/tree-sitter-grammars/tree-sitter-xml" "v0.7.0" "xml/src"))
+  (add-to-list 'treesit-language-source-alist
+               '(typescript "https://github.com/tree-sitter/tree-sitter-typescript" "v0.23.2" "typescript/src"))
+  (add-to-list 'treesit-language-source-alist
+               '(tsx "https://github.com/tree-sitter/tree-sitter-typescript" "v0.23.2" "tsx/src"))
+  (add-to-list 'treesit-language-source-alist
+               '(javascript "https://github.com/tree-sitter/tree-sitter-javascript" "v0.23.1" "src"))
+  (add-to-list 'treesit-language-source-alist
+               '(python "https://github.com/tree-sitter/tree-sitter-python" "v0.23.6" "src"))
+  (add-to-list 'treesit-language-source-alist
+               '(java "https://github.com/tree-sitter/tree-sitter-java" "v0.23.5" "src"))
+  (add-to-list 'treesit-language-source-alist
+               '(c "https://github.com/tree-sitter/tree-sitter-c" "v0.23.6" "src"))
+  (add-to-list 'treesit-language-source-alist
+               '(cpp "https://github.com/tree-sitter/tree-sitter-cpp" "v0.23.4" "src"))
+
+  ;; Install the managed set before calculating mode remappings. With
+  ;; `treesit-auto-install' non-nil this is unattended for these languages.
+  (treesit-auto-install-all)
+  (treesit-auto-add-to-auto-mode-alist treesit-auto-langs)
+  (global-treesit-auto-mode))
+#+end_src
+
+** treesit-fold: Syntax-Aware Code Folding
+~treesit-fold~ is a syntax-aware folding engine built for the Treesit system in
+Emacs 29+. Unlike traditional folding that relies on indentation "guessing," it
+uses a concrete parser to identify the precise boundaries of YAML blocks, maps,
+and lists. This allows for lightning-fast, reliable collapsing of massive
+datasets, often enhanced by visual indicators in the margin that let you
+navigate complex hierarchies with the same ease as an Org-mode document.
+
+#+begin_src emacs-lisp
 (use-package treesit-fold
   :pin "JCS-ELPA"
   :config
@@ -54,17 +101,24 @@ Skip entirely when indicators are not active in this buffer."
                 (lambda ()
                   (when (buffer-live-p buf)
                     (with-current-buffer buf
-                      (ignore-errors (apply orig-fn args)))))))))))
+                      (ignore-errors (apply orig-fn args))))))))))
+
+  (defun cfg-editor/treesit-fold-toggle-all ()
+    "Toggle all folds in the current buffer."
+    (interactive)
+    (if (bound-and-true-p cfg-editor/treesit-folded-p)
+        (progn (treesit-fold-open-all) (setq-local cfg-editor/treesit-folded-p nil))
+      (progn (treesit-fold-close-all) (setq-local cfg-editor/treesit-folded-p t)))))
 #+end_src
 
 * Keybindings
 #+begin_src emacs-lisp
 (keymap-global-set "C-<tab>" #'treesit-fold-toggle)
-(cfg-keys/leader-def
+(cfg-keys/mode-leader-def treesit-fold-mode
   "e"   '(:ignore t :which-key "editor")
   "e f" #'treesit-fold-toggle
   "e F" #'cfg-editor/treesit-fold-toggle-all)
 #+end_src
 
 * System Setup
-No system setup required.
+No system setup required. Grammar installation is automatic via =treesit-auto=.
