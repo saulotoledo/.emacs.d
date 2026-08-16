@@ -194,13 +194,25 @@ Creates local prefix maps parented to the matching global prefixes."
             (define-key map (vector event) (if label (cons label km) km))
             (setq map km))))))))
 
+(defun cfg-keys--normalize-modes (modes)
+  "Return MODES as a list of major-mode symbols."
+  (cond
+   ((symbolp modes) (list modes))
+   ((and (listp modes) (cl-every #'symbolp modes)) modes)
+   (t (error "[cfg-keys] mode-leader-def expected a mode or list of modes, got %S"
+             modes))))
+
 (defun cfg-keys--mode-register (mode key spec)
-  "Record SPEC for KEY under MODE. Skip duplicate mode keys."
+  "Record SPEC for KEY under MODE.
+Identical re-registration is a no-op. Different SPEC on the same key logs a
+conflict. Keys on other modes are independent (no cross-mode conflict)."
   (let* ((entries (gethash mode cfg-keys--mode-bindings))
          (existing (alist-get key entries nil nil #'equal)))
-    (if existing
-        (cfg-keys--log-conflict key existing spec)
-      (puthash mode (cons (cons key spec) entries) cfg-keys--mode-bindings))))
+    (cond
+     ((and existing (equal existing spec)) nil)
+     (existing (cfg-keys--log-conflict key existing spec))
+     (t (puthash mode (cons (cons key spec) entries)
+                 cfg-keys--mode-bindings)))))
 
 (defun cfg-keys--mode-apply (leader mode key spec)
   "Apply SPEC for KEY onto LEADER under MODE.
@@ -263,11 +275,13 @@ Warn only when shadowing a different command."
               (lambda () (cfg-keys--install-mode-leader mode)))
     (puthash mode t cfg-keys--mode-hooks-installed)))
 
-(defmacro cfg-keys/mode-leader-def (mode &rest keybinds)
-  "Like `cfg-keys/leader-def', but KEYBINDS apply only in MODE buffers."
+(defmacro cfg-keys/mode-leader-def (modes &rest keybinds)
+  "Like `cfg-keys/leader-def', but KEYBINDS apply only in MODES buffers.
+MODES is a major-mode symbol or a list of symbols."
   (declare (indent 1))
-  `(progn
-     (cfg-keys--ensure-mode-hook ',mode)
+  `(let ((modes (cfg-keys--normalize-modes ',modes)))
+     (dolist (mode modes)
+       (cfg-keys--ensure-mode-hook mode))
      ,@(cl-loop
         for (key fn) on keybinds by #'cddr
         for form = (if (eq (car-safe fn) 'quote) (cadr fn) fn)
@@ -281,12 +295,15 @@ Warn only when shadowing a different command."
         collect
         (cond
          (ignore-label
-          `(cfg-keys--mode-register ',mode ,key (list :prefix ,ignore-label)))
+          `(dolist (mode modes)
+             (cfg-keys--mode-register mode ,key (list :prefix ,ignore-label))))
          (cmd-label
-          `(cfg-keys--mode-register ',mode ,key
-                                    (cons ,cmd-label #',(car form))))
+          `(dolist (mode modes)
+             (cfg-keys--mode-register mode ,key
+                                      (cons ,cmd-label #',(car form)))))
          (t
-          `(cfg-keys--mode-register ',mode ,key ,fn))))))
+          `(dolist (mode modes)
+             (cfg-keys--mode-register mode ,key ,fn)))))))
 #+end_src
 
 ** Keybindings Tree Printer
