@@ -18,14 +18,41 @@ and integrated searching via ripgrep.
 (declare-function dired-get-filename "dired")
 (defun cfg-navigation/refresh-dired-and-children (&rest _)
   "Force-refresh the current Dired buffer and any related child buffers.
-It should be used after wdired to make sure the changes done will
-propagate to the other buffers when renaming a subtree in the main buffer."
+It is used after wdired and completed file operations to make changes
+propagate to related buffers and to rebuild Dirvish subtrees."
   (let ((parent-dir (expand-file-name default-directory)))
     (dolist (buf (buffer-list))
       (with-current-buffer buf
-        (when (and (derived-mode-p 'dired-mode)
-                   (string-prefix-p parent-dir (expand-file-name default-directory)))
-          (revert-buffer t t))))))
+        (let ((buffer-dir (expand-file-name default-directory)))
+          (when (and (derived-mode-p 'dired-mode)
+                     (condition-case nil
+                         (or (file-equal-p buffer-dir parent-dir)
+                             (file-in-directory-p buffer-dir parent-dir))
+                       (file-error nil)))
+            (revert-buffer t t)))))))
+
+(defun cfg-navigation/dired-refresh-after-deletion (orig-fun deletions &rest args)
+  "Refresh Dirvish after ORIG-FUN with ARGS successfully deletes an entry.
+DELETIONS is Dired's list of file/marker pairs. Refresh only when a
+target disappeared, so canceled or wholly failed deletion operations do
+not disturb the current buffer."
+  (let* ((targets (mapcar #'car deletions))
+         (existing-targets
+          (mapcar (lambda (target) (cons target (file-exists-p target)))
+                  targets))
+        result)
+    (setq result (apply orig-fun deletions args))
+    (when (and (derived-mode-p 'dired-mode)
+               (fboundp 'dirvish-curr)
+               (ignore-errors (dirvish-curr))
+               (catch 'deleted
+                 (dolist (target targets)
+                   (when (and (cdr (assoc target existing-targets))
+                              (not (file-exists-p target)))
+                     (throw 'deleted t)))
+                 nil))
+      (cfg-navigation/refresh-dired-and-children))
+    result))
 
 (defvar cfg-navigation/dired-last-created nil
   "Cons of (buffer . path) recorded before file/dir creation.
@@ -69,6 +96,8 @@ Dirvish subtrees do not populate. We therefore fall back to
   (dired-clean-confirm-killing-deleted-buffers nil) ; No confirmation prompt
   :config
   (advice-add 'wdired-finish-edit :after #'cfg-navigation/refresh-dired-and-children)
+  (advice-add 'dired-internal-do-deletions :around
+              #'cfg-navigation/dired-refresh-after-deletion)
 
   ;; After creating a file/dir inside a Dirvish subtree, the cursor jumps to
   ;; the tree root instead of the new entry. Root cause: Dirvish's own
