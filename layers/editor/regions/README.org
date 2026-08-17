@@ -69,7 +69,8 @@ a couple of convenient keybindings.
 (declare-function doom-modeline-def-segment "doom-modeline")
 (declare-function mc/load-lists "multiple-cursors-core")
 (declare-function mc/save-lists "multiple-cursors-core")
-(defvar cfg-editor/mc-cursor-count)
+(defvar cfg-editor/mc-cursor-count nil
+  "Doom Modeline segment state for the multiple-cursors count.")
 (use-package multiple-cursors
   :init
   ;; Set list file location explicitly

@@ -22,9 +22,6 @@ and additional completion backends via `cape`.
 (defvar copilot-mode)
 (defvar copilot--overlay)
 (defvar copilot--real-posn)
-(defvar eca-completion-mode)
-(defvar eca-completion--overlay)
-(defvar eca-completion--real-posn)
 (declare-function lsp--workspace-server-id "lsp-mode")
 
 (defun cfg-completion/advice-add-once (symbol where function)
@@ -149,36 +146,9 @@ underlying position, and restore the ghost text before Corfu creates its frame."
         (overlay-put overlay 'after-string after-string)
         (overlay-put overlay 'display display)))))
 
-(defun cfg-completion/corfu-refresh-eca-position ()
-  "Prevent ECA ghost text from moving Corfu to the wrong place.
-
-ECA uses the same cached-position technique as Copilot for its ghost text. A
-stale cache can cause Corfu's popup to open near the end of the line instead of
-at point. Refresh the cache while preserving ECA's overlay so Corfu measures
-the current buffer geometry."
-  (when (and (bound-and-true-p eca-completion-mode)
-             (overlayp eca-completion--overlay)
-             (overlay-buffer eca-completion--overlay))
-    (let ((overlay eca-completion--overlay)
-          (after-string (overlay-get eca-completion--overlay 'after-string))
-          (display (overlay-get eca-completion--overlay 'display)))
-      (overlay-put overlay 'after-string "")
-      (overlay-put overlay 'display "")
-      (unwind-protect
-          (let ((real-posn
-                 ;; Bypass ECA's own `posn-at-point' advice while the overlay
-                 ;; is hidden, so this is the current buffer geometry.
-                 (let ((eca-completion--real-posn nil))
-                   (redisplay t)
-                   (posn-at-point))))
-            (setq eca-completion--real-posn (cons (point) real-posn)))
-        (overlay-put overlay 'after-string after-string)
-        (overlay-put overlay 'display display)))))
-
 (defun cfg-completion/corfu-refresh-ghost-text-positions ()
   "Keep ghost text from moving Corfu's popup to the wrong position."
-  (cfg-completion/corfu-refresh-copilot-position)
-  (cfg-completion/corfu-refresh-eca-position))
+  (cfg-completion/corfu-refresh-copilot-position))
 
 (defun cfg-completion/corfu-candidate-selected-p ()
   "Return non-nil when Corfu has an explicitly selected candidate.
@@ -212,16 +182,10 @@ while the active Return command is tearing the popup down."
     (setq-local cfg-completion/corfu-auto-before-snippet :unset)))
 
 (defun cfg-completion/corfu-quit-only ()
-  "Dismiss Corfu without touching Copilot or ECA ghost text."
+  "Dismiss Corfu without touching Copilot or Minuet ghost text."
   (interactive)
   (when (fboundp 'corfu-quit)
     (corfu-quit)))
-
-(defun cfg-completion/clear-eca-overlays ()
-  "Remove ECA completion overlays at point, if ECA exposes them there."
-  (dolist (overlay (overlays-at (point)))
-    (when (overlay-get overlay 'completion)
-      (delete-overlay overlay))))
 
 (defun cfg-completion/corfu-return-or-newline ()
   "Accept a selected Corfu candidate or insert a newline when none is selected.
@@ -231,7 +195,8 @@ Enter is consumed while Corfu's keymap is active."
       (progn
         (when (fboundp 'copilot-clear-overlay)
           (copilot-clear-overlay))
-        (cfg-completion/clear-eca-overlays)
+        (when (fboundp 'minuet-dismiss-suggestion)
+          (minuet-dismiss-suggestion))
         (corfu-insert))
     (when (fboundp 'corfu-quit)
       (corfu-quit))
