@@ -677,10 +677,7 @@ host. Ollama's placeholder API key deliberately bypasses this lookup."
                   dockerfile-mode-hook
                   css-mode-hook
                   sql-mode-hook
-                  conf-mode-hook
-                  shell-mode-hook
-                  term-mode-hook
-                  vterm-mode-hook))
+                  conf-mode-hook))
     (add-hook hook #'cfg-tools/minuet-setup-completion))
 
   (with-eval-after-load 'copilot
