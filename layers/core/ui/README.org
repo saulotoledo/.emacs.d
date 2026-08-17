@@ -148,23 +148,23 @@ retry attempts after short delays; as a last resort it re-applies the frame
 size. These retries catch late-arriving terminal updates and bring Emacs' view
 into alignment with the terminal once the emulator finishes reporting geometry.
 
-The code only runs for non-graphical (tty) sessions and uses safe ignore-errors
-wrappers, so risk is low.
+The hooks are registered only in non-graphical (tty) Emacs sessions, so GUI
+frames and terminal-emulator buffers inside GUI Emacs do not run this recovery.
 
 #+begin_src emacs-lisp
 (defun cfg-core/tty-resize-fix (&rest _args)
-  "Robustly fix terminal/frame resize artifacts.
-When running in a terminal, some resize events (DPI/monitor switch)
-leave the UI in a bad state. Try several redisplay/recenter attempts
-and a safe frame-size reapply as a fallback."
+  "Robustly fix terminal/frame resize artifacts in tty Emacs."
   (interactive)
-  (let ((dap-active (and (fboundp 'dap--cur-session) (dap--cur-session))))
-    (unless dap-active
-      (ignore-errors
-        (when (not (display-graphic-p))
+  (when (not (display-graphic-p))
+    (let ((dap-active (and (fboundp 'dap--cur-session) (dap--cur-session))))
+      (unless dap-active
+        (ignore-errors
           (redisplay)
           (run-with-idle-timer 0.03 nil (lambda () (redisplay)))
-          (run-with-idle-timer 0.07 nil (lambda () (redisplay) (ignore-errors (recenter 0))))
+          (run-with-idle-timer 0.07 nil
+                               (lambda ()
+                                 (redisplay)
+                                 (ignore-errors (recenter 0))))
           (run-with-idle-timer 0.15 nil
                                (lambda ()
                                  (redisplay)
@@ -173,9 +173,10 @@ and a safe frame-size reapply as a fallback."
                                    (let ((fw (frame-width)) (fh (frame-height)))
                                      (set-frame-size (selected-frame) fw fh))))))))))
 
-(add-hook 'window-size-change-functions #'cfg-core/tty-resize-fix)
-(add-hook 'frame-size-change-functions #'cfg-core/tty-resize-fix)
-(add-hook 'window-configuration-change-hook #'cfg-core/tty-resize-fix)
+(unless (display-graphic-p)
+  (add-hook 'window-size-change-functions #'cfg-core/tty-resize-fix)
+  (add-hook 'frame-size-change-functions #'cfg-core/tty-resize-fix)
+  (add-hook 'window-configuration-change-hook #'cfg-core/tty-resize-fix))
 #+end_src
 
 ** Trailing Newline Indicator

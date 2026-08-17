@@ -59,6 +59,24 @@ It uses advice-add instead of defadvice."
   (setq vterm-max-scrollback 10000)
   (advice-add 'vterm :around #'cfg-tools/vterm-kill-with-no-query-around))
 
+(defun cfg-tools/terminal-disable-editor-modes ()
+  "Disable editor-only modes in a terminal buffer."
+  (dolist (mode '(apheleia-mode
+                  auto-composition-mode
+                  display-fill-column-indicator-mode
+                  flycheck-annotate-mode
+                  show-smartparens-mode
+                  visual-line-mode))
+    (when (fboundp mode)
+      (funcall mode -1)))
+  (setq-local indent-tabs-mode nil)
+  ;; `override-global-mode' is global; a local binding keeps it disabled in
+  ;; this terminal without changing keybindings in other buffers.
+  (setq-local override-global-mode nil))
+
+(dolist (hook '(shell-mode-hook term-mode-hook vterm-mode-hook))
+  (add-hook hook #'cfg-tools/terminal-disable-editor-modes t))
+
 (add-hook 'vterm-mode-hook
           (lambda ()
             (setq-local global-hl-line-mode nil)
