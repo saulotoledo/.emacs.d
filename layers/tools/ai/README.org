@@ -351,6 +351,13 @@ credential mapping:
 (setq cfg-tools/minuet-default-model "ollama/qwen2.5-coder:7b")
 #+end_src
 
+To inspect Minuet requests, enable logging and open the =*minuet*= buffer:
+
+#+begin_src emacs-lisp :tangle no
+(setq cfg-tools/minuet-log-requests-p t)
+(setq minuet-show-error-message-on-minibuffer t) ; optional: errors in echo area
+#+end_src
+
 Minuet and Copilot are mutually exclusive automatic ghost-text providers:
 Copilot wins when enabled, and enabling Copilot dismisses any visible Minuet
 overlay. Corfu remains a separate popup completion UI and can coexist with a
@@ -367,6 +374,7 @@ the other ghost-text provider.
 (declare-function minuet-auto-suggestion-mode "minuet")
 (declare-function minuet-dismiss-suggestion "minuet")
 (declare-function minuet-set-optional-options "minuet")
+(declare-function minuet--log "minuet")
 (defvar minuet-n-completions)
 (defvar minuet-context-window)
 (defvar minuet-request-timeout)
@@ -392,6 +400,30 @@ the other ghost-text provider.
 
 (defvar cfg-tools/minuet-current-model nil
   "The ECA-style model identifier currently used by Minuet.")
+
+(defcustom cfg-tools/minuet-log-requests-p nil
+  "When non-nil, log each Minuet completion POST URL to `minuet-buffer-name'."
+  :type 'boolean
+  :group 'minuet)
+
+(defun cfg-tools/minuet--log-request-transform (request)
+    "Log Minuet POST URL from REQUEST when `cfg-tools/minuet-log-requests-p' is set."
+    (when cfg-tools/minuet-log-requests-p
+      (let ((endpoint (plist-get request :end-point))
+            (model (plist-get (plist-get request :body) :model)))
+        (minuet--log
+         (if model
+             (format "POST %s (model: %s)" endpoint model)
+           (format "POST %s" endpoint)))))
+    request)
+
+(defun cfg-tools/minuet--ensure-request-log-transform (options)
+    "Ensure OPTIONS includes the request URL logging transform."
+    (let ((transforms (or (plist-get options :transform) '())))
+      (unless (memq #'cfg-tools/minuet--log-request-transform transforms)
+        (setq transforms
+              (append transforms (list #'cfg-tools/minuet--log-request-transform))))
+      (plist-put options :transform transforms)))
 
 (defun cfg-tools/minuet--load-local-default-model ()
     "Load `cfg-tools/minuet-default-model' from local.el when necessary."
@@ -540,7 +572,8 @@ host. Ollama's placeholder API key deliberately bypasses this lookup."
       (when-let ((endpoint (plist-get spec :endpoint)))
         (setq options (plist-put options :end-point endpoint)))
       (setq options (plist-put options :api-key (plist-get spec :api-key))
-            options (plist-put options :model (plist-get spec :model)))
+            options (plist-put options :model (plist-get spec :model))
+            options (cfg-tools/minuet--ensure-request-log-transform options))
       (set options-symbol options)
       (when (eq minuet-provider 'openai-fim-compatible)
         (minuet-set-optional-options minuet-openai-fim-compatible-options
