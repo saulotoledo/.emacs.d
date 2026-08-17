@@ -83,6 +83,18 @@ Dirvish subtrees do not populate. We therefore fall back to
                 (dirvish-subtree-expand-to target)
               (user-error nil)))))))
 
+(defun cfg-navigation/dirvish-redisplay-after-revert ()
+  "Re-render Dirvish overlays after a background Dired revert.
+Dirvish icons are overlays, and its normal redisplay hook runs only when
+the Dired window is selected. Auto-Revert can update an unselected Dired
+buffer, so explicitly refresh the Dirvish overlays here."
+  (when (and (derived-mode-p 'dired-mode)
+             (fboundp 'dirvish-curr)
+             (dirvish-curr)
+             (fboundp 'dirvish--redisplay))
+    (with-demoted-errors "Dirvish redisplay: %S"
+      (dirvish--redisplay))))
+
 (use-package dired
   :ensure nil ; Built-in
   :custom
@@ -122,6 +134,9 @@ Dirvish subtrees do not populate. We therefore fall back to
   (advice-add 'dired-create-empty-file :before #'cfg-navigation/dired-record-created)
   ;; t = append, so we run after dirvish-subtree--revert (which is prepended)
   (add-hook 'dirvish-after-revert-hook #'cfg-navigation/dired-goto-last-created t)
+  ;; Icons are overlays and must be rendered again when Auto-Revert refreshes
+  ;; an unselected Dired buffer.
+  (add-hook 'dirvish-after-revert-hook #'cfg-navigation/dirvish-redisplay-after-revert t)
 
   (define-key dired-mode-map (kbd "C-<up>") #'dired-up-directory)
   (define-key dired-mode-map (kbd "M-n") #'dired-create-empty-file)
