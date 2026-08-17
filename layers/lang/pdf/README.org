@@ -56,11 +56,10 @@ Registers navigation and header toggling shortcuts for PDF buffers.
 
 ;; Leader keybindings under +lang/code -> +pdf
 (cfg-keys/mode-leader-def pdf-view-mode
-  "L"     '(:ignore t :which-key "lang/code")
-  "L P"   '(:ignore t :which-key "pdf")
-  "L P c" #'cfg-lang/pdf-view-toggle-header-line
-  "L P j" #'pdf-view-next-line-or-next-page
-  "L P k" #'pdf-view-previous-line-or-previous-page)
+  "m"   '(:ignore t :which-key "major-mode")
+  "m c" #'cfg-lang/pdf-view-toggle-header-line
+  "m j" #'pdf-view-next-line-or-next-page
+  "m k" #'pdf-view-previous-line-or-previous-page)
 #+end_src
 
 * System Setup

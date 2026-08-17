@@ -79,25 +79,14 @@ Registers keybindings for YAML structural navigation and features.
 
 #+begin_src emacs-lisp
 (cfg-keys/mode-leader-def yaml-pro-mode
-  "v k"   #'yaml-pro-move-up
-  "v j"   #'yaml-pro-move-down
-  "v h"   #'yaml-pro-up-level
-  "v l"   #'yaml-pro-down-level
-  "v c"   #'yaml-pro-convolute-tree
-  "v a"   #'cfg-lang/yaml-pro-toggle-anchors
-  "v t"   #'cfg-lang/yaml-pro-toggle-tags
-  "L"     '(:ignore t :which-key "lang/code")
-  "L y"   '(:ignore t :which-key "yaml")
-  ;; Structural Movement
-  "L y k" #'yaml-pro-move-up
-  "L y j" #'yaml-pro-move-down
-  "L y h" #'yaml-pro-up-level
-  "L y l" #'yaml-pro-down-level
-  ;; Folding & Magic:
-  "L y c" #'yaml-pro-convolute-tree
-  ;; Toggles:
-  "L y a" #'cfg-lang/yaml-pro-toggle-anchors
-  "L y t" #'cfg-lang/yaml-pro-toggle-tags)
+  "m"   '(:ignore t :which-key "major-mode")
+  "m k" #'yaml-pro-move-up
+  "m j" #'yaml-pro-move-down
+  "m h" #'yaml-pro-up-level
+  "m l" #'yaml-pro-down-level
+  "m c" #'yaml-pro-convolute-tree
+  "m a" #'cfg-lang/yaml-pro-toggle-anchors
+  "m t" #'cfg-lang/yaml-pro-toggle-tags)
 #+end_src
 
 * System Setup

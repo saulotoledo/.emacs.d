@@ -33,9 +33,8 @@ Preview), mdopen or go-grip.
   (define-key markdown-mode-command-map (kbd "g") #'grip-mode))
 
 (cfg-keys/mode-leader-def markdown-mode
-  "L"     '(:ignore t :which-key "lang/code")
-  "L m"   '(:ignore t :which-key "markdown")
-  "L m g" #'grip-mode)
+  "m"   '(:ignore t :which-key "major-mode")
+  "m g" #'grip-mode)
 #+end_src
 
 * System Setup

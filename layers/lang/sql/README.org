@@ -234,9 +234,8 @@ buffers automatically because valid dialect-specific SQL can fail formatting.
 * Keybindings
 #+begin_src emacs-lisp
 (cfg-keys/mode-leader-def sql-mode
-  "L"     '(:ignore t :which-key "lang/code")
-  "L s"   '(:ignore t :which-key "sql")
-  "L s f" '(cfg-lang/sqlfluff-format-buffer :which-key "Format buffer (SQLFluff)"))
+  "m"   '(:ignore t :which-key "major-mode")
+  "m f" '(cfg-lang/sqlfluff-format-buffer :which-key "Format buffer (SQLFluff)"))
 #+end_src
 
 * System Setup

@@ -177,11 +177,10 @@ With DEBUG-P (C-u or `cfg-lang/smart-compile-debug'): force debug prep --
 
 (cfg-keys/mode-leader-def makefile-mode
   "m"     '(:ignore t :which-key "major-mode")
-  "m m"   '(:ignore t :which-key "make")
-  "m m e" '(cfg-lang/makefile-executor-smart-run :which-key "Run Target (Executor)")
-  "m m c" '(cfg-lang/smart-compile :which-key "Smart Compile")
-  "m m d" '(cfg-lang/smart-compile-debug :which-key "Smart Compile (Debug)")
-  "m m t" '(cfg-lang/toggle-build-debug :which-key "Toggle Build Debug"))
+  "m e" '(cfg-lang/makefile-executor-smart-run :which-key "Run Target (Executor)")
+  "m c" '(cfg-lang/smart-compile :which-key "Smart Compile")
+  "m d" '(cfg-lang/smart-compile-debug :which-key "Smart Compile (Debug)")
+  "m t" '(cfg-lang/toggle-build-debug :which-key "Toggle Build Debug"))
 #+end_src
 
 * System Setup

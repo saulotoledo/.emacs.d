@@ -25,11 +25,9 @@ shell interpreter and resolves syntax/sexp navigation issues in Python mode.
 
 * Keybindings
 #+begin_src emacs-lisp
-;; Leader bindings for Python environment
 (cfg-keys/mode-leader-def (python-mode python-ts-mode)
-  "L"     '(:ignore t :which-key "lang/code")
-  "L p"   '(:ignore t :which-key "python")
-  "L p r" '(run-python :which-key "Start REPL"))
+  "m"   '(:ignore t :which-key "major-mode")
+  "m r" '(run-python :which-key "Start REPL"))
 #+end_src
 
 * System Setup

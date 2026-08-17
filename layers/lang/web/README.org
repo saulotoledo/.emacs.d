@@ -63,10 +63,9 @@ The server is installed via =nodejs_tools= and pointed to via
 
 (cfg-keys/mode-leader-def web-mode
   "m"     '(:ignore t :which-key "major-mode")
-  "m w"   '(:ignore t :which-key "web")
-  "m w h" '(web-mode-element-highlight-min :which-key "Highlight Element")
-  "m w e" '(web-mode-element-close :which-key "Close Tag")
-  "m w r" '(web-mode-element-rename :which-key "Rename Tag"))
+  "m h" '(web-mode-element-highlight-min :which-key "Highlight Element")
+  "m e" '(web-mode-element-close :which-key "Close Tag")
+  "m r" '(web-mode-element-rename :which-key "Rename Tag"))
 #+end_src
 
 * System Setup

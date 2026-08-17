@@ -320,12 +320,11 @@ pwa-node launch for the current file otherwise."
 * Keybindings
 #+begin_src emacs-lisp
 (cfg-keys/mode-leader-def (js-ts-mode tsx-ts-mode typescript-ts-mode)
-  "L"     '(:ignore t :which-key "lang/code")
-  "L J"   '(:ignore t :which-key "javascript")
-  "L J n" '(npm :which-key "NPM Menu")
-  "L J y" '(cfg-lang/yarn-run-script :which-key "Run Yarn Script")
-  "L J r" '(cfg-lang/nodejs-repl-with-manager :which-key "Node REPL")
-  "L J d" '(cfg-lang/dap-js--start-debug :which-key "Debug JS/TS"))
+  "m"   '(:ignore t :which-key "major-mode")
+  "m n" '(npm :which-key "NPM Menu")
+  "m y" '(cfg-lang/yarn-run-script :which-key "Run Yarn Script")
+  "m r" '(cfg-lang/nodejs-repl-with-manager :which-key "Node REPL")
+  "m d" '(cfg-lang/dap-js--start-debug :which-key "Debug JS/TS"))
 #+end_src
 
 * System Setup

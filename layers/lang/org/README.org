@@ -137,11 +137,9 @@ Registers keybindings for table of contents in Org buffers. Visual-indent toggle
 is Org-only via ~cfg-keys/mode-leader-def~.
 
 #+begin_src emacs-lisp
-;; Leader keybindings under +lang/code -> +org
 (cfg-keys/mode-leader-def org-mode
-  "L"     '(:ignore t :which-key "lang/code")
-  "L o"   '(:ignore t :which-key "org")
-  "L o t" #'toc-org-insert-toc
+  "m"     '(:ignore t :which-key "major-mode")
+  "m t"   #'toc-org-insert-toc
   "t"     '(:ignore t :which-key "toggles")
   "t i"   '(org-indent-mode :which-key "Org Visual Indent"))
 #+end_src

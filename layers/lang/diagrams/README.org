@@ -48,9 +48,8 @@ Registers keybindings for previewing and editing diagrams.
 (declare-function plantuml-preview "plantuml-mode")
 (cfg-keys/mode-leader-def plantuml-mode
   "C-c"   #'plantuml-preview
-  "L"     '(:ignore t :which-key "lang/code")
-  "L d"   '(:ignore t :which-key "diagrams")
-  "L d p" #'plantuml-preview)
+  "m"     '(:ignore t :which-key "major-mode")
+  "m p"   #'plantuml-preview)
 #+end_src
 
 * System Setup
