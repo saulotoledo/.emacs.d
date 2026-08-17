@@ -160,13 +160,18 @@ SPEC is (:prefix LABEL), (LABEL . COMMAND), or COMMAND.")
 
 (defun cfg-keys--unwrap-keymap (def)
   "Return keymap from DEF, unwrapping which-key `(LABEL . KEYMAP)' conses."
-  (cond ((keymapp def) def)
-        ((and (consp def) (stringp (car def)) (keymapp (cdr def))) (cdr def))))
+  (cond ((and (listp def) (keymapp def)) def)
+        ((and (consp def) (stringp (car def))
+              (listp (cdr def)) (keymapp (cdr def)))
+         (cdr def))))
 
 (defun cfg-keys--map-own (map event)
   "Return MAP's own binding for EVENT (ignore parent)."
   (let ((raw (assq event (cdr map))))
-    (and raw (if (stringp (cadr raw)) (cddr raw) (cdr raw)))))
+    (and raw
+         (if (and (consp (cdr raw)) (stringp (cadr raw)))
+             (cddr raw)
+           (cdr raw)))))
 
 (defun cfg-keys--mode-bind (leader key def)
   "Bind KEY to DEF on LEADER without mutating parent keymaps.
@@ -182,7 +187,7 @@ Creates local prefix maps parented to the matching global prefixes."
         (setq prefix (vconcat prefix (vector event)))
         (cond
          (last (define-key map (vector event) def))
-         ((keymapp own) (setq map own))
+         ((and (listp own) (keymapp own)) (setq map own))
          (t
           (let* ((g (cfg-keys--unwrap-keymap
                      (lookup-key cfg-keys-leader-map prefix)))
