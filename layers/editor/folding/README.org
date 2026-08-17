@@ -62,6 +62,45 @@ datasets, often enhanced by visual indicators in the margin that let you
 navigate complex hierarchies with the same ease as an Org-mode document.
 
 #+begin_src emacs-lisp
+;; --- Performance: Idle-timer debounce for fringe indicators ---
+;;
+;; Problem: treesit-fold-indicators--post-command runs synchronously on
+;; *every* keystroke via post-command-hook. While typing broken/incomplete
+;; code (common in TS/Next.js), the Tree-sitter parser repeatedly rebuilds
+;; the CST and Emacs re-renders fringe markers, causing ~11 % CPU usage and
+;; input lag (see profiler reports).
+;;
+;; Fix: Replace the synchronous call with a buffer-local idle timer.
+;; Each keystroke cancels the pending timer and schedules a fresh one.
+;; The real update only fires after the user pauses for 0.5 s, meaning
+;; *zero* indicator overhead while actively typing.
+(defvar-local cfg-editor/treesit-fold-idle-timer nil
+  "Buffer-local idle timer for deferred treesit-fold indicator updates.")
+
+(define-advice treesit-fold-indicators--post-command
+    (:around (orig-fn &rest args) idle-debounce)
+  "Defer indicator updates to idle time; cancel-on-type for zero typing overhead.
+Skip entirely when indicators are not active in this buffer."
+  ;; Fast-path: avoid timer churn in buffers where indicators aren't on
+  ;; (minibuffer, org-mode, etc.).
+  (when (bound-and-true-p treesit-fold-indicators-mode)
+    (when (timerp cfg-editor/treesit-fold-idle-timer)
+      (cancel-timer cfg-editor/treesit-fold-idle-timer))
+    (let ((buf (current-buffer)))
+      (setq cfg-editor/treesit-fold-idle-timer
+            (run-with-idle-timer 0.8 nil
+                                 (lambda ()
+                                   (when (buffer-live-p buf)
+                                     (with-current-buffer buf
+                                       (ignore-errors (apply orig-fn args))))))))))
+
+(defun cfg-editor/treesit-fold-toggle-all ()
+  "Toggle all folds in the current buffer."
+  (interactive)
+  (if (bound-and-true-p cfg-editor/treesit-folded-p)
+      (progn (treesit-fold-open-all) (setq-local cfg-editor/treesit-folded-p nil))
+    (progn (treesit-fold-close-all) (setq-local cfg-editor/treesit-folded-p t))))
+
 (use-package treesit-fold
   :pin "JCS-ELPA"
   :config
@@ -69,46 +108,7 @@ navigate complex hierarchies with the same ease as an Org-mode document.
   (global-treesit-fold-indicators-mode 1)
 
   ;; Enable folding for all programming modes
-  (add-hook 'prog-mode-hook #'treesit-fold-mode)
-
-  ;; --- Performance: Idle-timer debounce for fringe indicators ---
-  ;;
-  ;; Problem: treesit-fold-indicators--post-command runs synchronously on
-  ;; *every* keystroke via post-command-hook. While typing broken/incomplete
-  ;; code (common in TS/Next.js), the Tree-sitter parser repeatedly rebuilds
-  ;; the CST and Emacs re-renders fringe markers, causing ~11 % CPU usage and
-  ;; input lag (see profiler reports).
-  ;;
-  ;; Fix: Replace the synchronous call with a buffer-local idle timer.
-  ;; Each keystroke cancels the pending timer and schedules a fresh one.
-  ;; The real update only fires after the user pauses for 0.5 s, meaning
-  ;; *zero* indicator overhead while actively typing.
-  (defvar-local cfg-editor/treesit-fold-idle-timer nil
-    "Buffer-local idle timer for deferred treesit-fold indicator updates.")
-
-  (define-advice treesit-fold-indicators--post-command
-      (:around (orig-fn &rest args) idle-debounce)
-    "Defer indicator updates to idle time; cancel-on-type for zero typing overhead.
-Skip entirely when indicators are not active in this buffer."
-    ;; Fast-path: avoid timer churn in buffers where indicators aren't on
-    ;; (minibuffer, org-mode, etc.).
-    (when (bound-and-true-p treesit-fold-indicators-mode)
-      (when (timerp cfg-editor/treesit-fold-idle-timer)
-        (cancel-timer cfg-editor/treesit-fold-idle-timer))
-      (let ((buf (current-buffer)))
-        (setq cfg-editor/treesit-fold-idle-timer
-              (run-with-idle-timer 0.8 nil
-                (lambda ()
-                  (when (buffer-live-p buf)
-                    (with-current-buffer buf
-                      (ignore-errors (apply orig-fn args))))))))))
-
-  (defun cfg-editor/treesit-fold-toggle-all ()
-    "Toggle all folds in the current buffer."
-    (interactive)
-    (if (bound-and-true-p cfg-editor/treesit-folded-p)
-        (progn (treesit-fold-open-all) (setq-local cfg-editor/treesit-folded-p nil))
-      (progn (treesit-fold-close-all) (setq-local cfg-editor/treesit-folded-p t)))))
+  (add-hook 'prog-mode-hook #'treesit-fold-mode))
 #+end_src
 
 * Keybindings
