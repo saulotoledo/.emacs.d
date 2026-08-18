@@ -631,6 +631,26 @@ host. Ollama's placeholder API key deliberately bypasses this lookup."
                      "^kind:\\s-*\\(Secret\\|ConfigMap\\)\\s-*$"
                      nil t))))))
 
+(defun cfg-tools/minuet-disable-general-scenarios-p ()
+  "Block Minuet in general scenarios where suggestions are not useful."
+  (or
+   ;; Empty buffers
+   (= (buffer-size) 0)
+   ;; Very short lines, because they are probably errors
+   (< (- (line-end-position) (line-beginning-position)) 10)
+   ;; Blank lines
+   (save-excursion
+     (beginning-of-line)
+     (looking-at-p "[[:space:]]*$"))
+   ;; When not inserting text (prevents suggestions when moving around)
+   ;; Minuet runs block predicates from an idle timer. The command
+   ;; loop sets `this-command' to nil before `read_key_sequence',
+   ;; which is exactly when idle timers fire. `last-command' is the
+   ;; command that just inserted text.
+   (not (memq last-command
+              '(self-insert-command
+                org-self-insert-command)))))
+
 (defun cfg-tools/minuet-setup-completion (&optional _arg)
     "Enable Minuet automatic suggestions unless Copilot owns completion."
     (interactive)
@@ -666,6 +686,8 @@ host. Ollama's placeholder API key deliberately bypasses this lookup."
             #'cfg-tools/minuet-block-when-copilot-p)
   (add-hook 'minuet-auto-suggestion-block-predicates
             #'cfg-tools/minuet-block-sensitive-buffer-p)
+  (add-hook 'minuet-auto-suggestion-block-predicates
+            #'cfg-tools/minuet-disable-general-scenarios-p)
 
   (dolist (hook '(prog-mode-hook
                   text-mode-hook
