@@ -358,6 +358,59 @@ To inspect Minuet requests, enable logging and open the =*minuet*= buffer:
 (setq minuet-show-error-message-on-minibuffer t) ; optional: errors in echo area
 #+end_src
 
+To tune Minuet's behavior without replacing the upstream prompt wholesale, keep
+Minuet's built-in default strings and append a dedicated extra-instructions
+block.
+
+#+begin_src emacs-lisp :tangle no
+(defun cfg-tools/minuet--chat-extra-instructions ()
+  "Append extra guidance to Minuet's default chat prompt."
+  (concat
+   minuet-default-prompt
+   "\nAdditional instructions:\n"
+   "- Prefer a single-line completion unless the syntax requires a newline.\n"
+   "- Keep the completion minimal and local to the current expression.\n"
+   "- Do not add explanatory comments or markdown fences.\n"))
+
+(defun cfg-tools/minuet--chat-extra-guidelines ()
+  "Append extra guidance to Minuet's default chat guidelines."
+  (concat
+   minuet-default-guidelines
+   "\nAdditional instructions:\n"
+   "- Prefer a single-line completion unless the syntax requires a newline.\n"
+   "- Keep the completion minimal and local to the current expression.\n"
+   "- Do not add explanatory comments or markdown fences.\n"))
+
+(defun cfg-tools/minuet--fim-extra-instructions (ctx)
+  "Append FIM-only instructions without replacing Minuet's default FIM prompt."
+  (concat
+   (minuet--default-fim-prompt-function ctx)
+   "\nAdditional instructions:\n"
+   "- Prefer a single-line completion unless the syntax requires a newline.\n"
+   "- Keep the completion minimal and local to the current expression.\n"
+   "- Avoid extra commentary or explanation.\n"))
+
+(with-eval-after-load 'minuet
+  ;; Chat providers extend the system prompt and guidelines.
+  (setq minuet-claude-options
+        (plist-put minuet-claude-options :system
+                   `(:template minuet-default-system-template
+                               :prompt cfg-tools/minuet--chat-extra-instructions
+                               :guidelines cfg-tools/minuet--chat-extra-guidelines
+                               :n-completions-template minuet-default-n-completion-template)))
+
+  ;; FIM providers override the FIM prompt function, not the chat system prompt.
+  (setq minuet-openai-fim-compatible-options
+        (plist-put minuet-openai-fim-compatible-options :template
+                   `(:prompt cfg-tools/minuet--fim-extra-instructions
+                             :suffix minuet--default-fim-suffix-function))))
+#+end_src
+
+This pattern keeps the upstream defaults in place while adding your preferred
+behavior for single-line completions. The chat and FIM overrides are different
+hook points in Minuet itself, and they apply cleanly to Claude,
+OpenAI-compatible chat providers, and Ollama / FIM-style models.
+
 Minuet and Copilot are mutually exclusive automatic ghost-text providers:
 Copilot wins when enabled, and enabling Copilot dismisses any visible Minuet
 overlay. Corfu remains a separate popup completion UI and can coexist with a
