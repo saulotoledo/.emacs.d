@@ -262,6 +262,15 @@ spaces use a high-contrast warning face.
   (global-whitespace-mode 0)
   (global-whitespace-mode 1))
 
+;; The following two are dependenceis of unicode-whitespace that have
+;; deprecated cl on stable versions. We pin the unstable versions which have
+;; the upgrade from cl to cl-lib:
+(use-package ucs-utils
+  :pin "MELPA Unstable")
+
+(use-package persistent-soft
+  :pin "MELPA Unstable")
+
 (dolist (hook '(prog-mode-hook text-mode-hook))
   (add-hook hook
             (lambda ()
