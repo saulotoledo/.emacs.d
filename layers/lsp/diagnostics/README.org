@@ -62,8 +62,26 @@ reasonably high value (9999), so Flycheck continues to show all errors without
 being excessive.
 
 #+begin_src emacs-lisp
+(defvar flycheck-annotate-other-lines-style)
+(defvar flycheck-annotate-current-line-style)
+(defun cfg-lsp/toggle-flycheck-below-annotations ()
+  "Toggle flycheck annotations between `eol` and `below`."
+  (interactive)
+  (if (eq flycheck-annotate-other-lines-style 'below)
+      (progn
+        (setq flycheck-annotate-current-line-style 'eol)
+        (setq flycheck-annotate-other-lines-style 'eol)
+        (minibuffer-message "Switched to end-of-line annotations."))
+    (setq flycheck-annotate-current-line-style 'below)
+    (setq flycheck-annotate-other-lines-style 'below)
+    (minibuffer-message "Switched to below-line annotations."))
+  (global-flycheck-annotate-mode -1)
+  (global-flycheck-annotate-mode 1))
+
 (use-package flycheck
   :custom
+  (flycheck-annotate-current-line-style 'eol)
+  (flycheck-annotate-other-lines-style 'eol)
   (flycheck-highlighting-mode 'symbols)
   (flycheck-indication-mode nil)
   (flycheck-overlay-margin-spec nil)
@@ -206,6 +224,7 @@ of tree-sitter (external package).
 (declare-function flycheck-previous-error "flycheck")
 (cfg-keys/leader-def
   "!"   '(:ignore t :which-key "errors/diagnostics")
+  "! b" '(cfg-lsp/toggle-flycheck-below-annotations :which-key "Flycheck Toggle below annotations")
   "! c" '(flycheck-buffer :which-key "Flycheck Check Buffer")
   "! l" '(flycheck-list-errors :which-key "Flycheck List Errors")
   "! n" '(flycheck-next-error :which-key "Flycheck Next Error")
