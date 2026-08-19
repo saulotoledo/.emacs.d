@@ -111,6 +111,105 @@ Skip entirely when indicators are not active in this buffer."
   (add-hook 'prog-mode-hook #'treesit-fold-mode))
 #+end_src
 
+** Tree-sitter Import Folding
+Import folding is implemented here, while each language layer registers its own
+Tree-sitter node names. This keeps the folding algorithm shared without mixing
+language-specific grammar details into this layer.
+
+#+begin_src emacs-lisp
+(declare-function treesit-fold--cons-add "treesit-fold" (&rest ranges))
+(declare-function treesit-fold-close "treesit-fold" (&optional node))
+(declare-function treesit-fold--format-overlay-text "treesit-fold" (beg end))
+(declare-function treesit-fold-usable-mode-p "treesit-fold" (&optional mode))
+(defvar treesit-fold-range-alist)
+
+(defvar cfg-editor/treesit-fold-import-rules nil
+  "Alist of (MAJOR-MODE . IMPORT-NODE-TYPES) registrations.
+IMPORT-NODE-TYPES contains Tree-sitter node type strings.")
+
+(defconst cfg-editor/treesit-fold-comment-node-types
+  '("line_comment" "block_comment" "comment")
+  "Tree-sitter node types allowed between adjacent import nodes.")
+
+(defun cfg-editor--treesit-fold-import-range (node offset)
+  "Return a fold range for the import run beginning at NODE and OFFSET."
+  (let* ((import-types (alist-get major-mode cfg-editor/treesit-fold-import-rules))
+         (last-node node)
+         (sibling (treesit-node-next-sibling node t)))
+    (when (member (treesit-node-type node) import-types)
+      (while (and sibling
+                  (let ((type (treesit-node-type sibling)))
+                    (or (member type import-types)
+                        (member type cfg-editor/treesit-fold-comment-node-types))))
+        (when (member (treesit-node-type sibling) import-types)
+          (setq last-node sibling))
+        (setq sibling (treesit-node-next-sibling sibling t)))
+      (unless (treesit-node-eq last-node node)
+        (treesit-fold--cons-add
+         (cons (treesit-node-start node) (treesit-node-end last-node))
+         offset)))))
+
+(defun cfg-editor--install-treesit-fold-import-rules ()
+  "Install registered import ranges into `treesit-fold-range-alist'."
+  (when (boundp 'treesit-fold-range-alist)
+    (dolist (registration cfg-editor/treesit-fold-import-rules)
+      (let* ((mode (car registration))
+             (node-types (cdr registration))
+             (mode-ranges (alist-get mode treesit-fold-range-alist)))
+        (dolist (node-type node-types)
+          (setf (alist-get (intern node-type) mode-ranges)
+                #'cfg-editor--treesit-fold-import-range))
+        (setf (alist-get mode treesit-fold-range-alist) mode-ranges)))))
+
+(defun cfg-editor/register-treesit-fold-imports (mode node-types)
+  "Register NODE-TYPES as import folds for MODE.
+MODE is a major-mode symbol and NODE-TYPES are Tree-sitter type strings."
+  (setf (alist-get mode cfg-editor/treesit-fold-import-rules)
+        (delete-dups (copy-sequence node-types)))
+  (when (featurep 'treesit-fold)
+    (cfg-editor--install-treesit-fold-import-rules)))
+
+(defun cfg-editor/treesit-fold-close-imports ()
+  "Fold the leading import run in the current Tree-sitter buffer."
+  (when (and (bound-and-true-p treesit-fold-mode)
+             (treesit-fold-usable-mode-p)
+             (treesit-parser-list))
+    (let* ((import-types (alist-get major-mode cfg-editor/treesit-fold-import-rules))
+           (root (treesit-buffer-root-node))
+           (first-import
+            (seq-find (lambda (node)
+                        (member (treesit-node-type node) import-types))
+                      (treesit-node-children root))))
+      (when first-import
+        (treesit-fold-close first-import)))))
+
+(defun cfg-editor--treesit-fold-import-node-type (beg end)
+  "Return the registered import node type for the range BEG to END."
+  (when-let* ((import-types (alist-get major-mode cfg-editor/treesit-fold-import-rules))
+              (root (treesit-buffer-root-node))
+              (node (seq-find
+                     (lambda (candidate)
+                       (and (member (treesit-node-type candidate) import-types)
+                            (= beg (treesit-node-start candidate))))
+                     (treesit-node-children root)))
+              (range (cfg-editor--treesit-fold-import-range node '(0 . 0))))
+    (when (= end (cdr range))
+      (treesit-node-type node))))
+
+(defun cfg-editor--treesit-fold-format-overlay-text (orig-fn beg end)
+  "Use an import label for the fold from BEG to END, or call ORIG-FN."
+  (if-let ((node-type (cfg-editor--treesit-fold-import-node-type beg end)))
+      (format " %s..."
+              (replace-regexp-in-string "_" " " node-type))
+    (funcall orig-fn beg end)))
+
+(with-eval-after-load 'treesit-fold
+  (cfg-editor--install-treesit-fold-import-rules)
+  (add-hook 'treesit-fold-mode-hook #'cfg-editor/treesit-fold-close-imports)
+  (advice-add 'treesit-fold--format-overlay-text
+              :around #'cfg-editor--treesit-fold-format-overlay-text))
+#+end_src
+
 * Keybindings
 #+begin_src emacs-lisp
 (keymap-global-set "C-<tab>" #'treesit-fold-toggle)

@@ -5,6 +5,14 @@
 * Description
 Provides full C/C++ language support, including LSP via ~clangd~, automated formatting via ~clang-format~ / ~apheleia~, tree-sitter integration, and smart GDB debugging with ~dap-mode~. Includes system setup declarations for compiler toolchains and development headers.
 
+** Tree-sitter Folding
+#+begin_src emacs-lisp
+(dolist (mode '(c-ts-mode c++-ts-mode))
+  (cfg-editor/register-treesit-fold-imports
+   mode
+   '("preproc_include")))
+#+end_src
+
 * Emacs Configuration
 ** Formatting Style Configuration
 #+begin_src emacs-lisp

@@ -7,6 +7,13 @@
 Provides language configuration for Python development. Sets the primary Python
 shell interpreter and resolves syntax/sexp navigation issues in Python mode.
 
+** Tree-sitter Folding
+#+begin_src emacs-lisp
+(cfg-editor/register-treesit-fold-imports
+ 'python-ts-mode
+ '("import_statement" "import_from_statement"))
+#+end_src
+
 * Emacs Configuration
 ** Python Setup
 #+begin_src emacs-lisp

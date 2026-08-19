@@ -8,6 +8,13 @@ Provides IDE capabilities for Java development using Eclipse JDTLS, ~lsp-java~,
 JAL agent support, ~dap-mode~ debugging via a custom =compile_attach= provider,
 and Google Java Format via Apheleia.
 
+** Tree-sitter Folding
+#+begin_src emacs-lisp
+(cfg-editor/register-treesit-fold-imports
+ 'java-ts-mode
+ '("import_declaration"))
+#+end_src
+
 * Emacs Configuration
 ** Java Agent Loader (JAL)
 *Java Agent Loader (JAL)* is a utility package I develop and maintain to

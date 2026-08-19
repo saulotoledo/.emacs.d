@@ -20,6 +20,14 @@ Key features:
 - *Linting & Execution*: Dynamic ESLint invocation via Flycheck and Transient
   menu interface via ~npm.el~.
 
+** Tree-sitter Folding
+#+begin_src emacs-lisp
+(dolist (mode '(js-ts-mode typescript-ts-mode tsx-ts-mode))
+  (cfg-editor/register-treesit-fold-imports
+   mode
+   '("import_statement")))
+#+end_src
+
 * Emacs Configuration
 ** Package Manager & Flycheck Helpers
 #+begin_src emacs-lisp
