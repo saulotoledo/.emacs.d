@@ -53,6 +53,7 @@
   - [[file:lang/yaml/README.org][yaml]]
 - Navigation
   - [[file:navigation/dired/README.org][dired]]
+  - [[file:navigation/imenu-list/README.org][imenu-list]]
   - [[file:navigation/treemacs/README.org][treemacs]]
 - Tools
   - [[file:tools/ai/README.org][ai]]

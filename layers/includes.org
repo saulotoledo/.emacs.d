@@ -44,6 +44,7 @@
 #+INCLUDE: "lang/xml/README.org"
 #+INCLUDE: "lang/yaml/README.org"
 #+INCLUDE: "navigation/dired/README.org"
+#+INCLUDE: "navigation/imenu-list/README.org"
 #+INCLUDE: "navigation/treemacs/README.org"
 #+INCLUDE: "tools/ai/README.org"
 #+INCLUDE: "tools/containers/README.org"

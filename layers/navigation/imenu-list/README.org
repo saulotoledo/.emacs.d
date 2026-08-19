@@ -1,0 +1,258 @@
+#+TITLE: imenu-list Layer
+#+CATEGORY: navigation
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides a Tree-sitter-powered Imenu and imenu-list outline for supported
+programming languages. It organizes classes, fields, constructors, methods, and
+inner classes into a navigable hierarchy with sorting and foldable entries.
+
+* Emacs Configuration
+#+begin_src emacs-lisp
+(declare-function imenu-default-create-index-function "imenu")
+(declare-function imenu--sort-by-name "imenu")
+(declare-function imenu--subalist-p "imenu" (entry))
+(declare-function treesit-node-children "treesit" (node))
+(declare-function treesit-node-text "treesit" (node &optional no-properties))
+(declare-function treesit-node-attribute "treesit" (node attribute))
+(declare-function treesit-buffer-root-node "treesit" (&optional language))
+(declare-function hs-grok-mode-type "hideshow")
+(declare-function imenu-list--depth-string "imenu-list" (depth))
+(declare-function imenu-list--get-face "imenu-list" (depth subalistp))
+(declare-function imenu-list--action-toggle-hs "imenu-list" (event))
+(declare-function imenu-list-update "imenu-list" (&optional raise-imenu-errors force-update))
+(defvar imenu-list-buffer-name)
+
+(defvar cfg-navigation/ts-imenu-rules
+  '((java-ts-mode
+     :containers (("class_declaration"     . "Classes")
+                  ("interface_declaration" . "Interfaces")
+                  ("enum_declaration"      . "Enums"))
+     :children   (("constructor_declaration" . "Constructors")
+                  ("field_declaration"       . "Fields")
+                  ("method_declaration"      . "Methods")
+                  ("class_declaration"       . "Inner Classes")))
+    (python-ts-mode
+     :containers (("class_definition" . "Classes"))
+     :children   (("function_definition" . "Methods")
+                  ("class_definition"    . "Inner Classes")))
+    (typescript-ts-mode
+     :containers (("class_declaration"     . "Classes")
+                  ("interface_declaration" . "Interfaces"))
+     :children   (("method_definition"     . "Methods")
+                  ("property_definition"   . "Fields")
+                  ("class_declaration"     . "Inner Classes"))))
+  "Mapping of major modes to their Tree-sitter AST node types.")
+
+(defvar-local cfg-navigation--fallback-imenu-function #'imenu-default-create-index-function
+  "Stored original imenu index function for non-Tree-sitter buffers.")
+
+(defun cfg-navigation--apply-sort (alist)
+  "Sort ALIST using `imenu-sort-function' if set, or preserve natural order."
+  (if (and imenu-sort-function (listp alist))
+      (sort (copy-sequence alist) imenu-sort-function)
+    alist))
+
+(defun cfg-navigation--ordered-groups (groups rules)
+  "Return populated GROUPS in the order declared by RULES.
+Each element of RULES is a NODE-TYPE to GROUP-NAME cons cell."
+  (let (result seen)
+    (dolist (rule rules (nreverse result))
+      (let ((group-name (cdr rule)))
+        (unless (member group-name seen)
+          (push group-name seen)
+          (when-let ((items (gethash group-name groups)))
+            (push (cons group-name
+                        (cfg-navigation--apply-sort (nreverse items)))
+                  result)))))))
+
+(defun cfg-navigation--walk-ts-node (parent-node rules)
+  "Recursively walk PARENT-NODE and categorize items using RULES."
+  (let ((child-rules (plist-get rules :children))
+        (groups (make-hash-table :test 'equal)))
+    (dolist (node (treesit-node-children parent-node))
+      (let* ((type (treesit-node-type node))
+             (group-name (cdr (assoc type child-rules))))
+        (when group-name
+          (let* ((name-node (or (treesit-node-child-by-field-name node "name")
+                                (treesit-node-child-by-field-name node "declarator")))
+                 (name (cond
+                        (name-node (treesit-node-text name-node t))
+                        ((treesit-node-attribute node :name) (treesit-node-attribute node :name))
+                        (t "anonymous")))
+                 (pos (treesit-node-start node))
+                 (body (treesit-node-child-by-field-name node "body"))
+                 (subleafs (when body (cfg-navigation--walk-ts-node body rules)))
+                 (item (if subleafs
+                           (cons name (cons (cons "declaration" pos) subleafs))
+                         (cons name pos))))
+            (puthash group-name (cons item (gethash group-name groups)) groups)))))
+
+    (cfg-navigation--ordered-groups groups child-rules)))
+
+(defun cfg-navigation--imenu-create-index ()
+  "Generate imenu index using Tree-sitter if available, else use default."
+  (let ((rules (cdr (assoc major-mode cfg-navigation/ts-imenu-rules))))
+    (if (and (fboundp 'treesit-available-p)
+             (treesit-available-p)
+             (treesit-parser-list)
+             rules)
+        (let ((root (treesit-buffer-root-node))
+              (containers-rule (plist-get rules :containers))
+              (container-groups (make-hash-table :test 'equal)))
+          (dolist (node (treesit-node-children root))
+            (let* ((type (treesit-node-type node))
+                   (category-name (cdr (assoc type containers-rule))))
+              (when category-name
+                (let* ((name-node (treesit-node-child-by-field-name node "name"))
+                       (name (if name-node (treesit-node-text name-node t) "anonymous"))
+                       (pos (treesit-node-start node))
+                       (body (treesit-node-child-by-field-name node "body"))
+                       (subleafs (when body (cfg-navigation--walk-ts-node body rules)))
+                       (class-entry (cons name (cons (cons "declaration" pos) subleafs))))
+                  (puthash category-name
+                           (cons class-entry (gethash category-name container-groups))
+                           container-groups)))))
+
+          (cfg-navigation--ordered-groups container-groups containers-rule))
+      (funcall cfg-navigation--fallback-imenu-function))))
+
+(defun cfg-navigation--imenu-modeline-sort-info ()
+  "Return active sort label for the mode-line."
+  (let ((buffer (and (boundp 'imenu-list--displayed-buffer)
+                     imenu-list--displayed-buffer)))
+    (if (and (buffer-live-p buffer)
+             (with-current-buffer buffer
+               (eq imenu-sort-function #'imenu--sort-by-name)))
+        "alpha"
+      "natural")))
+
+(defun cfg-navigation--imenu-list-insert-entry (orig-fun entry depth)
+  "Override ORIG-FUN for ENTRY at DEPTH using the custom marker.
+ORIG-FUN is the original function and must be called for normal entries."
+  (if (imenu--subalist-p entry)
+      (progn
+        (insert (imenu-list--depth-string depth))
+        (insert-button (format "▶ %s" (car entry))
+                       'face (imenu-list--get-face depth t)
+                       'help-echo (format "Toggle: %s" (car entry))
+                       'follow-link t
+                       'action #'imenu-list--action-toggle-hs)
+        (insert "\n"))
+    (funcall orig-fun entry depth)))
+
+(defun cfg-navigation--update-imenu-list-hideshow ()
+  "Update hideshow regex in imenu-list to recognize '▶ ' instead of '+ '."
+  (setq hs-special-modes-alist
+        (assq-delete-all 'imenu-list-major-mode hs-special-modes-alist))
+  (push `(imenu-list-major-mode "\\s-*▶ " "\\s-*▶ " ,comment-start imenu-list-forward-sexp nil)
+        hs-special-modes-alist)
+  ;; `imenu-list-major-mode' enables hideshow before this hook runs, so
+  ;; refresh its cached regexes after replacing the package's "+" marker.
+  (when (bound-and-true-p hs-minor-mode)
+    (hs-grok-mode-type)))
+
+(defun cfg-navigation/imenu-list-toggle-hiding ()
+  "Toggle the current Imenu entry without moving to another row."
+  (interactive)
+  (let ((position (point)))
+    ;; Refresh hideshow's mode-specific cache in case an Imenu refresh or
+    ;; mode reinitialization restored the package's original `+` regexes.
+    (when (and (bound-and-true-p hs-minor-mode)
+               (fboundp 'hs-grok-mode-type))
+      (hs-grok-mode-type))
+    (hs-toggle-hiding)
+    (goto-char (min position (point-max)))))
+
+(defun cfg-navigation/toggle-imenu-sort ()
+  "Toggle `imenu-sort-function' between natural order and alphabetical sorting."
+  (interactive)
+  (let ((buffer (and (boundp 'imenu-list--displayed-buffer)
+                     imenu-list--displayed-buffer)))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (if (eq imenu-sort-function #'imenu--sort-by-name)
+            (setq-local imenu-sort-function nil)
+          (setq-local imenu-sort-function #'imenu--sort-by-name))
+        (when (fboundp 'imenu--cleanup)
+          (imenu--cleanup))
+        (setq-local imenu--index-alist nil))
+      (force-mode-line-update)
+      (when (fboundp 'imenu-list-refresh)
+        (imenu-list-refresh)))))
+
+(defun cfg-navigation/setup-imenu ()
+  "Set up smart Tree-sitter / fallback imenu indexing."
+  ;; Store fallback only if it's not already our function
+  (unless (eq imenu-create-index-function #'cfg-navigation--imenu-create-index)
+    (setq cfg-navigation--fallback-imenu-function imenu-create-index-function))
+  ;; Force local override
+  (setq-local imenu-create-index-function #'cfg-navigation--imenu-create-index))
+
+(defun cfg-navigation--restore-imenu-after-lsp ()
+  "Restore the configured index after LSP install its own Imenu function."
+  (when (assoc major-mode cfg-navigation/ts-imenu-rules)
+    (cfg-navigation/setup-imenu)
+    (when (fboundp 'imenu--cleanup)
+      (imenu--cleanup))
+    (setq-local imenu--index-alist nil)
+    (when (and (bound-and-true-p imenu-list-minor-mode)
+               (fboundp 'imenu-list-update))
+      (imenu-list-update))))
+
+(defun cfg-navigation--imenu-list-update-on-switch (&optional _frame)
+  "Update `imenu-list' when switching to a new buffer."
+  (when (and (bound-and-true-p imenu-list-minor-mode)
+             (get-buffer-window imenu-list-buffer-name t)
+             (not (eq (current-buffer) (get-buffer imenu-list-buffer-name)))
+             (not (minibufferp)))
+    (imenu-list-update)))
+
+(defun cfg-navigation/toggle-imenu-list ()
+  "Toggle `imenu-list' window and refresh for current buffer."
+  (interactive)
+  (imenu-list-smart-toggle))
+
+(add-hook 'prog-mode-hook #'cfg-navigation/setup-imenu)
+
+(with-eval-after-load 'lsp-mode
+  (setq lsp-enable-imenu nil)
+  ;; `lsp-configure-buffer' can still install `lsp--imenu-create-index'
+  ;; when a server advertises document symbols. Restore our index after it
+  ;; finishes configuring the buffer.
+  (add-hook 'lsp-configure-hook #'cfg-navigation--restore-imenu-after-lsp))
+
+(use-package imenu-list
+  :custom
+  (imenu-list-focus-after-activation t)
+  (imenu-list-auto-resize nil)
+  (imenu-list-mode-line-format
+   '("%e" mode-line-frame-identification
+     (:eval (all-the-icons-octicon "list-unordered" :v-adjust 0.0)) " "
+     (:eval (buffer-name imenu-list--displayed-buffer)) "  "
+     (:eval (format "[%s]" (cfg-navigation--imenu-modeline-sort-info))) "  "
+     mode-line-end-spaces))
+  :config
+  (add-hook 'imenu-list-major-mode-hook #'cfg-navigation--update-imenu-list-hideshow 90)
+  (add-hook 'window-selection-change-functions #'cfg-navigation--imenu-list-update-on-switch)
+  (add-hook 'java-ts-mode-hook #'cfg-navigation/setup-imenu 90)
+  (add-hook 'python-ts-mode-hook #'cfg-navigation/setup-imenu 90)
+  (add-hook 'typescript-ts-mode-hook #'cfg-navigation/setup-imenu 90)
+  (advice-add 'imenu-list--insert-entry :around #'cfg-navigation--imenu-list-insert-entry))
+#+end_src
+
+* Keybindings
+#+begin_src emacs-lisp
+(with-eval-after-load 'imenu-list
+  (define-key imenu-list-major-mode-map (kbd "s") #'cfg-navigation/toggle-imenu-sort)
+  (define-key imenu-list-major-mode-map (kbd "TAB") #'cfg-navigation/imenu-list-toggle-hiding)
+  (define-key imenu-list-major-mode-map (kbd "<tab>") #'cfg-navigation/imenu-list-toggle-hiding)
+  (define-key imenu-list-major-mode-map (kbd "f") #'cfg-navigation/imenu-list-toggle-hiding))
+
+(cfg-keys/leader-def
+  "t"   '(:ignore t :which-key "toggles")
+  "t l" '(cfg-navigation/toggle-imenu-list :which-key "Toggle imenu list"))
+#+end_src
+
+* System Setup
+No system setup required.
