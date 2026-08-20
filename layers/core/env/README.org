@@ -80,8 +80,9 @@ sessions running under WSL.
 
 ** WSL Clipboard
 When Emacs is running in WSL under Wayland, send copied kill-ring text through
-Windows' clipboard bridge. This makes the text available to Windows applications
-even when Emacs' normal Wayland clipboard integration is not.
+Windows' clipboard bridge. PowerShell reads stdin as one string so it does not
+add the extra carriage returns that ~clip.exe~ adds to line endings. Fall back
+to ~clip.exe~ when PowerShell is unavailable.
 
 #+begin_src emacs-lisp
 (defun cfg-core/wsl-copy-to-windows-clipboard (text)
@@ -90,11 +91,18 @@ Fall back to Emacs' normal graphical clipboard implementation when the
 Windows bridge is unavailable."
   (if (and (eq system-type 'gnu/linux)
            (cfg-core/wsl-p)
-           (executable-find "clip.exe"))
+           (or (executable-find "powershell.exe")
+               (executable-find "clip.exe")))
       (with-temp-buffer
         (insert text)
         (let ((coding-system-for-write 'utf-8-unix))
-          (call-process-region (point-min) (point-max) "clip.exe" nil nil nil)))
+          (if (executable-find "powershell.exe")
+              (call-process-region
+               (point-min) (point-max) "powershell.exe" nil nil nil
+               "-NoProfile" "-NonInteractive" "-Command"
+               "$s = [Console]::In.ReadToEnd(); Set-Clipboard -Value $s")
+            (call-process-region
+             (point-min) (point-max) "clip.exe" nil nil nil))))
     (gui-select-text text)))
 
 (when (and (eq system-type 'gnu/linux)
