@@ -243,7 +243,15 @@ simply redefines it) and is a no-op if no source file can be found."
                           (let ((f (expand-file-name "org-element.el.gz" dir)))
                             (and (file-exists-p f) f))))))
     (when source
-      (load source nil t))))
+      ;; Evaluate the source through a buffer instead of `load'. On Emacs
+      ;; 30.2, directly loading the distro's compressed org-element source
+      ;; can segfault in the native compressed-file loader. This preserves
+      ;; the source-over-ELC workaround without using that crashing path.
+      (with-temp-buffer
+        (insert-file-contents source)
+        (let ((load-file-name source)
+              (buffer-file-name source))
+          (eval-buffer))))))
 
 (defun cfg-core/--require-retangle-deps ()
   "Load Org libraries needed for include expansion and tangle."
