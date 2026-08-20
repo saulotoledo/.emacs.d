@@ -78,6 +78,30 @@ sessions running under WSL.
   (add-hook 'post-command-hook #'cfg-core/wsl-refresh-cursor))
 #+end_src
 
+** WSL Clipboard
+When Emacs is running in WSL under Wayland, send copied kill-ring text through
+Windows' clipboard bridge. This makes the text available to Windows applications
+even when Emacs' normal Wayland clipboard integration is not.
+
+#+begin_src emacs-lisp
+(defun cfg-core/wsl-copy-to-windows-clipboard (text)
+  "Copy TEXT to the Windows clipboard when running under WSL.
+Fall back to Emacs' normal graphical clipboard implementation when the
+Windows bridge is unavailable."
+  (if (and (eq system-type 'gnu/linux)
+           (cfg-core/wsl-p)
+           (executable-find "clip.exe"))
+      (with-temp-buffer
+        (insert text)
+        (let ((coding-system-for-write 'utf-8-unix))
+          (call-process-region (point-min) (point-max) "clip.exe" nil nil nil)))
+    (gui-select-text text)))
+
+(when (and (eq system-type 'gnu/linux)
+           (cfg-core/wsl-p))
+  (setq interprogram-cut-function #'cfg-core/wsl-copy-to-windows-clipboard))
+#+end_src
+
 ** Restart Emacs from within Emacs
 #+begin_src emacs-lisp
 (use-package restart-emacs)
