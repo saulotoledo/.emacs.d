@@ -1776,6 +1776,27 @@ uninstall__lang__web__tailwindcss_language_server() {
 
 register_action "Lang" "Web" "Install Tailwind CSS Language Server" "-lang--web--tailwindcss-language-server" "node"
 
+is_installed__lang__xml__xmllint() {
+  command -v xmllint >/dev/null 2>&1
+}
+
+register_system_package "xmllint" \
+                        "alpine:libxml2-utils" \
+                        "fedora:libxml2" \
+                        "linuxbrew:libxml2" \
+                        "mac:libxml2" \
+                        "debian-ubuntu:libxml2-utils"
+
+install__lang__xml__xmllint() {
+  install_system_packages "xmllint"
+}
+
+uninstall__lang__xml__xmllint() {
+  log_skip "xmllint" "xmllint is a system package and will not be uninstalled automatically"
+}
+
+register_action "Lang" "XML" "Install xmllint" "-lang--xml--xmllint" "standalone"
+
 DIRVISH_UTILITIES=(
   "fd" "git"
   "mediainfo" "imagemagick" "ffmpegthumbnailer" "vipsthumbnail"

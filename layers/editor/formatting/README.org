@@ -54,6 +54,8 @@ The package setup:
 #+begin_src emacs-lisp
 (use-package apheleia
   :pin "MELPA Unstable"
+  :commands (apheleia-format-buffer apheleia-global-mode)
+  :defines (apheleia-formatters apheleia-mode-alist apheleia-formatter)
   :config
   (apheleia-global-mode +1)
 
@@ -70,9 +72,12 @@ The package setup:
   (add-to-list 'apheleia-inhibit-functions #'cfg-editor/apheleia-inhibit-remote-if-no-tool)
 
   (setf (alist-get 'prettier-local apheleia-formatters)
-        `(,(expand-file-name "~/.emacs.d/nodejs_tools/bin/prettier.cjs")
-          "--stdin-filepath" filepath
-          "--plugin" ,(expand-file-name "~/.emacs.d/nodejs_tools/node_modules/@prettier/plugin-python")))
+        `(,(expand-file-name "nodejs_tools/node_modules/.bin/prettier"
+                            user-emacs-directory)
+          "--stdin-filepath" (cfg-editor--format-as-filepath)
+          "--plugin" ,(expand-file-name
+                        "nodejs_tools/node_modules/@prettier/plugin-python/src/index.js"
+                        user-emacs-directory)))
 
   (setf (alist-get 'emacs-lisp apheleia-formatters)
         '("emacs" "--batch" "-l" "pp"
@@ -90,7 +95,295 @@ The package setup:
   (setf (alist-get 'json-ts-mode apheleia-mode-alist) 'prettier-local)
   (setf (alist-get 'web-mode apheleia-mode-alist) 'prettier-local)
   (setf (alist-get 'python-mode apheleia-mode-alist) 'prettier-local)
-  (setf (alist-get 'python-ts-mode apheleia-mode-alist) 'prettier-local))
+  (setf (alist-get 'python-ts-mode apheleia-mode-alist) 'prettier-local)
+  (setf (alist-get 'xmllint apheleia-formatters)
+        '("xmllint" "--format" "-"))
+  (setf (alist-get 'nxml-mode apheleia-mode-alist) 'xmllint))
+#+end_src
+
+** Format As
+The =cfg-editor/format-as= command formats pasted or otherwise unnamed buffer
+contents as a selected language. Language layers register their own targets; the
+command can use either an explicitly registered formatter or the formatter
+already mapped by Apheleia.
+
+#+begin_src emacs-lisp
+(defvar cfg-editor/format-as-targets nil
+  "Alist of targets available to `cfg-editor/format-as'.")
+
+(defvar-local cfg-editor--format-as-temp-file nil)
+
+(defvar apheleia-formatter nil)
+(defvar apheleia-formatters nil)
+(defvar apheleia-mode-alist nil)
+
+(declare-function apheleia-format-buffer
+    "apheleia" (formatter &optional success-callback &rest arguments))
+
+(defun cfg-editor/format-as-register
+    (name mode &optional formatter extension region-finder)
+  "Register NAME as a format target for MODE.
+FORMATTER is an optional Apheleia formatter symbol. When it is nil,
+`cfg-editor/format-as' uses the formatter mapped by Apheleia for MODE.
+EXTENSION is the file-name suffix to use for unnamed buffers."
+  (let ((target (list :mode mode
+                      :formatter formatter
+                      :extension extension
+                      :region-finder region-finder))
+        (targets nil))
+    (dolist (entry cfg-editor/format-as-targets)
+      (unless (equal (car entry) name)
+        (setq targets (cons entry targets))))
+    (setq cfg-editor/format-as-targets
+          (cons (cons name target) (nreverse targets)))))
+
+(defun cfg-editor--format-as-target (name)
+  "Return the registered target named NAME."
+  (cdr (assoc name cfg-editor/format-as-targets)))
+
+(defun cfg-editor--format-as-delete-temp-file ()
+  "Delete the current buffer's Format As temporary file, if any."
+  (when (and cfg-editor--format-as-temp-file
+             (file-exists-p cfg-editor--format-as-temp-file))
+    (delete-file cfg-editor--format-as-temp-file))
+  (setq cfg-editor--format-as-temp-file nil))
+
+(defun cfg-editor--format-as-prepare-temp-file (extension)
+  "Create a temporary formatter pathname ending in EXTENSION."
+  (cfg-editor--format-as-delete-temp-file)
+  (when extension
+    (setq cfg-editor--format-as-temp-file
+          (make-temp-file "format-as-" nil extension))
+    (add-hook 'kill-buffer-hook #'cfg-editor--format-as-delete-temp-file nil t)))
+
+(defun cfg-editor--format-as-filepath ()
+  "Return the absolute pathname used for the active formatter invocation."
+  (or cfg-editor--format-as-temp-file
+      (and buffer-file-name (expand-file-name buffer-file-name))
+      (expand-file-name
+       (replace-regexp-in-string "\\`\\*\\|\\*\\'" "" (buffer-name))
+       default-directory)))
+
+(defun cfg-editor--format-as-rename-unnamed-buffer (extension)
+  "Give an unnamed buffer EXTENSION for formatter file-type detection."
+  (when (and extension (not (buffer-file-name)))
+    (let ((number 1)
+          name)
+      (while (progn
+               (setq name (format "*format-as%s%s*"
+                                  (if (= number 1) "" (number-to-string number))
+                                  extension))
+               (and (get-buffer name)
+                    (not (equal name (buffer-name)))))
+        (setq number (1+ number)))
+      (rename-buffer name t))))
+
+(defun cfg-editor--format-as-regions (start end line-only)
+  "Return START/END markers for nonblank regions between START and END.
+When LINE-ONLY is non-nil, return one region per nonblank line. Otherwise,
+return blank-line-separated regions."
+  (let (regions region-start)
+    (save-excursion
+      (goto-char start)
+      (while (< (point) end)
+        (setq region-start (point))
+        (if line-only
+            (progn
+              (end-of-line)
+              (unless (= region-start (point))
+                (push (cons (copy-marker region-start)
+                            (copy-marker (point) t))
+                      regions))
+              (forward-line 1))
+          (if (re-search-forward "^[ \t]*$" end t)
+              (progn
+                (goto-char (match-beginning 0))
+                (unless (= region-start (point))
+                  (push (cons (copy-marker region-start)
+                              (copy-marker (point) t))
+                        regions))
+                (goto-char (match-end 0)))
+            (goto-char end)
+            (unless (= region-start (point))
+                (push (cons (copy-marker region-start)
+                          (copy-marker (point) t))
+                    regions))))))
+    (nreverse regions)))
+
+(defun cfg-editor--format-as-tag-regions (start end)
+  "Return complete tag elements found between START and END.
+This is intended for logs containing XML or HTML payloads alongside ordinary
+text. It deliberately finds a complete outer element and does not attempt to
+interpret the surrounding log syntax. XML validation and formatting remain
+the formatter's responsibility."
+  (let (regions)
+    (save-excursion
+      (goto-char start)
+      (while (re-search-forward
+              "<[[:alpha:]_][[:alnum:]_.:-]*\\(?:[ \t\r\n][^>]*\\)?[ \\t\\r\\n]*>"
+              end t)
+        (let* ((open-start (match-beginning 0))
+               (open-end (match-end 0))
+               (tag (match-string-no-properties
+                     0))
+               (name (and (string-match
+                           "<\\([[:alpha:]_][[:alnum:]_.:-]*\\)"
+                           tag)
+                          (match-string 1 tag))))
+          (unless (string-match-p "/>[ \\t\\r\\n]*\\'" tag)
+            (let (close-end)
+              (save-excursion
+                (goto-char open-end)
+                (when (re-search-forward
+                       (concat "</" (regexp-quote name)
+                               "[ \\t\\r\\n]*>")
+                       end t)
+                  (setq close-end (match-end 0))))
+              (when close-end
+                (push (cons (copy-marker open-start)
+                            (copy-marker close-end t))
+                      regions)
+                ;; Do not return nested elements as overlapping regions.
+                (goto-char close-end)))))))
+    (nreverse regions)))
+
+(defun cfg-editor--format-as-xml-regions (start end)
+  "Return complete XML elements found between START and END."
+  (cfg-editor--format-as-tag-regions start end))
+
+(defun cfg-editor--format-as-html-regions (start end)
+  "Return complete HTML elements found between START and END."
+  (cfg-editor--format-as-tag-regions start end))
+
+(defun cfg-editor--format-as-json-regions (start end)
+  "Return balanced JSON object and array regions found between START and END.
+Strings and escaped quotes are handled so braces inside JSON strings do not
+end a candidate prematurely. The JSON formatter remains responsible for
+rejecting balanced candidates that are not actually JSON."
+  (let (regions)
+    (save-excursion
+      (goto-char start)
+      (while (re-search-forward "[{[]" end t)
+        (let ((open-start (match-beginning 0))
+              (stack (list (char-after (match-beginning 0))))
+              (in-string nil)
+              (escaped nil)
+              valid
+              close-end)
+          (setq valid t)
+          (goto-char (1+ open-start))
+          (while (and valid stack (< (point) end))
+            (let ((char (char-after)))
+              (cond
+               (in-string
+                (cond
+                 (escaped (setq escaped nil))
+                 ((= char ?\\) (setq escaped t))
+                 ((= char ?") (setq in-string nil))) )
+               ((= char ?") (setq in-string t))
+               ((memq char '(?{ ?[)) (push char stack))
+               ((memq char '(?} ?]))
+                (if (or (null stack)
+                        (not (= (car stack)
+                                (if (= char ?}) ?{ ?[))))
+                    (setq valid nil)
+                  (pop stack)
+                  (when (null stack)
+                    (setq close-end (1+ (point)))))))
+              (forward-char 1)))
+          (when (and valid close-end (not in-string))
+            (push (cons (copy-marker open-start)
+                        (copy-marker close-end t))
+                  regions)
+            ;; Do not return nested objects as overlapping regions.
+            (goto-char close-end)))))
+    (nreverse regions)))
+
+(defun cfg-editor--format-as-best-effort (formatter &optional region-finder)
+  "Format parseable regions with FORMATTER and preserve failed regions."
+  (let ((buffer (current-buffer))
+        (queue (if region-finder
+                   (funcall region-finder (point-min) (point-max))
+                 (cfg-editor--format-as-regions (point-min) (point-max) nil))))
+    (letrec ((next
+              (lambda ()
+                (if (null queue)
+                    (message "Format As: finished best-effort formatting")
+                  (let* ((region (car queue))
+                         (start (car region))
+                         (end (cdr region)))
+                    (setq queue (cdr queue))
+                    (if (or (not (marker-position start))
+                            (not (marker-position end))
+                            (>= (marker-position start)
+                                (marker-position end)))
+                        (progn
+                          (set-marker start nil)
+                          (set-marker end nil)
+                          (funcall next))
+                      (with-current-buffer buffer
+                        (narrow-to-region (marker-position start)
+                                          (marker-position end))
+                        (apheleia-format-buffer
+                         formatter nil
+                         :callback
+                         (lambda (&rest result)
+                           (let ((error-value (plist-get result :error)))
+                             (widen)
+                             (when (and error-value (not region-finder))
+                               (let ((line-regions
+                                      (cfg-editor--format-as-regions
+                                       (marker-position start)
+                                       (marker-position end)
+                                       t)))
+                                 (when (> (length line-regions) 1)
+                                   (setq queue
+                                         (append line-regions queue)))))
+                             (set-marker start nil)
+                             (set-marker end nil)
+                             (funcall next)))))))))))
+      (funcall next))))
+
+(defun cfg-editor/format-as ()
+  "Change the current buffer's language and format it with Apheleia."
+  (interactive)
+  (unless cfg-editor/format-as-targets
+    (user-error "No format-as targets have been registered"))
+  (let* ((name (completing-read "Format as: "
+                                (mapcar #'car cfg-editor/format-as-targets)
+                                nil t))
+         (target (cfg-editor--format-as-target name))
+         (mode (plist-get target :mode))
+         (formatter (plist-get target :formatter)))
+    (unless (functionp mode)
+      (user-error "Major mode is unavailable: %s" mode))
+    (funcall mode)
+    (cfg-editor--format-as-prepare-temp-file
+     (plist-get target :extension))
+    (cfg-editor--format-as-rename-unnamed-buffer
+     (plist-get target :extension))
+    (if formatter
+        (setq-local apheleia-formatter formatter)
+      (kill-local-variable 'apheleia-formatter)
+      (unless (alist-get major-mode apheleia-mode-alist)
+        (user-error "No Apheleia formatter is mapped for %s" major-mode)))
+    (let ((selected-formatter
+           (or formatter (alist-get major-mode apheleia-mode-alist)))
+          (region-finder (plist-get target :region-finder)))
+      (if region-finder
+          ;; A fragment target is designed for buffers that contain other
+          ;; syntax, so never give the formatter the invalid whole buffer.
+          (cfg-editor--format-as-best-effort
+           selected-formatter region-finder)
+        (apheleia-format-buffer
+         selected-formatter nil
+         :callback
+         (lambda (&rest result)
+           (when (plist-get result :error)
+             (cfg-editor--format-as-best-effort selected-formatter))))))))
+
+(cfg-editor/format-as-register
+ "Emacs Lisp" 'emacs-lisp-mode nil ".el")
 #+end_src
 
 ** Prettier JS
@@ -129,7 +422,8 @@ your settings. It is especially useful for JavaScript and TypeScript projects.
 #+begin_src emacs-lisp
 (cfg-keys/leader-def
   "c"   '(:ignore t :which-key "code")
-  "c a" '(apheleia-format-buffer :which-key "Format buffer with Apheleia"))
+  "c a" '(apheleia-format-buffer :which-key "Format buffer with Apheleia")
+  "c f" '(cfg-editor/format-as :which-key "Format as"))
 #+end_src
 
 * System Setup

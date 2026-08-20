@@ -13,6 +13,13 @@ Configure JSON support.
   (add-to-list 'lsp-language-id-configuration '(json-ts-mode . "json")))
 #+end_src
 
+* Format As targets
+#+begin_src emacs-lisp
+(cfg-editor/format-as-register
+ "JSON" 'json-ts-mode 'prettier-local ".json"
+ 'cfg-editor--format-as-json-regions)
+#+end_src
+
 * Keybindings
 No keybindings required.
 

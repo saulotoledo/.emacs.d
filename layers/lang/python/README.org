@@ -14,6 +14,12 @@ shell interpreter and resolves syntax/sexp navigation issues in Python mode.
  '("import_statement" "import_from_statement"))
 #+end_src
 
+* Format As targets
+#+begin_src emacs-lisp
+(cfg-editor/format-as-register
+ "Python" 'python-ts-mode 'prettier-local ".py")
+#+end_src
+
 * Emacs Configuration
 ** Python Setup
 #+begin_src emacs-lisp

@@ -55,6 +55,16 @@ The server is installed via =nodejs_tools= and pointed to via
              user-emacs-directory))))
 #+end_src
 
+* Format As targets
+#+begin_src emacs-lisp
+(cfg-editor/format-as-register
+ "HTML/Web" 'web-mode 'prettier-local ".html"
+ 'cfg-editor--format-as-html-regions)
+
+(cfg-editor/format-as-register
+ "CSS" 'css-mode 'prettier-local ".css")
+#+end_src
+
 * Keybindings
 #+begin_src emacs-lisp
 (declare-function web-mode-element-close "web-mode")

@@ -1,6 +1,7 @@
 #+TITLE: Xml Layer
 #+CATEGORY: lang
 #+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
 
 * Description
 Configure XML support.
@@ -52,8 +53,39 @@ https://emacs.stackexchange.com/questions/2884/the-old-how-to-fold-xml-question
               (local-set-key (kbd "C-<tab>") #'hs-toggle-hiding))))
 #+end_src
 
+* Format As targets
+#+begin_src emacs-lisp
+(cfg-editor/format-as-register
+ "XML" 'nxml-mode 'xmllint ".xml" 'cfg-editor--format-as-xml-regions)
+#+end_src
+
 * Keybindings
 No keybindings required.
 
 * System Setup
-No system setup required.
+The XML formatter uses ~xmllint~, provided by the libxml2 command-line tools.
+This action registers the correct package name for the supported package
+managers and makes the executable available to Apheleia.
+
+#+begin_src sh
+is_installed__lang__xml__xmllint() {
+  command -v xmllint >/dev/null 2>&1
+}
+
+register_system_package "xmllint" \
+                        "alpine:libxml2-utils" \
+                        "fedora:libxml2" \
+                        "linuxbrew:libxml2" \
+                        "mac:libxml2" \
+                        "debian-ubuntu:libxml2-utils"
+
+install__lang__xml__xmllint() {
+  install_system_packages "xmllint"
+}
+
+uninstall__lang__xml__xmllint() {
+  log_skip "xmllint" "xmllint is a system package and will not be uninstalled automatically"
+}
+
+register_action "Lang" "XML" "Install xmllint" "-lang--xml--xmllint" "standalone"
+#+end_src
