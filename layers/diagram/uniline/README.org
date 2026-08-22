@@ -1,0 +1,31 @@
+#+TITLE: Uniline Layer
+#+CATEGORY: diagram
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Uniline is a minor mode for Emacs that allows you to draw and edit ASCII/Unicode
+box-art, lines, arrows, and simple diagrams directly in text buffers using
+keyboard navigation.
+
+* Emacs Configuration
+#+begin_src emacs-lisp
+(use-package uniline
+  :defer t
+  :commands (uniline-mode))
+
+(use-package uniline-transient
+  :ensure nil) ; Part of uniline
+#+end_src
+
+* Keybindings
+Registers keybindings for previewing and editing diagrams.
+
+#+begin_src emacs-lisp
+(define-key cfg-keys-map (kbd "C-<insert>") #'uniline-mode)
+(cfg-keys/leader-def
+  "t"   '(:ignore t :which-key "toggles")
+  "t u" '(uniline-mode :which-key "Uniline Mode"))
+#+end_src
+
+* System Setup
+No system setup required.

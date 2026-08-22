@@ -51,7 +51,7 @@ auto-save-list/
 # Other packages
 cognitive-complexity
 dirvish
-plantuml
+./plantuml
 
 # Personal drafts and notes
 drafts.el

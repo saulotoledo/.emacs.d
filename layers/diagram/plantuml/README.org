@@ -1,6 +1,7 @@
-#+TITLE: Diagrams Layer
-#+CATEGORY: lang
+#+TITLE: PlantUML Layer
+#+CATEGORY: diagram
 #+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
 
 * Description
 Provides syntax highlighting, autocompletion, previewing, and syntax checking
@@ -10,9 +11,9 @@ Org-mode documents.
 
 * Emacs Configuration
 ** PlantUML Mode
-[[https://plantuml.com/][PlantUML]] is a tool for creating UML diagrams from a simple text description.
-The ~plantuml-mode~ package provides syntax highlighting, autocompletion, and preview
-capabilities for PlantUML diagrams within Emacs.
+[[https://plantuml.com/][PlantUML]] is a tool for creating UML diagrams from a simple text description. The
+~plantuml-mode~ package provides syntax highlighting, autocompletion, and
+preview capabilities for PlantUML diagrams within Emacs.
 
 #+begin_src emacs-lisp
 (defvar org-src-lang-modes)

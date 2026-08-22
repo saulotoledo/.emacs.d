@@ -1292,6 +1292,31 @@ uninstall__cloud__terraform__terraformls() {
 
 register_action "Cloud" "Terraform" "Install Terraform Language Server" "-cloud--terraform--terraformls" "cloud"
 
+# Update PlantUML version as needed:
+PLANTUML_VERSION="1.2026.6"
+PLANTUML_DIR="$HOME/.emacs.d/plantuml"
+
+is_installed__lang__diagrams__plantuml() {
+  [ -f "$HOME/.emacs.d/plantuml/plantuml.jar" ]
+}
+
+install__lang__diagrams__plantuml() {
+  local PLANTUML_JAR="$PLANTUML_DIR/plantuml.jar"
+  local PLANTUML_URL="https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar"
+
+  if [ -f "$PLANTUML_JAR" ]; then
+    log_skip "PlantUML" "EXISTS"
+  else
+    run_task "Downloading PlantUML" "mkdir -p $PLANTUML_DIR && curl -L $PLANTUML_URL -o $PLANTUML_JAR"
+  fi
+}
+
+uninstall__lang__diagrams__plantuml() {
+  run_task "Removing PlantUML" "rm -Rf $PLANTUML_DIR"
+}
+
+register_action "Lang" "Diagrams" "Install PlantUML" "-lang--diagrams--plantuml" "standalone"
+
 is_installed__editor__formatting__prettier() {
   [ -f "$TOOLS_DIR/node_modules/.bin/prettier" ] || command -v prettier >/dev/null 2>&1
 }
@@ -1435,31 +1460,6 @@ uninstall__lang__cpp__cpp_dev_bundle() {
 }
 
 register_action "Lang" "CPP" "Install C++ dev tools" "-lang--cpp--cpp-dev-bundle" "cpp"
-
-# Update PlantUML version as needed:
-PLANTUML_VERSION="1.2026.6"
-PLANTUML_DIR="$HOME/.emacs.d/plantuml"
-
-is_installed__lang__diagrams__plantuml() {
-  [ -f "$HOME/.emacs.d/plantuml/plantuml.jar" ]
-}
-
-install__lang__diagrams__plantuml() {
-  local PLANTUML_JAR="$PLANTUML_DIR/plantuml.jar"
-  local PLANTUML_URL="https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar"
-
-  if [ -f "$PLANTUML_JAR" ]; then
-    log_skip "PlantUML" "EXISTS"
-  else
-    run_task "Downloading PlantUML" "mkdir -p $PLANTUML_DIR && curl -L $PLANTUML_URL -o $PLANTUML_JAR"
-  fi
-}
-
-uninstall__lang__diagrams__plantuml() {
-  run_task "Removing PlantUML" "rm -Rf $PLANTUML_DIR"
-}
-
-register_action "Lang" "Diagrams" "Install PlantUML" "-lang--diagrams--plantuml" "standalone"
 
 JDTLS_VERSION="1.60.0"
 JDTLS_DATE="202606262232"

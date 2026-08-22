@@ -20,6 +20,9 @@
   - [[file:completion/corfu/README.org][corfu]]
   - [[file:completion/ivy/README.org][ivy]]
   - [[file:completion/snippets/README.org][snippets]]
+- Diagram
+  - [[file:diagram/plantuml/README.org][plantuml]]
+  - [[file:diagram/uniline/README.org][uniline]]
 - Editor
   - [[file:editor/buffers/README.org][buffers]]
   - [[file:editor/focus/README.org][focus]]
@@ -34,7 +37,6 @@
   - [[file:lang/autotools/README.org][autotools]]
   - [[file:lang/cmake/README.org][cmake]]
   - [[file:lang/cpp/README.org][cpp]]
-  - [[file:lang/diagrams/README.org][diagrams]]
   - [[file:lang/dotenv/README.org][dotenv]]
   - [[file:lang/java/README.org][java]]
   - [[file:lang/javascript/README.org][javascript]]
