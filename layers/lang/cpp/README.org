@@ -3,7 +3,10 @@
 #+PROPERTY: header-args:emacs-lisp :tangle yes
 
 * Description
-Provides full C/C++ language support, including LSP via ~clangd~, automated formatting via ~clang-format~ / ~apheleia~, tree-sitter integration, and smart GDB debugging with ~dap-mode~. Includes system setup declarations for compiler toolchains and development headers.
+Provides full C/C++ language support, including LSP via ~clangd~, automated
+formatting via ~clang-format~ / ~apheleia~, tree-sitter integration, and smart
+GDB debugging with ~dap-mode~. Includes system setup declarations for compiler
+toolchains and development headers.
 
 ** Tree-sitter Folding
 #+begin_src emacs-lisp
@@ -60,7 +63,8 @@ to place the cursor while typing interactively."
 (with-eval-after-load 'lsp-mode
   (defvar lsp-clients-clangd-args nil)
   (setq lsp-clients-clangd-args
-        `("--header-insertion=never"
+        `("--header-insertion=iwyu"
+          "--header-insertion-decorators=true"
           "--background-index"
           "--log=error"
           ,(format "--fallback-style=%s"
@@ -202,7 +206,8 @@ then launches GDB. Same path as ~C-<f4>~.
 No keybindings required.
 
 * System Setup
-Registers system package dependencies for C++ development across multiple operating systems and package managers.
+Registers system package dependencies for C++ development across multiple
+operating systems and package managers.
 
 #+begin_src sh :tangle setup.sh
 CPP_MIN_DEV_PACKAGES=(
