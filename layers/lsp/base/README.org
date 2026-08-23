@@ -225,6 +225,49 @@ may use this hook to refresh their completion UI.")
   (setq lsp-completion-use-last-result t)
 
   (with-eval-after-load 'lsp-completion
+    ;; `lsp-completion--clear-cache' always does (set-marker nil) on the cached
+    ;; end marker, even when KEEP-LAST-RESULT is non-nil. Candidates still held
+    ;; in `lsp-completion--last-result' (and Corfu's UI) share that marker list.
+    ;; Accepting one then runs (apply #'delete-region markers) and signals
+    ;; Wrong type argument: number-or-marker-p, nil. Skip marker destruction
+    ;; when last-result must remain usable (common with async/incomplete clangd).
+    (defun cfg-lsp/lsp-completion-clear-cache-keep-last-markers
+        (orig-fun &optional keep-last-result)
+      "Around `lsp-completion--clear-cache': keep markers when retaining last-result."
+      (if keep-last-result
+          (setq lsp-completion--cache nil)
+        (funcall orig-fun keep-last-result)))
+
+    (cfg-lsp/advice-add-once
+     'lsp-completion--clear-cache :around
+     #'cfg-lsp/lsp-completion-clear-cache-keep-last-markers)
+
+    ;; Repair dead markers before exit-fn applies text edits / deletes the prefix.
+    (defun cfg-lsp/lsp-completion-repair-markers (candidate &rest _)
+      "Restore live `lsp-completion-markers' on CANDIDATE before exit-fn runs."
+      (when (and (stringp candidate) (> (length candidate) 0))
+        (let* ((markers (get-text-property 0 'lsp-completion-markers candidate))
+               (start (get-text-property 0 'lsp-completion-start-point candidate)))
+          (when (and (consp markers)
+                     (not (and (integer-or-marker-p (car markers))
+                               (integer-or-marker-p (cadr markers)))))
+            (let ((beg (cond
+                        ((integer-or-marker-p (car markers)) (car markers))
+                        ((integer-or-marker-p start) start)
+                        (t (point))))
+                  (end (copy-marker (point) t)))
+              (put-text-property 0 (length candidate)
+                                 'lsp-completion-markers (list beg end)
+                                 candidate)
+              (unless (integer-or-marker-p start)
+                (put-text-property 0 (length candidate)
+                                   'lsp-completion-start-point beg
+                                   candidate)))))))
+
+    (cfg-lsp/advice-add-once
+     'lsp-completion--exit-fn :before
+     #'cfg-lsp/lsp-completion-repair-markers)
+
     ;; Some language servers (TypeScript, Pyright, clangd, etc.) frequently return
     ;; isIncomplete=true in their textDocument/completion responses. When that
     ;; happens lsp-mode stores :incomplete in lsp-completion--cache, and the

@@ -461,6 +461,21 @@ POINT, or GENERATION no longer match) are ignored."
     (add-hook (intern (concat (symbol-name m) "-hook"))
               (lambda () (corfu-mode -1))))
 
+  ;; `corfu-complete' assumes `completion-in-region--data' is live. Calling it
+  ;; with no active session (e.g. M-x corfu-complete on `free(|line)') does
+  ;; (- (point) nil) inside `corfu-expand' → number-or-marker-p, nil. Fall back
+  ;; to starting completion instead.
+  (defun cfg-completion/corfu-complete-or-start (orig-fun &rest args)
+    "Call `corfu-complete' when a session is active; otherwise start completion."
+    (if (and (bound-and-true-p completion-in-region-mode)
+             completion-in-region--data)
+        (apply orig-fun args)
+      (cfg-completion/corfu-manual-completion)))
+
+  (cfg-completion/advice-add-once
+   'corfu-complete :around
+   #'cfg-completion/corfu-complete-or-start)
+
   ;; `corfu-auto--complete-deferred` fires the capf chain directly via
   ;; run-hook-wrapped, bypassing `corfu--exhibit` which is the only place
   ;; corfu binds `(non-essential t)`. Without this, our lsp completion
