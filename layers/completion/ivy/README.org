@@ -17,12 +17,52 @@ Ivy's UI for all compatible prompts. ~ivy-switch-buffer~ (from Ivy) provides a
 fast, simple buffer switcher.
 
 #+begin_src emacs-lisp
+(declare-function ivy-done "ivy")
+(declare-function ivy-immediate-done "ivy")
+(defvar ivy-text)
+
+(defvar cfg-completion--ivy-literal-done-callers nil
+  "List of Ivy callers where RET submits typed text over matched candidate.
+Register callers via `cfg-completion/ivy-add-literal-done-callers'.")
+
+(defun cfg-completion/ivy-add-literal-done-callers (&rest callers)
+  "Add CALLERS to `cfg-completion--ivy-literal-done-callers'.
+Call this from any layer that needs literal-done behavior for specific commands."
+  (dolist (caller callers)
+    (add-to-list 'cfg-completion--ivy-literal-done-callers caller)))
+
+;; Buffer-local flag set at minibuffer-open time, when `this-command' still
+;; holds the originating command (e.g. `dired-do-copy'). By RET-press time
+;; `this-command' has changed to our handler, so we cannot rely on it there.
+(defvar-local cfg-completion--ivy-literal-done-active nil
+  "Non-nil inside an Ivy minibuffer opened by a registered literal-done caller.")
+
+(defun cfg-completion--ivy-setup-literal-done ()
+  "Activate literal-done mode for registered callers.
+Added to `minibuffer-setup-hook', where `this-command' is the originating
+interactive command, not the minibuffer handler."
+  (when (and (bound-and-true-p ivy-mode)
+             (memq this-command cfg-completion--ivy-literal-done-callers))
+    (setq cfg-completion--ivy-literal-done-active t)))
+
+(defun cfg-completion--ivy-done-prefer-literal-for-callers ()
+  "Submit typed text when in a registered literal-done Ivy session.
+Otherwise, submit the standard selected candidate."
+  (interactive)
+  (if (and cfg-completion--ivy-literal-done-active
+           (not (string-empty-p ivy-text)))
+      (ivy-immediate-done)
+    (ivy-done)))
+
 (use-package ivy
   :diminish (ivy-mode)
+  :custom
+  (ivy-display-style 'fancy)
+  (ivy-use-selectable-prompt t)
+  (ivy-use-virtual-buffers t)
   :config
-  (ivy-mode 1)
-  (setq ivy-use-virtual-buffers t)
-  (setq ivy-display-style 'fancy))
+  (add-hook 'minibuffer-setup-hook #'cfg-completion--ivy-setup-literal-done)
+  (ivy-mode 1))
 #+end_src
 
 ** Package: counsel
@@ -138,6 +178,7 @@ you interact with them.
 
 * Keybindings
 #+begin_src emacs-lisp
+(define-key ivy-minibuffer-map (kbd "RET") #'cfg-completion--ivy-done-prefer-literal-for-callers)
 ;; --- Counsel Global Overrides ---
 (define-key cfg-keys-map (kbd "M-x") #'counsel-M-x)
 ;; The following commands cannot be in the cfg-keys-map because they are bound to C-x prefix keys.

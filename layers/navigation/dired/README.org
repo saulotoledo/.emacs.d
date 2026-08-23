@@ -149,6 +149,15 @@ buffer, so explicitly refresh the Dirvish overlays here."
   ;; current, so this polling is redundant and wastes ~4% of CPU.
   (setq auto-revert-check-vc-info nil)
   (setq dired-auto-revert-buffer t))
+
+;; Register dired commands that should use literal text entry (not matched candidates)
+;; when Ivy is active. This allows copying/renaming to new names like .env.example -> .env.
+(with-eval-after-load 'ivy
+  (when (fboundp 'cfg-completion/ivy-add-literal-done-callers)
+    (cfg-completion/ivy-add-literal-done-callers
+     'dired-do-copy
+     'dired-do-rename
+     'dired-create-directory)))
 #+end_src
 
 ** Dirvish Configuration
