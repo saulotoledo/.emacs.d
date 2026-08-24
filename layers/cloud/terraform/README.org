@@ -14,7 +14,35 @@ managing Infrastructure as Code (IaC).
 #+begin_src emacs-lisp
 (use-package terraform-mode
   :defer t
-  :hook (terraform-mode . lsp-deferred))
+  :custom
+  (terraform-command (if (executable-find "tofu") "tofu" "terraform"))
+  :hook ((terraform-mode . lsp-deferred)
+         (terraform-mode . terraform-format-on-save-mode)))
+#+end_src
+
+** Format on save
+On save, ~terraform-format-on-save-mode~ formats the buffer with ~fmt~. That is
+the same function as ~terraform-format-buffer~.
+
+The binary is ~terraform-command~:
+
+1. ~tofu~ if it is on PATH (OpenTofu)
+2. otherwise ~terraform~ (HashiCorp)
+
+Apheleia is the usual on-save formatter in this config, but it is a poor fit
+here:
+- It is loaded lazily, so opening a ~.tf~ file does not enable it.
+- Its default for ~terraform-mode~ is OpenTofu (~tofu fmt~), which fails
+  silently when ~tofu~ is missing.
+- ~terraform-mode~ derives from ~hcl-mode~, so Apheleia can also try ~hclfmt~.
+
+Disable Apheleia for Terraform so save uses only the path above.
+
+#+begin_src emacs-lisp
+(defvar apheleia-mode-alist nil)
+
+(with-eval-after-load 'apheleia
+  (setf (alist-get 'terraform-mode apheleia-mode-alist) nil))
 #+end_src
 
 * Keybindings
