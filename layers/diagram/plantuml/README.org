@@ -37,6 +37,9 @@ preview capabilities for PlantUML diagrams within Emacs.
             (lambda ()
               (setq-local completion-at-point-functions
                           (list #'plantuml-completion-at-point-function))))
+  ;; Disable LSP when it is automatically enabled on `prog-mode':
+  (add-hook 'cfg-lsp/deferred-start-predicate-functions
+            (lambda () (not (derived-mode-p 'plantuml-mode))))
   ;; Enable PlantUML integration with org-mode
   (with-eval-after-load 'org
     (add-to-list 'org-src-lang-modes '("plantuml" . plantuml))))
