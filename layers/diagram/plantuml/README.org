@@ -17,6 +17,15 @@ preview capabilities for PlantUML diagrams within Emacs.
 
 #+begin_src emacs-lisp
 (defvar org-src-lang-modes)
+(declare-function plantuml-completion-at-point-function "plantuml")
+
+(defun cfg-plantuml/preserve-point (orig-fun &rest args)
+  "Preserve point while PlantUML calculates completion bounds.
+ORIG-FUN is the advised function.
+ARGS contains the advised function's arguments."
+  (save-excursion
+    (apply orig-fun args)))
+
 (use-package plantuml-mode
   :mode (("\\.wsd\\'" . plantuml-mode)
          ("\\.pu\\'" . plantuml-mode)
@@ -29,6 +38,11 @@ preview capabilities for PlantUML diagrams within Emacs.
   (plantuml-output-type "svg")
   (plantuml-indent-level 2)
   :config
+  ;; `plantuml-completion-at-point-function' moves point while calculating
+  ;; completion bounds. A CAPF must leave point unchanged after being queried.
+  (advice-add 'plantuml-completion-at-point-function
+              :around
+              #'cfg-plantuml/preserve-point)
   ;; Replace PlantUML's obsolete inserter (which inserts a unique match
   ;; immediatelly and is disruptive with Corfu's automatic completion) with
   ;; a proper CAPF. It returns the completion table, allowing Corfu to filter
