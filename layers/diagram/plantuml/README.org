@@ -29,6 +29,14 @@ preview capabilities for PlantUML diagrams within Emacs.
   (plantuml-output-type "svg")
   (plantuml-indent-level 2)
   :config
+  ;; Replace PlantUML's obsolete inserter (which inserts a unique match
+  ;; immediatelly and is disruptive with Corfu's automatic completion) with
+  ;; a proper CAPF. It returns the completion table, allowing Corfu to filter
+  ;; and display matching candidates without inserting them automatically.
+  (add-hook 'plantuml-mode-hook
+            (lambda ()
+              (setq-local completion-at-point-functions
+                          (list #'plantuml-completion-at-point-function))))
   ;; Enable PlantUML integration with org-mode
   (with-eval-after-load 'org
     (add-to-list 'org-src-lang-modes '("plantuml" . plantuml))))
