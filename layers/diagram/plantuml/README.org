@@ -40,6 +40,9 @@ preview capabilities for PlantUML diagrams within Emacs.
   ;; Disable LSP when it is automatically enabled on `prog-mode':
   (add-hook 'cfg-lsp/deferred-start-predicate-functions
             (lambda () (not (derived-mode-p 'plantuml-mode))))
+  ;; Trigger corfu completion on single character:
+  (setf (alist-get 'plantuml-mode cfg-completion/corfu-mode-policies)
+        '(:auto-prefix 1))
   ;; Enable PlantUML integration with org-mode
   (with-eval-after-load 'org
     (add-to-list 'org-src-lang-modes '("plantuml" . plantuml))))
