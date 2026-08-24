@@ -125,7 +125,8 @@ already mapped by Apheleia.
   "Register NAME as a format target for MODE.
 FORMATTER is an optional Apheleia formatter symbol. When it is nil,
 `cfg-editor/format-as' uses the formatter mapped by Apheleia for MODE.
-EXTENSION is the file-name suffix to use for unnamed buffers."
+EXTENSION is the file-name suffix to use for unnamed buffers.
+REGION-FINDER optionally identifies the regions to format."
   (let ((target (list :mode mode
                       :formatter formatter
                       :extension extension
@@ -279,13 +280,13 @@ rejecting balanced candidates that are not actually JSON."
                 (cond
                  (escaped (setq escaped nil))
                  ((= char ?\\) (setq escaped t))
-                 ((= char ?") (setq in-string nil))) )
-               ((= char ?") (setq in-string t))
-               ((memq char '(?{ ?[)) (push char stack))
-               ((memq char '(?} ?]))
+                 ((= char ?\") (setq in-string nil))) )
+               ((= char ?\") (setq in-string t))
+               ((memq char '(?\{ ?\[)) (push char stack))
+               ((memq char '(?\} ?\]))
                 (if (or (null stack)
                         (not (= (car stack)
-                                (if (= char ?}) ?{ ?[))))
+                                (if (= char ?\}) ?\{ ?\[))))
                     (setq valid nil)
                   (pop stack)
                   (when (null stack)
@@ -300,7 +301,9 @@ rejecting balanced candidates that are not actually JSON."
     (nreverse regions)))
 
 (defun cfg-editor--format-as-best-effort (formatter &optional region-finder)
-  "Format parseable regions with FORMATTER and preserve failed regions."
+  "Format parseable regions with FORMATTER and preserve failed regions.
+
+REGION-FINDER optionally identifies the regions to format."
   (let ((buffer (current-buffer))
         (queue (if region-finder
                    (funcall region-finder (point-min) (point-max))

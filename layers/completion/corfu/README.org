@@ -424,6 +424,19 @@ POINT, or GENERATION no longer match) are ignored."
       (completion-at-point)))
   (message "Corfu/LSP completion cache cleared"))
 
+;; `corfu-complete' assumes `completion-in-region--data' is live. Calling it
+;; with no active session (e.g. M-x corfu-complete on `free(|line)') does
+;; (- (point) nil) inside `corfu-expand' GåÆ number-or-marker-p, nil. Fall back
+;; to starting completion instead.
+(defun cfg-completion/corfu-complete-or-start (orig-fun &rest args)
+  "Call `corfu-complete' when a session is active; otherwise start completion.
+ORIG-FUN is the advised function.
+ARGS contains the advised function's arguments."
+  (if (and (bound-and-true-p completion-in-region-mode)
+           completion-in-region--data)
+      (apply orig-fun args)
+    (cfg-completion/corfu-manual-completion)))
+
 (use-package corfu
   :demand t
   :init
@@ -460,17 +473,6 @@ POINT, or GENERATION no longer match) are ignored."
   (dolist (m '(org-mode shell-mode term-mode vterm-mode))
     (add-hook (intern (concat (symbol-name m) "-hook"))
               (lambda () (corfu-mode -1))))
-
-  ;; `corfu-complete' assumes `completion-in-region--data' is live. Calling it
-  ;; with no active session (e.g. M-x corfu-complete on `free(|line)') does
-  ;; (- (point) nil) inside `corfu-expand' → number-or-marker-p, nil. Fall back
-  ;; to starting completion instead.
-  (defun cfg-completion/corfu-complete-or-start (orig-fun &rest args)
-    "Call `corfu-complete' when a session is active; otherwise start completion."
-    (if (and (bound-and-true-p completion-in-region-mode)
-             completion-in-region--data)
-        (apply orig-fun args)
-      (cfg-completion/corfu-manual-completion)))
 
   (cfg-completion/advice-add-once
    'corfu-complete :around
