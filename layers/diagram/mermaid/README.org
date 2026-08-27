@@ -1,0 +1,91 @@
+#+TITLE: Mermaid Layer
+#+CATEGORY: diagram
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Setup Mermaid for diagramming in Emacs.
+
+* Emacs Configuration
+** Mermaid Mode
+Mermaid is an open-source, JavaScript-based diagramming tool that converts
+simple, Markdown-inspired plain text into clean visual diagrams. Instead of
+manually drawing shapes and dragging arrows in visual design software, you write
+your logic as code, and Mermaid automatically renders it as a graphic.
+
+On Emacs, we can use either the original ~mermaid-mode~ or the newer
+~mermaid-ts-mode~ (which is based on the Mermaid Language Server). Since
+~mermaid-ts-mode~ does not have integration with the =mmdc= command-line tool
+(and thus cannot provide certain functionalities, such as exporting the
+diagrams), we also setup ~mermaid-mode~ for such cases.
+
+#+begin_src emacs-lisp
+(cfg-editor/register-treesit-auto-language
+ 'mermaid
+ '("https://github.com/monaqa/tree-sitter-mermaid" "master" "src"))
+
+(add-hook 'cfg-lsp/deferred-start-predicate-functions
+          (lambda ()
+            (not (derived-mode-p 'mermaid-mode 'mermaid-ts-mode))))
+
+(defun cfg-mermaid-setup ()
+  (flycheck-mode -1))
+
+(use-package mermaid-mode
+  :defer t
+  ;; Declare Mermaid commands as autoloads so the same commands can be used
+  ;; from both `mermaid-mode' and `mermaid-ts-mode' without loading
+  ;; `mermaid-mode' during startup:
+  :commands (mermaid-compile
+             mermaid-compile-buffer
+             mermaid-compile-file
+             mermaid-compile-region
+             mermaid-open-browser
+             mermaid-open-doc)
+  :custom
+  (mermaid-mmdc-location
+   (expand-file-name "nodejs_tools/node_modules/.bin/mmdc"
+                     user-emacs-directory))
+  :hook
+  (mermaid-mode . cfg-mermaid-setup))
+
+(use-package mermaid-ts-mode
+  :defer t
+  :mode (("\\.mmd\\'" . mermaid-ts-mode)
+         ("\\.mermaid\\'" . mermaid-ts-mode))
+  :hook
+  (mermaid-ts-mode . cfg-mermaid-setup))
+#+end_src
+
+* Keybindings
+The following keybindings are registered by default in ~mermaid-mode~, but not
+in ~mermaid-ts-mode~ because the latter lacks integration with the =mmdc=
+command-line tool. We add these keybindings to ~mermaid-ts-mode~ so we can use
+the same shortcuts across both modes.
+
+#+begin_src emacs-lisp
+(cfg-keys/mode-leader-def mermaid-ts-mode
+  "C-c" #'mermaid-compile
+  "C-f" #'mermaid-compile-file
+  "C-b" #'mermaid-compile-buffer
+  "C-r" #'mermaid-compile-region
+  "C-o" #'mermaid-open-browser
+  "C-d" #'mermaid-open-doc)
+#+end_src
+
+* System Setup
+#+begin_src sh
+is_installed__diagram__mermaid__mmdc() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/mmdc" ] || command -v mmdc >/dev/null 2>&1
+}
+
+install__diagram__mermaid__mmdc() {
+  install_nodejs_tools
+}
+
+uninstall__diagram__mermaid__mmdc() {
+  uninstall_nodejs_tools
+}
+
+register_action "Diagram" "Mermaid" "Install Mermaid CLI" "-diagram--mermaid--mmdc" "node"
+#+end_src

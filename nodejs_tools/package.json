@@ -2,6 +2,7 @@
   "devDependencies": {
     "@devcontainers/cli": "^0.88.0",
     "@github/copilot-language-server": "^1.526.0",
+    "@mermaid-js/mermaid-cli": "^11.16.0",
     "@prettier/plugin-python": "^0.0.0-development",
     "@tailwindcss/language-server": "^0.16.0",
     "@vtsls/language-server": "^0.3.0",

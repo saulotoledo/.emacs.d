@@ -14,15 +14,6 @@
   - [[file:lsp/base/README.org][base]]
   - [[file:lsp/dap/README.org][dap]]
   - [[file:lsp/diagnostics/README.org][diagnostics]]
-- Cloud
-  - [[file:cloud/terraform/README.org][terraform]]
-- Completion
-  - [[file:completion/corfu/README.org][corfu]]
-  - [[file:completion/ivy/README.org][ivy]]
-  - [[file:completion/snippets/README.org][snippets]]
-- Diagram
-  - [[file:diagram/plantuml/README.org][plantuml]]
-  - [[file:diagram/uniline/README.org][uniline]]
 - Editor
   - [[file:editor/buffers/README.org][buffers]]
   - [[file:editor/focus/README.org][focus]]
@@ -33,6 +24,16 @@
   - [[file:editor/regions/README.org][regions]]
   - [[file:editor/tags/README.org][tags]]
   - [[file:editor/undo/README.org][undo]]
+- Cloud
+  - [[file:cloud/terraform/README.org][terraform]]
+- Completion
+  - [[file:completion/corfu/README.org][corfu]]
+  - [[file:completion/ivy/README.org][ivy]]
+  - [[file:completion/snippets/README.org][snippets]]
+- Diagram
+  - [[file:diagram/mermaid/README.org][mermaid]]
+  - [[file:diagram/plantuml/README.org][plantuml]]
+  - [[file:diagram/uniline/README.org][uniline]]
 - Lang
   - [[file:lang/autotools/README.org][autotools]]
   - [[file:lang/cmake/README.org][cmake]]

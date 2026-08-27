@@ -1240,6 +1240,20 @@ uninstall__core__auth__list_of_secrets() {
 
 register_action "Core" "Auth" "Manage GPG-encrypted authinfo secrets" "-core--auth--list-of-secrets" "secrets"
 
+is_installed__editor__formatting__prettier() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/prettier" ] || command -v prettier >/dev/null 2>&1
+}
+
+install__editor__formatting__prettier() {
+  install_nodejs_tools
+}
+
+uninstall__editor__formatting__prettier() {
+  uninstall_nodejs_tools
+}
+
+register_action "Editor" "Formatting" "Install Prettier" "-editor--formatting--prettier" "node"
+
 is_installed__cloud__terraform__terraformls() {
   is_system_package_installed "terraformls"
 }
@@ -1292,6 +1306,20 @@ uninstall__cloud__terraform__terraformls() {
 
 register_action "Cloud" "Terraform" "Install Terraform Language Server" "-cloud--terraform--terraformls" "cloud"
 
+is_installed__diagram__mermaid__mmdc() {
+  [ -f "$TOOLS_DIR/node_modules/.bin/mmdc" ] || command -v mmdc >/dev/null 2>&1
+}
+
+install__diagram__mermaid__mmdc() {
+  install_nodejs_tools
+}
+
+uninstall__diagram__mermaid__mmdc() {
+  uninstall_nodejs_tools
+}
+
+register_action "Diagram" "Mermaid" "Install Mermaid CLI" "-diagram--mermaid--mmdc" "node"
+
 # Update PlantUML version as needed:
 PLANTUML_VERSION="1.2026.7"
 PLANTUML_DIR="$HOME/.emacs.d/plantuml"
@@ -1316,20 +1344,6 @@ uninstall__diagram__plantuml__plantuml() {
 }
 
 register_action "Diagram" "PlantUML" "Install PlantUML" "-diagram--plantuml--plantuml" "standalone"
-
-is_installed__editor__formatting__prettier() {
-  [ -f "$TOOLS_DIR/node_modules/.bin/prettier" ] || command -v prettier >/dev/null 2>&1
-}
-
-install__editor__formatting__prettier() {
-  install_nodejs_tools
-}
-
-uninstall__editor__formatting__prettier() {
-  uninstall_nodejs_tools
-}
-
-register_action "Editor" "Formatting" "Install Prettier" "-editor--formatting--prettier" "node"
 
 is_installed__tools__autotools__language_server() {
   command -v autotools-language-server >/dev/null 2>&1
