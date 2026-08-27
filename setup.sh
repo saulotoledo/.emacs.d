@@ -1306,6 +1306,42 @@ uninstall__cloud__terraform__terraformls() {
 
 register_action "Cloud" "Terraform" "Install Terraform Language Server" "-cloud--terraform--terraformls" "cloud"
 
+ISPELL_MIN_DEV_PACKAGES=(
+  "ispell"
+  "wordlist"
+)
+
+is_installed__tools__ispell() {
+  are_these_system_packages_installed "${ISPELL_MIN_DEV_PACKAGES[@]}"
+}
+
+# Package 1: The spell-checking binary
+register_system_package "ispell" \
+                        "alpine:ispell" \
+                        "fedora:ispell" \
+                        "linuxbrew:ispell" \
+                        "mac:ispell" \
+                        "debian-ubuntu:ispell"
+
+# Package 2: The actual dictionary word list
+register_system_package "wordlist" \
+                        "alpine:wamerican" \
+                        "fedora:words" \
+                        "linuxbrew:aspell" \
+                        "mac:aspell" \
+                        "debian-ubuntu:wamerican"
+
+install__tools__ispell() {
+  log_info "Starting Ispell setup..."
+  install_system_packages "${ISPELL_MIN_DEV_PACKAGES[@]}"
+}
+
+uninstall__tools__ispell() {
+  log_skip "Ispell" "Ispell and word lists are system packages and will not be uninstalled automatically"
+}
+
+register_action "Tools" "Ispell" "Install Ispell" "-tools--ispell" "utils"
+
 is_installed__diagram__mermaid__mmdc() {
   [ -f "$TOOLS_DIR/node_modules/.bin/mmdc" ] || command -v mmdc >/dev/null 2>&1
 }

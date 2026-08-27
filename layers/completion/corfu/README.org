@@ -1,6 +1,7 @@
 #+TITLE: Corfu Layer
 #+CATEGORY: completion
 #+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
 
 * Description
 Provides fast, lightweight in-buffer completion popups using Corfu (Completions
@@ -566,4 +567,42 @@ or blocking behavior.
 #+end_src
 
 * System Setup
-No system setup required.
+Below, we install the system dictionaries used by Corfu:
+
+#+begin_src sh
+ISPELL_MIN_DEV_PACKAGES=(
+  "ispell"
+  "wordlist"
+)
+
+is_installed__tools__ispell() {
+  are_these_system_packages_installed "${ISPELL_MIN_DEV_PACKAGES[@]}"
+}
+
+# Package 1: The spell-checking binary
+register_system_package "ispell" \
+                        "alpine:ispell" \
+                        "fedora:ispell" \
+                        "linuxbrew:ispell" \
+                        "mac:ispell" \
+                        "debian-ubuntu:ispell"
+
+# Package 2: The actual dictionary word list
+register_system_package "wordlist" \
+                        "alpine:wamerican" \
+                        "fedora:words" \
+                        "linuxbrew:aspell" \
+                        "mac:aspell" \
+                        "debian-ubuntu:wamerican"
+
+install__tools__ispell() {
+  log_info "Starting Ispell setup..."
+  install_system_packages "${ISPELL_MIN_DEV_PACKAGES[@]}"
+}
+
+uninstall__tools__ispell() {
+  log_skip "Ispell" "Ispell and word lists are system packages and will not be uninstalled automatically"
+}
+
+register_action "Tools" "Ispell" "Install Ispell" "-tools--ispell" "utils"
+#+end_src
