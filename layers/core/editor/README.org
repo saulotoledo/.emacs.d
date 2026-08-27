@@ -179,7 +179,7 @@ stays subtle against the buffer background.
 (set-face-attribute 'fill-column-indicator nil
                     :family "Sans Serif"
                     :foreground "#444444"
-                    :background nil
+                    :background 'unspecified
                     :weight 'ultra-light
                     :height 1.7)
 (global-display-fill-column-indicator-mode 1)
