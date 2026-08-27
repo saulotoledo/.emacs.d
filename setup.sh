@@ -1293,14 +1293,14 @@ uninstall__cloud__terraform__terraformls() {
 register_action "Cloud" "Terraform" "Install Terraform Language Server" "-cloud--terraform--terraformls" "cloud"
 
 # Update PlantUML version as needed:
-PLANTUML_VERSION="1.2026.6"
+PLANTUML_VERSION="1.2026.7"
 PLANTUML_DIR="$HOME/.emacs.d/plantuml"
 
-is_installed__lang__diagrams__plantuml() {
+is_installed__diagram__plantuml__plantuml() {
   [ -f "$HOME/.emacs.d/plantuml/plantuml.jar" ]
 }
 
-install__lang__diagrams__plantuml() {
+install__diagram__plantuml__plantuml() {
   local PLANTUML_JAR="$PLANTUML_DIR/plantuml.jar"
   local PLANTUML_URL="https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar"
 
@@ -1311,11 +1311,11 @@ install__lang__diagrams__plantuml() {
   fi
 }
 
-uninstall__lang__diagrams__plantuml() {
+uninstall__diagram__plantuml__plantuml() {
   run_task "Removing PlantUML" "rm -Rf $PLANTUML_DIR"
 }
 
-register_action "Lang" "Diagrams" "Install PlantUML" "-lang--diagrams--plantuml" "standalone"
+register_action "Diagram" "PlantUML" "Install PlantUML" "-diagram--plantuml--plantuml" "standalone"
 
 is_installed__editor__formatting__prettier() {
   [ -f "$TOOLS_DIR/node_modules/.bin/prettier" ] || command -v prettier >/dev/null 2>&1
