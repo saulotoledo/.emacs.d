@@ -25,6 +25,9 @@ eca-chats/
 projectile-bookmarks.eld
 TAGS
 
+# dap-mode files
+.extension/
+
 # eshell / shell history
 /eshell/history
 
@@ -44,9 +47,10 @@ eln-cache
 .init.tangle.org
 .init.tangle.el
 
-# Backups and auto-saves
+# Backups, cache and auto-saves
 backups/
 auto-save-list/
+var/
 
 # Other packages
 cognitive-complexity
@@ -67,6 +71,7 @@ google-java-format/
 auto-save-list/
 eclipse*/
 lsp_language_servers/
+plantuml/plantuml.jar
 request/
 transient/
 tree-sitter/
