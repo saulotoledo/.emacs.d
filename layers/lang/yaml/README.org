@@ -8,6 +8,8 @@ Configure YAML support.
 * Emacs Configuration
 ** yaml-ts-mode
 #+begin_src emacs-lisp
+(cfg-editor/register-treesit-auto-language 'yaml)
+
 (use-package yaml-ts-mode
   :mode "\\.ya?ml\\'"
   :config

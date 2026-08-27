@@ -16,6 +16,12 @@ shell interpreter and resolves syntax/sexp navigation issues in Python mode.
 
 * Format As targets
 #+begin_src emacs-lisp
+(cfg-editor/register-treesit-auto-language
+ 'python
+ '("https://github.com/tree-sitter/tree-sitter-python" "v0.23.6" "src"))
+#+end_src
+
+#+begin_src emacs-lisp
 (cfg-editor/format-as-register
  "Python" 'python-ts-mode 'prettier-local ".py")
 #+end_src

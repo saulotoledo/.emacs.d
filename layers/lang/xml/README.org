@@ -7,6 +7,12 @@
 Configure XML support.
 
 * Emacs Configuration
+#+begin_src emacs-lisp
+(cfg-editor/register-treesit-auto-language
+ 'xml
+ '("https://github.com/tree-sitter-grammars/tree-sitter-xml" "v0.7.0" "xml/src"))
+#+end_src
+
 ~nxml-mode~ is the classic Emacs XML mode and is not a tree-sitter
 (-ts-) major mode. That means buffers visiting XML with ~nxml-mode~ do
 not automatically get a tree-sitter parser attached. Tree-sitter

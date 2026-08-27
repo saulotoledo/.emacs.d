@@ -19,38 +19,29 @@ Remember to upgrade the versions when possible. New versions might not be
 compatible with your current Emacs build.
 
 #+begin_src emacs-lisp
-(use-package treesit-auto
-  :pin "MELPA Unstable"
-  :config
-  (setq treesit-auto-langs
-        '(xml yaml typescript tsx javascript python java bash json c cpp)
-        treesit-auto-install t)
+(defun cfg-editor/register-treesit-auto-language (language &optional source)
+  "Register LANGUAGE with `treesit-auto', optionally using SOURCE.
+SOURCE is the grammar source specification accepted by
+`treesit-language-source-alist'."
+  (add-to-list 'treesit-auto-langs language)
+  (when source
+    (setf (alist-get language treesit-language-source-alist)
+          source)))
 
-  ;; Explicitly pinned sources. Languages not listed here use the
-  ;; corresponding treesit-auto recipe, which selects an ABI-compatible
-  ;; revision when one is available.
-  (add-to-list 'treesit-language-source-alist
-               '(xml "https://github.com/tree-sitter-grammars/tree-sitter-xml" "v0.7.0" "xml/src"))
-  (add-to-list 'treesit-language-source-alist
-               '(typescript "https://github.com/tree-sitter/tree-sitter-typescript" "v0.23.2" "typescript/src"))
-  (add-to-list 'treesit-language-source-alist
-               '(tsx "https://github.com/tree-sitter/tree-sitter-typescript" "v0.23.2" "tsx/src"))
-  (add-to-list 'treesit-language-source-alist
-               '(javascript "https://github.com/tree-sitter/tree-sitter-javascript" "v0.23.1" "src"))
-  (add-to-list 'treesit-language-source-alist
-               '(python "https://github.com/tree-sitter/tree-sitter-python" "v0.23.6" "src"))
-  (add-to-list 'treesit-language-source-alist
-               '(java "https://github.com/tree-sitter/tree-sitter-java" "v0.23.5" "src"))
-  (add-to-list 'treesit-language-source-alist
-               '(c "https://github.com/tree-sitter/tree-sitter-c" "v0.23.6" "src"))
-  (add-to-list 'treesit-language-source-alist
-               '(cpp "https://github.com/tree-sitter/tree-sitter-cpp" "v0.23.4" "src"))
-
-  ;; Install the managed set before calculating mode remappings. With
-  ;; `treesit-auto-install' non-nil this is unattended for these languages.
+(defun cfg-editor/initialize-treesit-auto ()
+  "Install registered grammars and enable their automatic mode remapping."
   (treesit-auto-install-all)
   (treesit-auto-add-to-auto-mode-alist treesit-auto-langs)
   (global-treesit-auto-mode))
+
+(use-package treesit-auto
+  :pin "MELPA Unstable"
+  :config
+  (setq treesit-auto-langs nil
+        treesit-auto-install t)
+  ;; Language layers register their grammars before this runs, after all
+  ;; included layer configuration has been evaluated.
+  (add-hook 'after-init-hook #'cfg-editor/initialize-treesit-auto))
 #+end_src
 
 ** treesit-fold: Syntax-Aware Code Folding

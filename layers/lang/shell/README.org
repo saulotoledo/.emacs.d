@@ -18,6 +18,10 @@ Key capabilities:
   ~shell-mode~ buffers using ~bash-completion~.
 
 * Emacs Configuration
+#+begin_src emacs-lisp
+(cfg-editor/register-treesit-auto-language 'bash)
+#+end_src
+
 ** Built-in Shell Mode & Completion
 #+begin_src emacs-lisp
 (defun cfg-lang/sh-mode-setup ()
