@@ -284,7 +284,6 @@ minimum versions before the rest of the package configuration is loaded.
 
 ;; Configure package directories to use user's elpa directory
 (setq package-user-dir (expand-file-name "elpa" user-emacs-directory))
-(add-to-list 'package-directory-list package-user-dir)
 
 (setq package-archives
       '(("MELPA Stable"   . "https://stable.melpa.org/packages/")
