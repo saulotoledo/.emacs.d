@@ -93,6 +93,18 @@ project resolves one of those adapters from its =.sqllsrc.json= configuration.
 (defvar-local cfg-lang/sqlfluff-dialect nil
   "Dialect supplied to SQLFluff for the current buffer.")
 
+(defvar cfg-lang/sqlfluff--org-indenting nil
+  "Non-nil while Org is indenting a source block through its edit buffer.")
+
+(defun cfg-lang/sqlfluff--without-prompt-during-org-indent (orig-fun &rest args)
+  "Run ORIG-FUN without prompting while Org indents a source block."
+  (let ((cfg-lang/sqlfluff--org-indenting t))
+    (apply orig-fun args)))
+
+(with-eval-after-load 'org
+  (advice-add 'org-indent-line :around
+              #'cfg-lang/sqlfluff--without-prompt-during-org-indent))
+
 (defun cfg-lang/sqlfluff--dialect-in-file (file)
   "Return SQLFluff's dialect setting from FILE, if present."
   (with-temp-buffer
@@ -195,7 +207,7 @@ project resolves one of those adapters from its =.sqllsrc.json= configuration.
   (setq-local lsp-diagnostics-provider :none)
   (setq-local cfg-lang/sqlfluff-dialect
               (or (cfg-lang/sqlfluff--project-dialect)
-                  (progn
+                  (unless cfg-lang/sqlfluff--org-indenting
                     (message "No project SQLFluff dialect found; choose one for this buffer.")
                     (completing-read "SQLFluff dialect: "
                                      (or (cfg-lang/sqlfluff--available-dialects)
