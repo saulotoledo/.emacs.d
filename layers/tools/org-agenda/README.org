@@ -1,0 +1,237 @@
+#+TITLE: Org Agenda and GTD Layer
+#+CATEGORY: tools
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides a built-in Org workflow for Getting Things Done (GTD), calendar
+planning, daily work journals, and searchable technical notes. Personal data is
+stored in =~/.org-agenda/=, outside the configuration repository.
+
+GTD separates capturing everything that needs attention from deciding what to do
+next. A project is a desired outcome that needs more than one action. A next
+action is the smallest physical, visible step that can be performed now. The
+workflow also records completed work, code, SQL, and decisions, so the journal
+is useful as a history of work rather than only as a future task list.
+
+* Emacs Configuration
+** Data Directory and Starter Files
+The directory and standard files are created on startup when they do not exist.
+Existing files are never replaced. The agenda list is explicit so unrelated Org
+files are not accidentally included.
+
+#+begin_src emacs-lisp
+(defvar cfg-tools/org-agenda-directory
+  (expand-file-name "~/.org-agenda/")
+  "Directory containing personal GTD and journal files.")
+
+(defconst cfg-tools--org-agenda--gtd-files
+  '("inbox.org" "projects.org" "next-actions.org" "waiting.org"
+    "someday.org" "calendar.org" "reference.org")
+  "Standard files used by the GTD workflow.")
+
+(defun cfg-tools--org-agenda--file (name)
+  "Return NAME inside `cfg-tools/org-agenda-directory'."
+  (expand-file-name name cfg-tools/org-agenda-directory))
+
+(defun cfg-tools--org-agenda--today-file ()
+  "Return today's journal file, creating its parent directory if needed."
+  (let ((journal-directory (expand-file-name "journal/"
+                                             cfg-tools/org-agenda-directory)))
+    (make-directory journal-directory t)
+    (expand-file-name (format-time-string "%Y-%m-%d.org") journal-directory)))
+
+(defun cfg-tools--org-agenda--initialize-file (name content)
+  "Create NAME with CONTENT when it does not already exist."
+  (let ((file (cfg-tools--org-agenda--file name)))
+    (unless (file-exists-p file)
+      (with-temp-file file
+        (insert content)))))
+
+(defun cfg-tools--org-agenda--initialize ()
+  "Create the GTD directory and missing standard files."
+  (make-directory cfg-tools/org-agenda-directory t)
+  (dolist (file cfg-tools--org-agenda--gtd-files)
+    (cfg-tools--org-agenda--initialize-file
+     file
+     (format "#+title: %s\n\n" (file-name-base file)))))
+
+(cfg-tools--org-agenda--initialize)
+
+(defun cfg-tools--org-agenda--agenda-files ()
+  "Return GTD files and all dated journal files."
+  (append (mapcar #'cfg-tools--org-agenda--file cfg-tools--org-agenda--gtd-files)
+          (when-let ((journal-directory
+                      (file-name-as-directory
+                       (expand-file-name "journal/"
+                                         cfg-tools/org-agenda-directory))))
+            (when (file-directory-p journal-directory)
+              (directory-files journal-directory t "\\.org\\'" t)))))
+
+(defun cfg-tools--org-agenda--journal-files ()
+  "Return all dated journal files."
+  (let ((journal-directory
+         (expand-file-name "journal/" cfg-tools/org-agenda-directory)))
+    (when (file-directory-p journal-directory)
+      (directory-files journal-directory t "\\.org\\'" t))))
+#+end_src
+
+** Org and GTD Defaults
+~inbox.org~ is the landing place for unprocessed ideas and tasks. Projects
+belong in ~projects.org~, while standalone actions belong in ~next-actions.org~.
+~waiting.org~ holds delegated or blocked work, ~someday.org~ holds intentionally
+deferred ideas, ~calendar.org~ holds time-specific commitments, and
+~reference.org~ holds information worth keeping but not acting on.
+
+#+begin_src emacs-lisp
+(use-package org
+  :ensure nil
+  :config
+  (setq org-directory cfg-tools/org-agenda-directory
+        org-agenda-files (cfg-tools--org-agenda--agenda-files)
+        org-todo-keywords
+        '((sequence "TODO(t)" "NEXT(n)" "WAITING(w@/!)" "SOMEDAY(s)"
+                    "|" "DONE(d!)" "CANCELED(c@)"))
+        org-log-done 'time
+        org-deadline-warning-days 7
+        org-refile-targets
+        '((org-agenda-files :maxlevel . 3))
+        org-refile-use-outline-path 'file
+        org-outline-path-complete-in-steps nil))
+#+end_src
+
+~TODO~ states describe the lifecycle of work. ~TODO~ means actionable but not
+started. ~NEXT~ identifies the next physical action. ~WAITING~ means another
+person or event must happen first. ~SOMEDAY~ means the idea is deliberately
+deferred. ~DONE~ records completion, and ~CANCELED~ records a decision not to
+continue. Scheduling gives an item a start date; a deadline states when it must
+be finished. Neither replaces choosing a useful ~NEXT~ action.
+
+** Daily Journal and Calendar Integration
+Each day gets a file such as ~journal/2026-08-28.org~. Journal entries use
+active timestamps, so Org can display them on the calendar. The filename makes
+the history easy to browse, while the timestamp makes entries visible when
+navigating to a date in the agenda. Journal files are searchable through Org
+text search and a dedicated journal agenda view.
+
+#+begin_src emacs-lisp
+(defun cfg-tools--org-agenda--today-buffer ()
+  "Return today's journal buffer, creating a dated heading when necessary."
+  (let ((buffer (find-file-noselect (cfg-tools--org-agenda--today-file))))
+    (with-current-buffer buffer
+      (org-mode)
+      (goto-char (point-max))
+      (unless (re-search-backward
+               (format-time-string "^\\* Journal <%Y-%m-%d") nil t)
+        (goto-char (point-max))
+        (unless (bolp) (insert "\n"))
+        (insert (format-time-string "* Journal <%Y-%m-%d %a>\n\n")))
+      (when (boundp 'org-agenda-files)
+        (add-to-list 'org-agenda-files (buffer-file-name))))
+    buffer))
+
+(defun cfg-tools/org-agenda-open-today ()
+  "Open today's journal file."
+  (interactive)
+  (pop-to-buffer (cfg-tools--org-agenda--today-buffer)))
+
+(defun cfg-tools/org-agenda-open-inbox ()
+  "Open the GTD inbox."
+  (interactive)
+  (find-file (cfg-tools--org-agenda--file "inbox.org")))
+
+(defun cfg-tools/org-agenda-open-directory ()
+  "Open the GTD data directory in Dired."
+  (interactive)
+  (dired cfg-tools/org-agenda-directory))
+
+(defun cfg-tools/org-agenda-search-journal ()
+  "Search dated journal files using Org's agenda search view."
+  (interactive)
+  (let ((org-agenda-files (cfg-tools--org-agenda--journal-files))
+        (query (read-string "Search journal: ")))
+    (org-search-view nil query)))
+
+(defun cfg-tools/org-agenda-journal ()
+  "Show journal entries in the Org calendar."
+  (interactive)
+  (let ((org-agenda-files (cfg-tools--org-agenda--journal-files)))
+    (org-agenda-list)))
+#+end_src
+
+An entry such as =** <2026-08-28 Fri 09:30> Fixed the migration= appears on
+August 28 in the agenda calendar. Code and SQL entries use source blocks, which
+preserve language-aware indentation and make technical work readable later.
+
+** Capture, Refile, and Review
+Capture is the fast collection step: write the thought down before deciding
+where it belongs. Refile is the later organization step. During review, empty
+the inbox, choose next actions for projects, update waiting items, and decide
+whether someday ideas should be activated or discarded.
+
+#+begin_src emacs-lisp
+(defun cfg-tools--org-agenda--capture-today ()
+  "Return today's journal buffer for Org capture."
+  (let ((buffer (cfg-tools--org-agenda--today-buffer)))
+    (set-buffer buffer)
+    (goto-char (point-min))
+    (re-search-forward
+     (format-time-string "^\\* Journal <%Y-%m-%d") nil t)
+    (beginning-of-line)
+    buffer))
+
+(use-package org-capture
+  :ensure nil
+  :after org
+  :config
+  (setq org-capture-templates
+        `(("t" "Task" entry (file ,(cfg-tools--org-agenda--file "inbox.org"))
+           "* TODO %?\n  Captured: %T\n")
+          ("n" "Note" entry (function cfg-tools--org-agenda--capture-today)
+           "** %T %^{Title}\n%?\n")
+          ("j" "Work log" entry (function cfg-tools--org-agenda--capture-today)
+           "** %T %^{What did you do?}\n%?\n")
+          ("s" "Code snippet" entry (function cfg-tools--org-agenda--capture-today)
+           "** %T %^{Title}\n#+begin_src %^{Language}\n%?\n#+end_src\n")
+          ("q" "SQL query" entry (function cfg-tools--org-agenda--capture-today)
+           "** %T %^{Title}\n#+begin_src sql\n%?\n#+end_src\n")
+          ("a" "Appointment" entry
+           (file ,(cfg-tools--org-agenda--file "calendar.org"))
+           "* %^{Appointment}\n  %^T\n")
+          ("w" "Waiting" entry (file ,(cfg-tools--org-agenda--file "waiting.org"))
+           "* WAITING %?\n  Captured: %T\n")
+          ("p" "Project" entry (file ,(cfg-tools--org-agenda--file "projects.org"))
+           "* TODO %^{Project} :project:\n  Outcome: %?\n"))))
+
+(use-package org-agenda
+  :ensure nil
+  :after org
+  :config
+  (setq org-agenda-custom-commands
+        '(("d" "Daily dashboard"
+           ((agenda "Today")))
+          ("n" "Next actions" todo "NEXT")
+          ("i" "Inbox" todo "TODO")
+          ("w" "Waiting for" todo "WAITING")
+          ("p" "Projects" tags-todo "+project")
+          ("s" "Someday / maybe" todo "SOMEDAY")
+          ("r" "Weekly review"
+           ((todo "TODO") (todo "WAITING") (todo "SOMEDAY"))))))
+#+end_src
+
+** Keybindings
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "o"   '(:ignore t :which-key "org GTD")
+  "o a" '(org-agenda :which-key "Agenda")
+  "o c" '(org-capture :which-key "Capture")
+  "o j" '(cfg-tools/org-agenda-open-today :which-key "Today's journal")
+  "o s" '(cfg-tools/org-agenda-search-journal :which-key "Search journal")
+  "o J" '(cfg-tools/org-agenda-journal :which-key "Journal calendar")
+  "o i" '(cfg-tools/org-agenda-open-inbox :which-key "Open inbox")
+  "o d" '(cfg-tools/org-agenda-open-directory :which-key "Open GTD directory")
+  "o r" '(org-refile :which-key "Refile")
+  "o v" '(org-agenda :which-key "Agenda views"))
+#+end_src
+
+* System Setup
+No system setup required.

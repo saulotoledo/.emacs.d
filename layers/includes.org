@@ -51,6 +51,7 @@
 #+INCLUDE: "tools/ai/README.org"
 #+INCLUDE: "tools/containers/README.org"
 #+INCLUDE: "tools/helpful/README.org"
+#+INCLUDE: "tools/org-agenda/README.org"
 #+INCLUDE: "tools/project/README.org"
 #+INCLUDE: "tools/rg/README.org"
 #+INCLUDE: "tools/secrets/README.org"
