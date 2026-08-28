@@ -11,6 +11,7 @@ Configure YAML support.
 (cfg-editor/register-treesit-auto-language 'yaml)
 
 (use-package yaml-ts-mode
+  :ensure nil
   :mode "\\.ya?ml\\'"
   :config
   (setq treesit-font-lock-level 4)

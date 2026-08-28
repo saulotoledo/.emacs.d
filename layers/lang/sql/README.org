@@ -193,14 +193,15 @@ project resolves one of those adapters from its =.sqllsrc.json= configuration.
                 reports)))
     (json-parse-error nil)))
 
-(flycheck-define-checker sqlfluff
-  "A SQLFluff checker with buffer-local dialect selection."
-  :command ("sqlfluff" "lint" "--nocolor" "--disable-progress-bar"
-            "--format" "json" "--stdin-filename" source-original
-            (option "--dialect" cfg-lang/sqlfluff-dialect) "-")
-  :standard-input t
-  :error-parser cfg-lang/sqlfluff--parse-output
-  :modes sql-mode)
+(with-eval-after-load 'flycheck
+  (flycheck-define-checker sqlfluff
+    "A SQLFluff checker with buffer-local dialect selection."
+    :command ("sqlfluff" "lint" "--nocolor" "--disable-progress-bar"
+              "--format" "json" "--stdin-filename" source-original
+              (option "--dialect" cfg-lang/sqlfluff-dialect) "-")
+    :standard-input t
+    :error-parser cfg-lang/sqlfluff--parse-output
+    :modes sql-mode))
 
 (defun cfg-lang/sqlfluff-setup ()
   "Configure SQLFluff as the only diagnostics provider for SQL buffers."

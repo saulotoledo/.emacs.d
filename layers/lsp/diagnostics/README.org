@@ -155,7 +155,7 @@ of tree-sitter (external package).
 
 #+begin_src emacs-lisp
 (use-package cognitive-complexity
-  :pin "JCS-ELPA"
+  :ensure (cognitive-complexity :host github :repo "emacs-vs/cognitive-complexity")
   :hook ((prog-mode . cognitive-complexity-mode))
   :custom
   (cognitive-complexity-complexity-threshold 15)

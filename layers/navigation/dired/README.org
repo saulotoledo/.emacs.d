@@ -163,7 +163,6 @@ buffer, so explicitly refresh the Dirvish overlays here."
 ** Dirvish Configuration
 #+begin_src emacs-lisp
 (use-package dirvish
-  :pin "MELPA Unstable"
   :bind (:map dirvish-mode-map
               ("TAB"       . dirvish-subtree-toggle)
               ("<right>"   . cfg-navigation/dirvish-subtree-right)

@@ -177,6 +177,7 @@ snippets and test functions on the fly.
          ("\\.jsx\\'" . tsx-ts-mode)))
 
 (use-package typescript-ts-mode
+  :ensure nil
   :defer t
   :mode (("\\.[cm]?ts\\'" . typescript-ts-mode)
          ("\\.tsx\\'" . tsx-ts-mode))

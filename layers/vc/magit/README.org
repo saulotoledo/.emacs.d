@@ -37,7 +37,6 @@ PROC is the process object for the magit-process buffer."
 ** Forge Integration
 #+begin_src emacs-lisp
 (use-package forge
-  :pin "MELPA Unstable"
   :after magit
   :config)
 #+end_src

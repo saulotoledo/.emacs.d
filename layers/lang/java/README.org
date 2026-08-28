@@ -171,7 +171,6 @@ apply to all language servers:
   (dap-force-quit))
 
 (use-package lsp-java
-  :pin "MELPA Unstable"
   :after java-ts-mode
   :init
   (defconst cfg-lang/jdtls-install-dir

@@ -22,7 +22,6 @@ Preview), mdopen or go-grip.
   :after org)
 
 (use-package grip-mode
-  :pin "MELPA Unstable" ; Stable version (2.5.0) sends invalid theme param to go-grip
   :config
   (setq grip-command 'go-grip))
 #+end_src

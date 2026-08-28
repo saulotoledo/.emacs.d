@@ -265,11 +265,9 @@ spaces use a high-contrast warning face.
 ;; The following two are dependenceis of unicode-whitespace that have
 ;; deprecated cl on stable versions. We pin the unstable versions which have
 ;; the upgrade from cl to cl-lib:
-(use-package ucs-utils
-  :pin "MELPA Unstable")
+(use-package ucs-utils)
 
-(use-package persistent-soft
-  :pin "MELPA Unstable")
+(use-package persistent-soft)
 
 (dolist (hook '(prog-mode-hook text-mode-hook))
   (add-hook hook

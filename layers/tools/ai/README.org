@@ -224,7 +224,8 @@ Skips if file exists and is identical, backups if different."
 
 (use-package eca
   :after auth-source
-  :pin "MELPA Unstable"
+  :init
+  (require 'markdown-mode)
   :custom
   (eca-chat-select-model "google/gemini-3-flash-preview") ; Your preferred "Brain"
 
@@ -719,7 +720,6 @@ host. Ollama's placeholder API key deliberately bypasses this lookup."
         (minuet-auto-suggestion-mode 1))))
 
 (use-package minuet
-  :pin "GNU ELPA"
   :after auth-source
   :config
   (setq minuet-n-completions 1
@@ -1242,11 +1242,13 @@ Corfu, then Copilot, then Minuet."
   (interactive)
   (copilot-chat-yank-pop -1))
 
+
+(use-package track-changes) ;; Copilot requires a newer version than the built-in
+
 (use-package copilot
   ;; We activate the copilot extension only if it is authorized on this computer.
   ;; This will prevent us from loading it if not in use:
   :if (cfg-tools/ai-copilot-authorized-p)
-  :pin "MELPA Unstable"
   :after eca
   :init
   ;; Disable indentation offset warnings - Copilot will use existing indentation
@@ -1380,7 +1382,7 @@ tests, and more, all within Emacs.
   ;; We activate the copilot chat extension only if it is authorized on this computer.
   ;; This will prevent us from loading it if not in use:
   :if (cfg-tools/ai-copilot-authorized-p)
-  :pin "MELPA Unstable"
+  :ensure (copilot-chat :host github :repo "chep/gh-copilot-chat.el" :tag "v3.0.0")
   :after (org markdown-mode)
 
   :custom
@@ -1413,7 +1415,8 @@ Registers keybindings for AI tools, ECA chat sessions, Copilot, and Copilot Chat
 
 ;; ECA Chat mode navigation
 (with-eval-after-load 'eca-chat
-  (define-key eca-chat-mode-map (kbd "C-c C-S-i") #'cfg-tools/eca-chat-open-index))
+  (when (and (boundp 'eca-chat-mode-map) eca-chat-mode-map)
+    (define-key eca-chat-mode-map (kbd "C-c C-S-i") #'cfg-tools/eca-chat-open-index)))
 
 ;; Completion overlay maps (Active when ghost text / popup is visible)
 (with-eval-after-load 'corfu

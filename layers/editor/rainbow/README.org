@@ -17,6 +17,7 @@ making it easier to identify the columns:
   (add-hook 'after-save-hook #'rainbow-csv-highlight nil t))
 
 (use-package rainbow-csv
+  :ensure (rainbow-csv :host github :repo "emacs-vs/rainbow-csv")
   :config
   (add-hook 'csv-mode-hook #'cfg-editor/rainbow-csv-setup)
   (add-hook 'tsv-mode-hook #'cfg-editor/rainbow-csv-setup))

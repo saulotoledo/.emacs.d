@@ -53,7 +53,6 @@ The package setup:
 
 #+begin_src emacs-lisp
 (use-package apheleia
-  :pin "MELPA Unstable"
   :commands (apheleia-format-buffer apheleia-global-mode)
   :defines (apheleia-formatters apheleia-mode-alist apheleia-formatter)
   :config

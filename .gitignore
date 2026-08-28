@@ -34,6 +34,7 @@ TAGS
 # package manager files
 .elpa/
 elpa/
+elpaca/
 eln-cache
 
 # undo-tree history
@@ -75,6 +76,7 @@ plantuml/plantuml.jar
 request/
 transient/
 tree-sitter/
+url/
 workspace/
 .dap-*
 .lsp-session*

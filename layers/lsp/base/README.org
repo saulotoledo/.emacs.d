@@ -147,7 +147,6 @@ Each function receives BUF and optional context validation arguments. Frontends
 may use this hook to refresh their completion UI.")
 
 (use-package lsp-mode
-  :pin "MELPA Unstable"
   :init
   (setq
    ;; Needed for TRAMP performance:
@@ -972,7 +971,6 @@ We load the main lsp-ui package below:
 
 #+begin_src emacs-lisp
 (use-package lsp-ui
-  :pin "MELPA Unstable"
   :after lsp-mode
 
   ;; :commands ensures lsp-ui is loaded only when lsp-ui-mode is called
@@ -999,7 +997,6 @@ errors, references, and more.
 
 #+begin_src emacs-lisp
 (use-package lsp-treemacs
-  :pin "MELPA Unstable"
   :after (lsp-mode treemacs)
   :config
   (setq lsp-treemacs-sync-mode nil) ;; Keep off by default

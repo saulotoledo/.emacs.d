@@ -33,7 +33,6 @@ complex structures with just a few keystrokes.
 
 #+begin_src emacs-lisp
 (use-package emmet-mode
-  :pin "MELPA Unstable"
   :hook ((css-mode . emmet-mode)
          (css-ts-mode . emmet-mode)
          (html-mode . emmet-mode)

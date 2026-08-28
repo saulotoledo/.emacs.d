@@ -218,6 +218,9 @@ steps occur:
 
 ;; Do not load default system-wide init files
 (setq inhibit-default-init t)
+
+;; Disable package.el; Elpaca manages packages instead
+(setq package-enable-at-startup nil)
 #+end_src
 
 *** Benchmark & Startup Diagnostic Timer
@@ -264,59 +267,73 @@ tracked in Git. We also start the Emacs server once initialization completes.
 ** Package Management
 *** Initial Package Setup
 Starting with Emacs 29, [[https://github.com/jwiegley/use-package][use-package]] is bundled with Emacs as an [[https://lists.gnu.org/archive/html/emacs-devel/2022-12/msg00261.html][official part of
-the distribution]]. However, this configuration retains the traditional bootstrap
-steps to preserve compatibility with older Emacs versions.
+the distribution]]. However, [[https://github.com/jwiegley/use-package][use-package]] installs packages sequentially. [[https://github.com/progfolio/elpaca][Elpaca]]
+overcomes this bottleneck with non-blocking, parallel package fetching and
+building, resulting in drastically faster startup times when updating or
+initializing a configuration. Additionally, [[https://github.com/progfolio/elpaca][Elpaca]] introduces deterministic
+lockfiles for exact dependency pinning across machines, native support for
+cloning directly from Git repositories or local sources without third-party
+helpers, and isolated build environments that clean up built-in package
+conflicts automatically.
 
-We also ensure GNU ELPA signing keys stay updated via ~gnu-elpa-keyring-update~
-and allow ~package.el~ to upgrade built-in libraries. Emacs disables built-in
-library upgrades by default to preserve base-system stability, but modern
-packages frequently require newer versions of shared dependencies than what
-Emacs ships with. The core package compatibility layer applies the relevant
-minimum versions before the rest of the package configuration is loaded.
+The code below is copied from the [[https://github.com/progfolio/elpaca][Elpaca]] setup instructions.
 
 #+begin_src emacs-lisp
-(require 'package)
-(setq package-enable-at-startup nil)
+(defvar elpaca-installer-version 0.12)
+(defvar elpaca-directory (expand-file-name "elpaca/" user-emacs-directory))
+(defvar elpaca-builds-directory (expand-file-name "builds/" elpaca-directory))
+(defvar elpaca-sources-directory (expand-file-name "sources/" elpaca-directory))
+(defvar elpaca-order '(elpaca :repo "https://github.com/progfolio/elpaca.git"
+                              :ref nil :depth 1 :inherit ignore
+                              :files (:defaults "elpaca-test.el" (:exclude "extensions"))
+                              :build (:not elpaca-activate)))
+(let* ((repo  (expand-file-name "elpaca/" elpaca-sources-directory))
+       (build (expand-file-name "elpaca/" elpaca-builds-directory))
+       (order (cdr elpaca-order))
+       (default-directory repo))
+  (add-to-list 'load-path (if (file-exists-p build) build repo))
+  (unless (file-exists-p repo)
+    (make-directory repo t)
+    (when (<= emacs-major-version 28) (require 'subr-x))
+    (condition-case-unless-debug err
+        (if-let* ((buffer (pop-to-buffer-same-window "*elpaca-bootstrap*"))
+                  ((zerop (apply #'call-process `("git" nil ,buffer t "clone"
+                                                  ,@(when-let* ((depth (plist-get order :depth)))
+                                                      (list (format "--depth=%d" depth) "--no-single-branch"))
+                                                  ,(plist-get order :repo) ,repo))))
+                  ((zerop (call-process "git" nil buffer t "checkout"
+                                        (or (plist-get order :ref) "--"))))
+                  (emacs (concat invocation-directory invocation-name))
+                  ((zerop (call-process emacs nil buffer nil "-Q" "-L" "." "--batch"
+                                        "--eval" "(byte-recompile-directory \".\" 0 'force)")))
+                  ((require 'elpaca))
+                  ((elpaca-generate-autoloads "elpaca" repo)))
+            (progn (message "%s" (buffer-string)) (kill-buffer buffer))
+          (error "%s" (with-current-buffer buffer (buffer-string))))
+      ((error) (warn "%s" err) (delete-directory repo 'recursive))))
+  (unless (require 'elpaca-autoloads nil t)
+    (require 'elpaca)
+    (elpaca-generate-autoloads "elpaca" repo)
+    (let ((load-source-file-function nil)) (load "./elpaca-autoloads"))))
+(add-hook 'after-init-hook #'elpaca-process-queues)
+(elpaca `(,@elpaca-order))
 
-;; Allow package.el to upgrade built-in packages when newer external versions
-;; are required for compatibility with modern packages.
-(setq package-install-upgrade-built-in t)
+;; Install use-package support
+(elpaca elpaca-use-package
+  (elpaca-use-package-mode))
 
-;; Configure package directories to use user's elpa directory
-(setq package-user-dir (expand-file-name "elpa" user-emacs-directory))
+;; Elpaca order defaults
+(setq elpaca-order-defaults
+      '(:type git
+        :protocol https
+        :inherit t
+        :depth treeless))
 
-(setq package-archives
-      '(("MELPA Stable"   . "https://stable.melpa.org/packages/")
-        ("GNU ELPA"       . "https://elpa.gnu.org/packages/")
-        ("MELPA Unstable" . "https://melpa.org/packages/")
-        ("Non-GNU"        . "https://elpa.nongnu.org/nongnu/")
-        ("GNU-devel"      . "https://elpa.gnu.org/devel/")
-        ("JCS-ELPA"       . "https://jcs-emacs.github.io/jcs-elpa/packages/"))
+;; Block until initial Elpaca queue is processed before continuing setup
+(elpaca-wait)
 
-      package-archive-priorities
-      '(("MELPA Stable"   . 25)
-        ("GNU ELPA"       . 20)
-        ("MELPA Unstable" . 15)
-        ("Non-GNU"        . 10)
-        ("GNU-devel"      . 5)
-        ("JCS-ELPA"       . 0)))
-
-(package-initialize)
-
-(unless package-archive-contents
-  (package-refresh-contents))
-
-(unless (package-installed-p 'use-package)
-  (package-refresh-contents)
-  (package-install 'use-package))
-
-(unless (package-installed-p 'gnu-elpa-keyring-update)
-  (package-install 'gnu-elpa-keyring-update))
-
-(require 'gnu-elpa-keyring-update)
-(require 'use-package)
-(setq use-package-always-ensure t)
-(setq use-package-compute-statistics t)
+(setq use-package-always-ensure t
+      use-package-compute-statistics t)
 #+end_src
 
 *** Package VC Helpers

@@ -18,7 +18,6 @@ Emacs.
 
 #+begin_src emacs-lisp
 (use-package exec-path-from-shell
-  :ensure t ; Make sure it works even when "use-package-always-ensure" is not yet configured
   :config
   ;; 1. Disable the interactive flag (-i) to prevent shell hanging on Linux
   (setq exec-path-from-shell-arguments '("-l"))
