@@ -178,7 +178,6 @@ you interact with them.
 
 * Keybindings
 #+begin_src emacs-lisp
-(define-key ivy-minibuffer-map (kbd "RET") #'cfg-completion--ivy-done-prefer-literal-for-callers)
 ;; --- Counsel Global Overrides ---
 (define-key cfg-keys-map (kbd "M-x") #'counsel-M-x)
 ;; The following commands cannot be in the cfg-keys-map because they are bound to C-x prefix keys.
@@ -208,6 +207,7 @@ you interact with them.
   (define-key ibuffer-mode-map (kbd "C-c h") #'cfg-completion/ibuffer-toggle-hidden-buffers))
 
 (with-eval-after-load 'ivy
+  (define-key ivy-minibuffer-map (kbd "RET") #'cfg-completion--ivy-done-prefer-literal-for-callers)
   (define-key ivy-minibuffer-map (kbd "C-c h") #'cfg-completion/ibuffer-toggle-hidden-buffers))
 #+end_src
 

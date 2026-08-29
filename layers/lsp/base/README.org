@@ -79,13 +79,61 @@ code completion, go-to-definition, diagnostics, and more.
 (declare-function yas--field-contains-point-p "yasnippet")
 (declare-function yas--move-to-field "yasnippet")
 (declare-function make-lsp-client "lsp-mode")
+(declare-function lsp-get "lsp-mode")
+(declare-function lsp-falsy? "lsp-mode")
+(declare-function lsp-feature? "lsp-mode")
+(declare-function lsp:completion-list-is-incomplete "lsp-mode")
+(declare-function lsp:completion-item-label-details? "lsp-mode")
+(declare-function lsp:label-details-description? "lsp-mode")
+(declare-function lsp-completion--resolve-async "lsp-completion")
+(declare-function cfg-lsp/lsp-completion-clear-cache-keep-last-markers nil)
+(declare-function cfg-lsp/lsp-completion-repair-markers nil)
+(declare-function cfg-lsp/lsp-completion--context-key nil)
+(declare-function cfg-lsp/lsp-completion--ensure-context nil)
+(declare-function cfg-lsp/lsp-completion-supported-p nil)
+(declare-function cfg-lsp/lsp-completion--response-complete-p nil)
+(declare-function cfg-lsp/lsp-request-while-no-input--debounce nil)
+(declare-function cfg-lsp/lsp-completion--ld-key nil)
+(declare-function cfg-lsp/lsp-completion--annotation-description nil)
+(declare-function cfg-lsp/lsp-completion--import-source-from-buffer nil)
+(declare-function cfg-lsp/lsp-completion--resolve-description nil)
+(declare-function cfg-lsp/lsp-completion--annotate-with-resolve nil)
+(declare-function cfg-lsp/lsp-tramp-optimize-clients nil)
 
 (defvar lsp-command-map)
 (defvar lsp-completion--cache)
 (defvar lsp-mode-map)
 (defvar lsp-enable-snippet)
+(defvar lsp-auto-register-remote-clients)
+(defvar lsp-auto-require-clients)
+(defvar lsp-completion-provider)
+(defvar lsp-keymap-prefix)
+(defvar lsp-completion-use-last-result)
+(defvar lsp-completion-show-detail)
+(defvar lsp-disabled-clients)
+(defvar lsp-eslint-enable)
+(defvar lsp--managed-clients)
+(defvar lsp--default-notification-handlers)
+(defvar lsp-clients)
+(defvar cfg-lsp/lsp-completion-debounce-delay)
+(defvar cfg-lsp/lsp-completion-incomplete-debounce-delay)
 (defvar cfg-lsp/lsp--in-code-action)
-(defvar cfg-lsp/lsp-completion--ld-cache)
+
+;; Keep completion state declarations at top level so other layers can refer to
+;; them without free-variable warnings before lsp-completion is loaded.
+(defvar-local cfg-lsp/lsp-completion--response-cache
+  (make-hash-table :test 'equal)
+  "Completion-context key -> (RESPONSE TIMESTAMP GENERATION COMPLETE-P).")
+(defvar-local cfg-lsp/lsp-completion--context-key nil
+  "The completion context represented by the current request generation.")
+(defvar-local cfg-lsp/lsp-completion--request-generation 0
+  "Monotonically increasing generation for completion request contexts.")
+(defvar-local cfg-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal)
+  "Label|sortText -> resolved module source for inline annotations.")
+(defvar cfg-lsp/lsp-completion-refresh-hook nil
+  "Hook run after an asynchronous LSP completion result is cached.
+Each function receives BUF and optional context validation arguments. Frontends
+may use this hook to refresh their completion UI.")
 
 (defun cfg-lsp/advice-add-once (symbol where function)
   "Install FUNCTION as advice on SYMBOL exactly once at WHERE."
@@ -132,22 +180,7 @@ request, and ARGS contains its remaining arguments."
                  (not (yas--field-contains-point-p active-field)))
         (yas--move-to-field snippet active-field)))))
 
-;; Keep completion state declarations at top level so other layers can refer to
-;; them without free-variable warnings before lsp-completion is loaded.
-(defvar-local cfg-lsp/lsp-completion--response-cache
-  (make-hash-table :test 'equal)
-  "Completion-context key -> (RESPONSE TIMESTAMP GENERATION COMPLETE-P).")
-(defvar-local cfg-lsp/lsp-completion--context-key nil
-  "The completion context represented by the current request generation.")
-(defvar-local cfg-lsp/lsp-completion--request-generation 0
-  "Monotonically increasing generation for completion request contexts.")
-(defvar cfg-lsp/lsp-completion-refresh-hook nil
-  "Hook run after an asynchronous LSP completion result is cached.
-Each function receives BUF and optional context validation arguments. Frontends
-may use this hook to refresh their completion UI.")
-
 (use-package lsp-mode
-  :pin "MELPA Unstable"
   :init
   (setq
    ;; Needed for TRAMP performance:
@@ -337,8 +370,8 @@ For any `textDocument/completion' request the advice operates in two modes,
 regardless of `non-essential':
 
   1. Cache hit  – same complete request context, recent response (<
-     `cfg-lsp/lsp-completion-debounce-delay' s old): return the cached LSP response
-     immediately without a server round-trip.
+     `cfg-lsp/lsp-completion-debounce-delay' s old): return the cached LSP
+     response immediately without a server round-trip.
 
   2. Cache miss – fire `lsp-request-async' and return nil immediately; the
      sit-for loop inside `lsp-request-while-no-input' is never entered.
@@ -441,8 +474,6 @@ on a dynamic binding that can silently fail, we intercept ALL
     ;; server-supplied item, so this works with both `lsp-use-plists t` (plists)
     ;; and nil (hash-tables)). After any resolve completes, the next completion
     ;; render picks up the cached description without another server round-trip.
-    (defvar-local cfg-lsp/lsp-completion--ld-cache (make-hash-table :test 'equal)
-      "label|sortText -> resolved module source for inline annotations.")
 
     (defun cfg-lsp/lsp-completion-clear-caches ()
       "Clear all buffer-local LSP completion state.
@@ -683,14 +714,15 @@ which need to complete synchronously to apply their edits.")
 
   (defun cfg-lsp/lsp-tramp-optimize-clients ()
     "Disable specific LSP clients when working over TRAMP.
-The built-in ESLint client ID is 'eslint'. When lsp-auto-register-remote-clients
-is t, lsp-mode may create remote versions automatically. We disable both 'eslint'
-and use 'eslint-remote' instead for TRAMP buffers.
+The built-in ESLint client ID is `eslint'. When
+`lsp-auto-register-remote-clients' is t, lsp-mode may create remote versions
+automatically. We disable `eslint'
+and use `eslint-remote' instead for TRAMP buffers.
 
 Add-on clients (like ESLint) are LSP clients registered with :add-on? t.
 They can run alongside other language servers (e.g., TypeScript + ESLint).
-Because they're add-on clients, they may bypass lsp-disabled-clients checks,
-so we also set lsp-eslint-enable to nil for extra reliability."
+Because they are add-on clients, they may bypass `lsp-disabled-clients' checks,
+so we also set `lsp-eslint-enable' to nil for extra reliability."
     (when (file-remote-p (or (buffer-file-name) default-directory))
       ;; Disable the default 'eslint' client which tries to use local paths
       (setq-local lsp-disabled-clients (cons 'eslint (bound-and-true-p lsp-disabled-clients)))
@@ -972,7 +1004,6 @@ We load the main lsp-ui package below:
 
 #+begin_src emacs-lisp
 (use-package lsp-ui
-  :pin "MELPA Unstable"
   :after lsp-mode
 
   ;; :commands ensures lsp-ui is loaded only when lsp-ui-mode is called
@@ -999,7 +1030,6 @@ errors, references, and more.
 
 #+begin_src emacs-lisp
 (use-package lsp-treemacs
-  :pin "MELPA Unstable"
   :after (lsp-mode treemacs)
   :config
   (setq lsp-treemacs-sync-mode nil) ;; Keep off by default

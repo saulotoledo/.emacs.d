@@ -41,6 +41,47 @@ flycheck/flycheck).
 
 #+begin_src emacs-lisp
 (declare-function tramp-tramp-file-p "tramp")
+
+(defun cfg-lsp/flycheck-config-file-p ()
+  "Return non-nil when the current buffer belongs to `user-emacs-directory'."
+  (when-let ((file (or buffer-file-name default-directory)))
+    (string-prefix-p (file-name-as-directory (expand-file-name user-emacs-directory))
+                     (expand-file-name file))))
+
+(defun cfg-lsp/flycheck-elpaca-init-form ()
+  "Return an `--eval' form that bootstraps Elpaca for Flycheck byte-compile.
+Flycheck checks init.el in a fresh =-Q= batch Emacs. Emacs 30 ships
+`use-package', so =use-package= forms macro-expand there, but Elpaca packages
+and autoloads are absent unless we load them first."
+  (let ((builds (expand-file-name "elpaca/builds/" user-emacs-directory))
+        (dir (file-name-as-directory (expand-file-name user-emacs-directory))))
+    (prin1-to-string
+     `(progn
+        (setq user-emacs-directory ,dir)
+        (require 'cl-lib)
+        (let ((builds ,builds))
+          (dolist (dir (directory-files builds t))
+            (when (file-directory-p dir)
+              (add-to-list 'load-path dir)))
+          (dolist (f (directory-files-recursively builds "-autoloads\\.el$"))
+            (ignore-errors (load f nil t)))
+          (require 'elpaca)
+          (require 'elpaca-use-package)
+          (elpaca-use-package-mode 1)
+          (require 'dash nil t)
+          (require 'ht nil t))))))
+
+(defun cfg-lsp/flycheck-option-elpaca-package-initialize (value)
+  "Flycheck option filter: bootstrap Elpaca instead of `package-initialize'.
+When VALUE is non-nil for config files, return the Elpaca bootstrap form."
+  (when (if (eq value 'auto)
+            (or (cfg-lsp/flycheck-config-file-p)
+                (and user-init-file buffer-file-name
+                     (fboundp 'flycheck-same-files-p)
+                     (flycheck-same-files-p buffer-file-name user-init-file)))
+          value)
+    (cfg-lsp/flycheck-elpaca-init-form)))
+
 (defun cfg-lsp--flycheck-maybe-enable ()
   "Enable flycheck when properly supported.
 Always enable for local files. For TRAMP files, enable only if Flycheck is v38+,
@@ -80,6 +121,8 @@ being excessive.
 
 (use-package flycheck
   :custom
+  (flycheck-emacs-lisp-load-path 'inherit)
+  (flycheck-emacs-lisp-initialize-packages 'auto)
   (flycheck-annotate-current-line-style 'eol)
   (flycheck-annotate-other-lines-style 'eol)
   (flycheck-highlighting-mode 'symbols)
@@ -91,7 +134,11 @@ being excessive.
   (flycheck-check-syntax-automatically '(save mode-enabled idle-change))
   (flycheck-idle-change-delay 5)
 
+  :hook (prog-mode . cfg-lsp--flycheck-maybe-enable)
+
   :config
+  (advice-add 'flycheck-option-emacs-lisp-package-initialize :override
+              #'cfg-lsp/flycheck-option-elpaca-package-initialize)
   ;; Available only on Flycheck 38+:
   (when (fboundp 'global-flycheck-annotate-mode)
     (global-flycheck-annotate-mode 1)
@@ -142,7 +189,7 @@ being excessive.
 
   ;; Enable Flycheck globally. Disabled for now. I am trying prog-mode hook instead.
   ;; (global-flycheck-mode t)
-  :hook (prog-mode . cfg-lsp--flycheck-maybe-enable))
+  )
 #+end_src
 
 ** Cognitive Complexity: Code Metrics
@@ -155,7 +202,7 @@ of tree-sitter (external package).
 
 #+begin_src emacs-lisp
 (use-package cognitive-complexity
-  :pin "JCS-ELPA"
+  :ensure (cognitive-complexity :host github :repo "emacs-vs/cognitive-complexity")
   :hook ((prog-mode . cognitive-complexity-mode))
   :custom
   (cognitive-complexity-complexity-threshold 15)

@@ -72,7 +72,7 @@ the position in the buffer.
 
 #+begin_src emacs-lisp
 (use-package which-func
-  :ensure t)
+  :ensure nil)
 
 (use-package mlscroll
   :config

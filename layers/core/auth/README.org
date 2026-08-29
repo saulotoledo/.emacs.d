@@ -21,6 +21,8 @@ API keys, credentials, and passwords from GPG-encrypted storage
 We use the Emacs built-in ~auth-source~ package to securely retrieve API keys from encrypted storage.
 
 #+begin_src emacs-lisp
+(declare-function auth-source-search "auth-source")
+
 (use-package auth-source
   :ensure nil ; built-in
   :custom

@@ -73,6 +73,9 @@ install the ECA config file to the global path.
   (advice-remove symbol function)
   (advice-add symbol where function))
 
+(declare-function auth-source-forget-all-cached "auth-source")
+(declare-function auth-source-search "auth-source")
+
 (defun cfg-tools/get-token-from-auth-source (host)
   "Find token in auth-source for HOST."
   (require 'epa-file)
@@ -222,9 +225,55 @@ Skips if file exists and is identical, backups if different."
     "Placeholder for evil-change-line (Evil mode not installed)."
     (interactive)))
 
+(defvar cfg-tools/eca-initialized-p nil
+  "Non-nil when `cfg-tools/eca-init' has run this session.")
+
+(defun cfg-tools/eca-setup-tokens ()
+  "Setup ECA provider tokens from auth-source."
+  (let ((providers '(("ANTHROPIC_API_KEY"   "api.anthropic.com")
+                     ("DEEPSEEK_API_KEY"    "api.deepseek.com")
+                     ("GROQ_API_KEY"        "api.groq.com")
+                     ("HUGGINGFACE_API_KEY" "router.huggingface.co")
+                     ("MISTRAL_API_KEY"     "api.mistral.ai")
+                     ("OPENAI_API_KEY"      "api.openai.com")
+                     ("OPENROUTER_API_KEY"  "openrouter.ai")
+                     ("SILICONFLOW_API_KEY" "api.siliconflow.cn"))))
+    (dolist (provider providers)
+      (let ((env-var (car provider))
+            (host    (cadr provider)))
+        (condition-case err
+            (let ((token (cfg-tools/get-token-from-auth-source host)))
+              (if token
+                  (progn
+                    (setenv env-var token)
+                    (message "ECA [✓]: Key %s initialized with token for %s from credentials" env-var host))
+                (message "ECA [-]: Skipping key %s: no token found for host (%s) on credentials" env-var host)))
+          (error
+           (message "ECA [-]: Skipping key %s: %s"
+                    env-var (error-message-string err))))))))
+
+(defun cfg-tools/eca-init (&rest _args)
+  "Ensure ECA config is installed."
+  (unless (and (boundp 'cfg-tools/eca-initialized-p) cfg-tools/eca-initialized-p)
+    (condition-case err
+        (progn
+          ;; Ensure local.el is loaded (it's loaded in after-init-hook, but be safe)
+          (let ((local-file (concat user-emacs-directory "local.el")))
+            (when (and (file-exists-p local-file)
+                       (not (boundp 'cfg-tools/eca-default-model)))
+              (load-file local-file)))
+          (cfg-tools/eca-install-config)
+          (setq cfg-tools/eca-initialized-p t)
+          ;; Defer token setup: gpg-agent may not be ready when eca is first
+          ;; invoked. Tokens are env vars read at call time, so setting them
+          ;; a few seconds later is safe.
+          (run-with-idle-timer 2 nil #'cfg-tools/eca-setup-tokens))
+      (error (message "ECA: Failed to load local.el: %s" (error-message-string err))))))
+
 (use-package eca
   :after auth-source
-  :pin "MELPA Unstable"
+  :init
+  (require 'markdown-mode)
   :custom
   (eca-chat-select-model "google/gemini-3-flash-preview") ; Your preferred "Brain"
 
@@ -233,52 +282,6 @@ Skips if file exists and is identical, backups if different."
   (setq eca-chat-diff-tool 'ediff)
   (setq eca-extra-args '("--verbose" "--log-level" "debug"))
   (add-hook 'eca-chat-mode-hook (lambda () (setq-local show-trailing-whitespace nil)))
-
-  (defun cfg-tools/eca-init (&rest _args)
-    "Ensure ECA config is installed."
-    (unless (and (boundp 'cfg-tools/eca-initialized-p) cfg-tools/eca-initialized-p)
-      (condition-case err
-          (progn
-            ;; Ensure local.el is loaded (it's loaded in after-init-hook, but be safe)
-            (let ((local-file (concat user-emacs-directory "local.el")))
-              (when (and (file-exists-p local-file)
-                         (not (boundp 'cfg-tools/eca-default-model)))
-                (load-file local-file)))
-            (cfg-tools/eca-install-config)
-            (setq cfg-tools/eca-initialized-p t)
-            ;; Defer token setup: gpg-agent may not be ready when eca is first
-            ;; invoked. Tokens are env vars read at call time, so setting them
-            ;; a few seconds later is safe.
-            (run-with-idle-timer 2 nil #'cfg-tools/eca-setup-tokens))
-        (error (message "ECA: Failed to load local.el: %s" (error-message-string err))))))
-
-  (defvar cfg-tools/eca-initialized-p nil
-    "Non-nil when `cfg-tools/eca-init' has run this session.")
-
-  ;; Setup tokens when auth-source backends are initialized
-  (defun cfg-tools/eca-setup-tokens ()
-    "Setup ECA provider tokens from auth-source."
-    (let ((providers '(("ANTHROPIC_API_KEY"   "api.anthropic.com")
-                       ("DEEPSEEK_API_KEY"    "api.deepseek.com")
-                       ("GROQ_API_KEY"        "api.groq.com")
-                       ("HUGGINGFACE_API_KEY" "router.huggingface.co")
-                       ("MISTRAL_API_KEY"     "api.mistral.ai")
-                       ("OPENAI_API_KEY"      "api.openai.com")
-                       ("OPENROUTER_API_KEY"  "openrouter.ai")
-                       ("SILICONFLOW_API_KEY" "api.siliconflow.cn"))))
-      (dolist (provider providers)
-        (let ((env-var (car provider))
-              (host    (cadr provider)))
-          (condition-case err
-              (let ((token (cfg-tools/get-token-from-auth-source host)))
-                (if token
-                    (progn
-                      (setenv env-var token)
-                      (message "ECA [✓]: Key %s initialized with token for %s from credentials" env-var host))
-                  (message "ECA [-]: Skipping key %s: no token found for host (%s) on credentials" env-var host)))
-            (error
-             (message "ECA [-]: Skipping key %s: %s"
-                      env-var (error-message-string err))))))))
 
   (cfg-tools/advice-add-once 'eca :before #'cfg-tools/eca-init)
 
@@ -719,7 +722,6 @@ host. Ollama's placeholder API key deliberately bypasses this lookup."
         (minuet-auto-suggestion-mode 1))))
 
 (use-package minuet
-  :pin "GNU ELPA"
   :after auth-source
   :config
   (setq minuet-n-completions 1
@@ -822,7 +824,7 @@ maintains an Org-mode index for easy navigation.
 (declare-function eca-chat--get-last-buffer "eca-chat")
 (declare-function eca-chat--title "eca-chat")
 
-(defvar eca-chat-mode-map nil "Keymap for ECA chat mode.")
+(defvar eca-chat-mode-map)
 
 (defvar cfg-tools/eca-chat-directory (expand-file-name "eca-chats/" user-emacs-directory)
   "Directory to save ECA chats.")
@@ -1016,6 +1018,7 @@ Uses PROJ-CONTEXT."
 
 (declare-function org-element-context "org")
 (declare-function org-element-property "org")
+(declare-function org-element--property "org")
 
 (defun cfg-tools/eca-chat-follow-link-no-project (orig-fun &rest args)
   "Advice for org-open-at-point to open chat files without changing project.
@@ -1242,11 +1245,11 @@ Corfu, then Copilot, then Minuet."
   (interactive)
   (copilot-chat-yank-pop -1))
 
+
 (use-package copilot
   ;; We activate the copilot extension only if it is authorized on this computer.
   ;; This will prevent us from loading it if not in use:
   :if (cfg-tools/ai-copilot-authorized-p)
-  :pin "MELPA Unstable"
   :after eca
   :init
   ;; Disable indentation offset warnings - Copilot will use existing indentation
@@ -1380,7 +1383,7 @@ tests, and more, all within Emacs.
   ;; We activate the copilot chat extension only if it is authorized on this computer.
   ;; This will prevent us from loading it if not in use:
   :if (cfg-tools/ai-copilot-authorized-p)
-  :pin "MELPA Unstable"
+  :ensure (copilot-chat :host github :repo "chep/gh-copilot-chat.el" :tag "v3.0.0")
   :after (org markdown-mode)
 
   :custom
@@ -1413,7 +1416,8 @@ Registers keybindings for AI tools, ECA chat sessions, Copilot, and Copilot Chat
 
 ;; ECA Chat mode navigation
 (with-eval-after-load 'eca-chat
-  (define-key eca-chat-mode-map (kbd "C-c C-S-i") #'cfg-tools/eca-chat-open-index))
+  (when (and (boundp 'eca-chat-mode-map) eca-chat-mode-map)
+    (define-key eca-chat-mode-map (kbd "C-c C-S-i") #'cfg-tools/eca-chat-open-index)))
 
 ;; Completion overlay maps (Active when ghost text / popup is visible)
 (with-eval-after-load 'corfu

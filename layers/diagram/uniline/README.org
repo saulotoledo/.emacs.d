@@ -14,6 +14,7 @@ keyboard navigation.
   :commands (uniline-mode))
 
 (use-package uniline-transient
+  :after uniline
   :ensure nil) ; Part of uniline
 #+end_src
 

@@ -28,7 +28,8 @@ diagrams), we also setup ~mermaid-mode~ for such cases.
           (lambda ()
             (not (derived-mode-p 'mermaid-mode 'mermaid-ts-mode))))
 
-(defun cfg-mermaid-setup ()
+(defun cfg-diagram--mermaid-setup ()
+  "Disable Flycheck in Mermaid buffers."
   (flycheck-mode -1))
 
 (use-package mermaid-mode
@@ -47,14 +48,14 @@ diagrams), we also setup ~mermaid-mode~ for such cases.
    (expand-file-name "nodejs_tools/node_modules/.bin/mmdc"
                      user-emacs-directory))
   :hook
-  (mermaid-mode . cfg-mermaid-setup))
+  (mermaid-mode . cfg-diagram--mermaid-setup))
 
 (use-package mermaid-ts-mode
   :defer t
   :mode (("\\.mmd\\'" . mermaid-ts-mode)
          ("\\.mermaid\\'" . mermaid-ts-mode))
   :hook
-  (mermaid-ts-mode . cfg-mermaid-setup))
+  (mermaid-ts-mode . cfg-diagram--mermaid-setup))
 #+end_src
 
 * Keybindings

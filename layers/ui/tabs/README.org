@@ -14,8 +14,6 @@ system buffers to keep the editing workspace clutter-free.
 (declare-function project-root "project")
 
 (use-package centaur-tabs
-  :pin "MELPA Unstable"
-  :ensure
   :demand
   :after all-the-icons
   :config

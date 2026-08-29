@@ -9,6 +9,8 @@ with version control systems and icon themes to visualize project structure.
 * Emacs Configuration
 ** Treemacs Core Configuration
 #+begin_src emacs-lisp
+(declare-function treemacs--propagate-new-icons "treemacs")
+
 (use-package treemacs
   :after (doom-themes)
   :demand t

@@ -117,6 +117,11 @@ apply to all language servers:
      :error-handler #'ignore
      :mode 'detached)))
 
+(eval-when-compile (require 'dash nil t))
+
+(declare-function cfg-lang/java-ts-indent-fix nil)
+(declare-function cfg-lang/lsp-java-discover-runtimes nil)
+(declare-function cfg-lang/lsp-java-invalid-runtime-advice nil)
 (declare-function -first "dash")
 (declare-function dap-force-quit "dap-mode")
 (declare-function dap-java--populate-attach-args "dap-java")
@@ -171,7 +176,6 @@ apply to all language servers:
   (dap-force-quit))
 
 (use-package lsp-java
-  :pin "MELPA Unstable"
   :after java-ts-mode
   :init
   (defconst cfg-lang/jdtls-install-dir
@@ -202,7 +206,7 @@ apply to all language servers:
   (defun cfg-lang/java-ts-chained-argument-list-p (_node parent _bol)
     "Return non-nil if PARENT is an `argument_list' of a chained method.
 This handles chains like `obj.method()', `obj.method().method()', or
-`some.field.method()'. It detects the chain by checking for an 'object'
+`some.field.method()'. It detects the chain by checking for an `object'
 field or a dot node in the parent `method_invocation'."
     (and (equal (treesit-node-type parent) "argument_list")
          (let* ((method-node (treesit-node-parent parent)))

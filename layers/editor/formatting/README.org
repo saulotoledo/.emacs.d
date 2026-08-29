@@ -53,11 +53,12 @@ The package setup:
 
 #+begin_src emacs-lisp
 (use-package apheleia
-  :pin "MELPA Unstable"
   :commands (apheleia-format-buffer apheleia-global-mode)
   :defines (apheleia-formatters apheleia-mode-alist apheleia-formatter)
   :config
   (apheleia-global-mode +1)
+
+  (declare-function cfg-editor/apheleia-inhibit-remote-if-no-tool nil)
 
   ;; Smarter TRAMP support: Only inhibit if the required formatter is missing on the remote.
   ;; This prevents hangs while allowing formatting if the remote has the tool installed.

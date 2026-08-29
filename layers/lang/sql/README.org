@@ -97,7 +97,8 @@ project resolves one of those adapters from its =.sqllsrc.json= configuration.
   "Non-nil while Org is indenting a source block through its edit buffer.")
 
 (defun cfg-lang/sqlfluff--without-prompt-during-org-indent (orig-fun &rest args)
-  "Run ORIG-FUN without prompting while Org indents a source block."
+  "Run ORIG-FUN without prompting while Org is indenting a source block.
+ARGS are passed through to ORIG-FUN."
   (let ((cfg-lang/sqlfluff--org-indenting t))
     (apply orig-fun args)))
 
@@ -193,14 +194,15 @@ project resolves one of those adapters from its =.sqllsrc.json= configuration.
                 reports)))
     (json-parse-error nil)))
 
-(flycheck-define-checker sqlfluff
-  "A SQLFluff checker with buffer-local dialect selection."
-  :command ("sqlfluff" "lint" "--nocolor" "--disable-progress-bar"
-            "--format" "json" "--stdin-filename" source-original
-            (option "--dialect" cfg-lang/sqlfluff-dialect) "-")
-  :standard-input t
-  :error-parser cfg-lang/sqlfluff--parse-output
-  :modes sql-mode)
+(with-eval-after-load 'flycheck
+  (flycheck-define-checker sqlfluff
+    "A SQLFluff checker with buffer-local dialect selection."
+    :command ("sqlfluff" "lint" "--nocolor" "--disable-progress-bar"
+              "--format" "json" "--stdin-filename" source-original
+              (option "--dialect" cfg-lang/sqlfluff-dialect) "-")
+    :standard-input t
+    :error-parser cfg-lang/sqlfluff--parse-output
+    :modes sql-mode))
 
 (defun cfg-lang/sqlfluff-setup ()
   "Configure SQLFluff as the only diagnostics provider for SQL buffers."

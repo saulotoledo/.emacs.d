@@ -177,6 +177,7 @@ snippets and test functions on the fly.
          ("\\.jsx\\'" . tsx-ts-mode)))
 
 (use-package typescript-ts-mode
+  :ensure nil
   :defer t
   :mode (("\\.[cm]?ts\\'" . typescript-ts-mode)
          ("\\.tsx\\'" . tsx-ts-mode))
@@ -274,6 +275,7 @@ snippets and test functions on the fly.
 (setq lsp-typescript-suggest-complete-function-calls t)
 (setq lsp-typescript-preferences-import-module-specifier "auto") ; other values: non-relative, relative
 
+(eval-when-compile (require 'ht nil t))
 (declare-function ht-merge "ht")
 (with-eval-after-load 'lsp-mode
   (add-to-list 'lsp-language-id-configuration '(typescript-ts-mode . "typescript"))

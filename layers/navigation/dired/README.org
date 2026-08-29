@@ -162,8 +162,17 @@ buffer, so explicitly refresh the Dirvish overlays here."
 
 ** Dirvish Configuration
 #+begin_src emacs-lisp
+(declare-function dirvish-subtree--depth "dirvish")
+(declare-function dirvish-subtree--expanded-p "dirvish")
+(declare-function dirvish--kill-buffer "dirvish")
+(declare-function dirvish--run-with-delay "dirvish")
+(declare-function dirvish--preview-update "dirvish")
+(declare-function cfg-navigation/dirvish-subtree-direct-children nil)
+(declare-function cfg-navigation/dirvish-subtree-only-child-directory nil)
+(declare-function cfg-navigation/dirvish-refresh-preview-cache nil)
+(declare-function cfg-navigation/dirvish-invalidate-saved-preview nil)
+
 (use-package dirvish
-  :pin "MELPA Unstable"
   :bind (:map dirvish-mode-map
               ("TAB"       . dirvish-subtree-toggle)
               ("<right>"   . cfg-navigation/dirvish-subtree-right)
@@ -180,7 +189,7 @@ buffer, so explicitly refresh the Dirvish overlays here."
   ;; =========================================================================
 
   (defun cfg-navigation/dirvish-toggle-git-msg ()
-    "Toggle 'vc-state' and 'git-msg' attributes for Dirvish."
+    "Toggle `vc-state' and `git-msg' attributes for Dirvish."
     (interactive)
     (let ((has-git (or (memq 'git-msg dirvish-attributes)
                        (memq 'vc-state dirvish-attributes))))

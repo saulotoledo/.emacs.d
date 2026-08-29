@@ -11,6 +11,10 @@ editable grep results via wgrep.
 * Emacs Configuration
 ** Ripgrep Package Setup
 #+begin_src emacs-lisp
+(eval-when-compile (require 'transient nil t))
+(declare-function transient--suffix-only "transient")
+(declare-function transient--default-infix-command "transient")
+
 (defun cfg-tools/counsel-rg-auto-preview-advice (orig-fun &rest args)
   "Enable live-calling/preview automatically when running `counsel-rg`.
 ORIG-FUN is the advised function and ARGS are its arguments."

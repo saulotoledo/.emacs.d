@@ -10,6 +10,7 @@ and Treemacs integration.
 ** Project.el Management
 #+begin_src emacs-lisp
 (use-package project
+  :ensure nil
   :preface
   (defun cfg-tools/treemacs-sync-with-project ()
     "Restrict Treemacs to display only the current project.

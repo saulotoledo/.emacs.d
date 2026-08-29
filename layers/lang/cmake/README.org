@@ -9,6 +9,7 @@ Provide cmake-ts-mode for CMakeLists.txt files.
 ** cmake-ts-mode
 #+begin_src emacs-lisp
 (use-package cmake-ts-mode
+  :ensure nil
   :mode ("CMakeLists\\.txt\\'" "\\.cmake\\'")
   :config
   (setq cmake-ts-mode-indent-offset 2))
