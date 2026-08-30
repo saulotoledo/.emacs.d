@@ -658,7 +658,7 @@ install_via_pipx() {
   local package="$2"
 
   if ensure_pipx_available; then
-    run_task "$friendly_name via pipx" "pipx install --force $package"
+    run_task "$friendly_name via pipx" "pipx install --force \"$package\""
   else
     log_error "Installation of $package skipped because pipx is unavailable."
     return 1
