@@ -1395,6 +1395,22 @@ uninstall__tools__autotools__language_server() {
 
 register_action "Tools" "Autotools" "Install Autotools Language Server" "-tools--autotools--language-server" "standalone"
 
+is_installed__lang__cmake__language_server() {
+  command -v cmake-language-server >/dev/null 2>&1
+}
+
+install__lang__cmake__language_server() {
+  install_via_pipx "CMake Language Server" "cmake-language-server"
+  # cmake-language-server did not migrate to pygls 2.x yet:
+  run_task "Injecting Python Generic Lang. Server 1.x" "pipx inject --force cmake-language-server 'pygls<2' 2>/dev/null || true"
+}
+
+uninstall__lang__cmake__language_server() {
+  run_task "Uninstalling CMake LS" "pipx uninstall cmake-language-server 2>/dev/null || true"
+}
+
+register_action "Lang" "CMake" "Install CMake Language Server" "-lang--cmake--language-server" "standalone"
+
 CPP_MIN_DEV_PACKAGES=(
   "gcc-c++" "gdb" "cmake" "make" "clang-tools-extra" "bear"
   "openssl-devel" "libxcrypt-devel" "ncurses-devel"
