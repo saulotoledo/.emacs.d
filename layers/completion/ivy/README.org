@@ -60,6 +60,7 @@ Otherwise, submit the standard selected candidate."
   (ivy-display-style 'fancy)
   (ivy-use-selectable-prompt t)
   (ivy-use-virtual-buffers t)
+  (ivy-do-completion-in-region nil)
   :config
   (add-hook 'minibuffer-setup-hook #'cfg-completion--ivy-setup-literal-done)
   (ivy-mode 1))
