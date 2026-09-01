@@ -175,6 +175,14 @@ apply to all language servers:
     (ignore-errors (call-process "kill" nil nil nil "-9" (number-to-string pid))))
   (dap-force-quit))
 
+;; Install this mapping before session restore or file visiting can select the
+;; legacy `java-mode'. The grammar is installed/checked separately by
+;; `treesit-auto'; this early mapping ensures `.java' uses `java-ts-mode' when
+;; the grammar is available.
+(add-to-list 'auto-mode-alist '("\\.java\\'" . java-ts-mode))
+(make-directory (expand-file-name "~/.cache/jdtls/") t)
+(make-directory (expand-file-name "workspace/" user-emacs-directory) t)
+
 (use-package lsp-java
   :after java-ts-mode
   :init
@@ -200,8 +208,6 @@ apply to all language servers:
   ;; `completion-at-point` (e.g. M-TAB or a manual Corfu trigger), avoiding costly
   ;; background completion on every trigger character.
   (setq lsp-java-completion-on-demand t)
-
-  (add-to-list 'auto-mode-alist '("\\.java.*\\'" . java-ts-mode))
 
   (defun cfg-lang/java-ts-chained-argument-list-p (_node parent _bol)
     "Return non-nil if PARENT is an `argument_list' of a chained method.
