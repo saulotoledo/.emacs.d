@@ -291,7 +291,8 @@ Example: \"com.foo.Bar.method\" + \"Bar.java\" -> \"com/foo/Bar.java\"."
         (archive-mode))
       (if (not (archive-goto-file entry))
           (message "java-stack-trace: %s is not present in %s" entry jar)
-        (let ((archive-read-only t))
+        (let ((archive-read-only t)
+              (auto-save-default nil))
           (archive-extract 'display))
         (let ((member (cl-find-if
                        (lambda (buffer)
@@ -304,6 +305,9 @@ Example: \"com.foo.Bar.method\" + \"Bar.java\" -> \"com/foo/Bar.java\"."
             (with-current-buffer member
               ;; Archive member names are synthetic paths; never autosave them.
               (auto-save-mode -1)
+              (when (and source-p
+                         (string-equal (file-name-extension entry) "java"))
+                (java-ts-mode))
               (setq buffer-read-only t)
               (when source-p
                 (goto-char (point-min))

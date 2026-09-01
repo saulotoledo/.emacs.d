@@ -175,11 +175,26 @@ apply to all language servers:
     (ignore-errors (call-process "kill" nil nil nil "-9" (number-to-string pid))))
   (dap-force-quit))
 
-;; Install this mapping before session restore or file visiting can select the
-;; legacy `java-mode'. The grammar is installed/checked separately by
-;; `treesit-auto'; this early mapping ensures `.java' uses `java-ts-mode' when
-;; the grammar is available.
-(add-to-list 'auto-mode-alist '("\\.java\\'" . java-ts-mode))
+;; JDTLS virtual source names end in `Foo.java(<...>.class)#` rather than
+;; `.java`, so they need the same mode and auto-save handling as Java files.
+(add-to-list 'auto-mode-alist
+             '("\\.java\\(?:([^)]*)\\)?#?\\'" . java-ts-mode))
+
+(add-to-list 'auto-save-file-name-transforms
+             `(".*\\.jar[!/:].*"
+               ,(expand-file-name "auto-save-list/" user-emacs-directory) sha256))
+
+(defun cfg-lang/java-virtual-jar-buffer-p ()
+  "Return non-nil for a JDTLS buffer backed by a JAR entry."
+  (and buffer-file-name (string-match-p "\\.jar[!/:]" buffer-file-name)))
+
+(defun cfg-lang/java-inhibit-virtual-jar-auto-save (original &optional arg)
+  "Prevent auto-save from being enabled for JDTLS virtual JAR buffers."
+  (unless (and (or (eq arg t) (and (numberp arg) (> arg 0)))
+               (cfg-lang/java-virtual-jar-buffer-p))
+    (funcall original arg)))
+
+(advice-add 'auto-save-mode :around #'cfg-lang/java-inhibit-virtual-jar-auto-save)
 (make-directory (expand-file-name "~/.cache/jdtls/") t)
 (make-directory (expand-file-name "workspace/" user-emacs-directory) t)
 
