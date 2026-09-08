@@ -55,7 +55,7 @@ here:
 Disable Apheleia for Terraform so save uses only the path above.
 
 #+begin_src emacs-lisp
-(defvar apheleia-mode-alist nil)
+(defvar apheleia-mode-alist)
 
 (with-eval-after-load 'apheleia
   (setf (alist-get 'terraform-mode apheleia-mode-alist) nil))

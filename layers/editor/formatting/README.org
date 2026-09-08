@@ -53,7 +53,7 @@ The package setup:
 
 #+begin_src emacs-lisp
 (use-package apheleia
-  :commands (apheleia-format-buffer apheleia-global-mode)
+  :demand t
   :defines (apheleia-formatters apheleia-mode-alist apheleia-formatter)
   :config
   (apheleia-global-mode +1)
@@ -114,9 +114,9 @@ already mapped by Apheleia.
 
 (defvar-local cfg-editor--format-as-temp-file nil)
 
-(defvar apheleia-formatter nil)
-(defvar apheleia-formatters nil)
-(defvar apheleia-mode-alist nil)
+(defvar apheleia-formatter)
+(defvar apheleia-formatters)
+(defvar apheleia-mode-alist)
 
 (declare-function apheleia-format-buffer
     "apheleia" (formatter &optional success-callback &rest arguments))
