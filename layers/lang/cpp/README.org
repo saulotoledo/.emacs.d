@@ -65,6 +65,28 @@ to place the cursor while typing interactively."
 (setq c-default-style (symbol-name (cfg-lang/map-cpp-base-indent-style-for-emacs)))
 (setq c-ts-mode-indent-style (cfg-lang/map-cpp-base-indent-style-for-emacs))
 (setq-default c-basic-offset 2)
+
+(defun cfg-lang/cpp-clang-format-fallback-style ()
+  "clang-format -style value when no project .clang-format exists.
+Always ends with IndentWidth: 2."
+  (concat
+   (pcase cfg-lang/cpp-format-style
+     ('bsd
+      "{BasedOnStyle: LLVM, BreakBeforeBraces: Allman, AllowShortFunctionsOnASingleLine: None, AllowShortBlocksOnASingleLine: Never, AllowShortIfStatementsOnASingleLine: Never, AllowShortLoopsOnASingleLine: false")
+     ('k&r "{BasedOnStyle: LLVM, BreakBeforeBraces: Attach")
+     ('gnu "{BasedOnStyle: GNU")
+     ('linux "{BasedOnStyle: Linux")
+     ('google "{BasedOnStyle: Google")
+     ('llvm "{BasedOnStyle: LLVM")
+     ('microsoft "{BasedOnStyle: Microsoft")
+     ('mozilla "{BasedOnStyle: Mozilla")
+     ('chromium "{BasedOnStyle: Chromium")
+     ('webkit "{BasedOnStyle: WebKit")
+     ('stroustrup "{BasedOnStyle: Stroustrup")
+     ('whitesmith "{BasedOnStyle: Whitesmith")
+     (_
+      "{BasedOnStyle: LLVM, BreakBeforeBraces: Allman, AllowShortFunctionsOnASingleLine: None, AllowShortBlocksOnASingleLine: Never, AllowShortIfStatementsOnASingleLine: Never, AllowShortLoopsOnASingleLine: false"))
+   ", IndentWidth: 2}"))
 #+end_src
 
 ** Language Server (clangd & lsp-mode)
@@ -77,11 +99,7 @@ to place the cursor while typing interactively."
           "--background-index"
           "--log=error"
           ,(format "--fallback-style=%s"
-                   (pcase cfg-lang/cpp-format-style
-                     ('bsd "BSD")
-                     ('google "Google")
-                     ('llvm "LLVM")
-                     (_ "LLVM"))))))
+                   (cfg-lang/cpp-clang-format-fallback-style)))))
 
 ;; Register accepted extensions for workspace folder filtering
 (when (boundp 'cfg-lsp/server-file-extensions)
@@ -90,42 +108,41 @@ to place the cursor while typing interactively."
 #+end_src
 
 ** Code Formatting (Apheleia & clang-format)
-#+begin_src emacs-lisp
-(defun cfg-lang/apheleia-get-cpp-style ()
-  "Determine the best -style argument for clang-format.
-If a local .clang-format exists, use -style=file.
-Otherwise, use our custom configuration string."
-  (let ((config-file (locate-dominating-file
-                      (or (buffer-file-name) default-directory)
-                                             ".clang-format")))
-    (if config-file
-        "-style=file"
-      (format "-style=%s"
-              (pcase cfg-lang/cpp-format-style
-                ('bsd        "{BasedOnStyle: LLVM, BreakBeforeBraces: Allman, IndentWidth: 2}")
-                ('k&r        "{BasedOnStyle: K&R, BreakBeforeBraces: Attach, IndentWidth: 2}")
-                ('stroustrup "{BasedOnStyle: Stroustrup, IndentWidth: 2}")
-                ('linux      "{BasedOnStyle: Linux, IndentWidth: 2}")
-                ('google     "{BasedOnStyle: Google, IndentWidth: 2}")
-                ('llvm       "{BasedOnStyle: LLVM, IndentWidth: 2}")
-                ('microsoft  "{BasedOnStyle: Microsoft, IndentWidth: 2}")
-                ('mozilla    "{BasedOnStyle: Mozilla, IndentWidth: 2}")
-                ('chromium   "{BasedOnStyle: Chromium, IndentWidth: 2}")
-                ('webkit     "{BasedOnStyle: WebKit, IndentWidth: 2}")
-                ('whitesmith "{BasedOnStyle: Whitesmith, IndentWidth: 2}")
-                (_           "{BasedOnStyle: LLVM, BreakBeforeBraces: Allman, IndentWidth: 2}"))))))
+The fallback is Allman braces + 2-space indent. ~.h~ uses ~c-or-c++-ts-mode~
+(content picks ~c-ts-mode~ or ~c++-ts-mode~). Other extensions stay with
+treesit-auto (~.c~ -> C, ~.cpp~/~.hpp~ -> C++).
 
-(defvar apheleia-formatters nil)
-(defvar apheleia-mode-alist nil)
+#+begin_src emacs-lisp
+(add-to-list 'auto-mode-alist '("\\.h\\'" . c-or-c++-ts-mode))
+
+(defun cfg-lang/apheleia-get-cpp-style ()
+  "Return clang-format -style argument for Apheleia.
+Use a project .clang-format when one exists. Otherwise use the
+configured fallback (BSD/Allman by default)."
+  (if (locate-dominating-file
+       (or (buffer-file-name) default-directory)
+       ".clang-format")
+      "-style=file"
+    (concat "-style=" (cfg-lang/cpp-clang-format-fallback-style))))
 
 (with-eval-after-load 'apheleia
-  (setf (alist-get 'clang-format-cpp apheleia-formatters)
-        '("clang-format" (cfg-lang/apheleia-get-cpp-style)))
+  ;; Override Apheleia's built-in clang-format entry and ensure C/C++ modes
+  ;; are mapped (do not rely on package defaults; early defvars elsewhere
+  ;; can wipe them before load).
+  (setf (alist-get 'clang-format apheleia-formatters)
+        '("clang-format"
+          "-assume-filename"
+          (or (apheleia-formatters-local-buffer-file-name)
+              (apheleia-formatters-mode-extension)
+              ".cpp")
+          (cfg-lang/apheleia-get-cpp-style)))
 
-  (setf (alist-get 'c-mode apheleia-mode-alist) 'clang-format-cpp)
-  (setf (alist-get 'c++-mode apheleia-mode-alist) 'clang-format-cpp)
-  (setf (alist-get 'c-ts-mode apheleia-mode-alist) 'clang-format-cpp)
-  (setf (alist-get 'c++-ts-mode apheleia-mode-alist) 'clang-format-cpp))
+  (dolist (mode '(c-mode c++-mode c-ts-mode c++-ts-mode
+                  c-or-c++-mode c-or-c++-ts-mode))
+    (setf (alist-get mode apheleia-mode-alist) 'clang-format)))
+
+(cfg-editor/format-as-register "C++" 'c++-ts-mode 'clang-format ".cpp")
+(cfg-editor/format-as-register "C" 'c-ts-mode 'clang-format ".c")
 #+end_src
 
 ** Make debug overrides
@@ -143,7 +160,8 @@ Registers C/C++ Make flag injection for ~cfg-lang/smart-compile~ debug builds
   (setq-local cfg-lang/debug-make-overrides-function
               #'cfg-lang/cpp-debug-make-overrides))
 
-(dolist (hook '(c-mode-hook c++-mode-hook c-ts-mode-hook c++-ts-mode-hook))
+(dolist (hook '(c-mode-hook c++-mode-hook c-ts-mode-hook c++-ts-mode-hook
+                c-or-c++-mode-hook c-or-c++-ts-mode-hook))
   (add-hook hook #'cfg-lang/cpp-enable-debug-make-overrides))
 #+end_src
 
