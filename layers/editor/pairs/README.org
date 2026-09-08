@@ -65,12 +65,16 @@ Falls through to `newline-and-indent' otherwise."
     (when (cdr sp-show-pair-enc-overlays)
       (overlay-put (cdr sp-show-pair-enc-overlays) 'priority -10))))
 
+;; Enable `smartparens-global-mode' in :config, not via `:hook (after-init ...)'.
+;; With Elpaca the package often activates after after-init has already run, so
+;; that hook never fires: show-smartparens would still turn on (also in :config)
+;; while autoinsert stayed off.
 (use-package smartparens
-  :hook (after-init . smartparens-global-mode)
   :config
   (require 'smartparens-config)
   (sp-use-smartparens-bindings)
-  (show-smartparens-global-mode t)
+  (smartparens-global-mode 1)
+  (show-smartparens-global-mode 1)
   ;; Making sure smartparens doesn't interfere with word navigation.
   (define-key smartparens-mode-map (kbd "C-<left>") #'left-word)
   (define-key smartparens-mode-map (kbd "C-<right>") #'right-word)
