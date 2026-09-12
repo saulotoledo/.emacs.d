@@ -128,10 +128,20 @@
       "key": "${env:OPENAI_API_KEY}"
     },
     "ollama": {
-      "api": "openai-chat",
       "url": "http://localhost:11434",
       "key": "",
-      "fetchModels": true
+      "fetchModels": true,
+      "models": {
+        "qwen3-coder-30b-a3b-q3km:latest": {
+          "limit": { "context": 12288, "output": 8192 },
+          "extraPayload": {
+            "options": {
+              "num_ctx": 12288,
+              "temperature": 0
+            }
+          }
+        }
+      }
     },
     "openrouter": {
       "api": "openai-chat",

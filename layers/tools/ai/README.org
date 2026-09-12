@@ -693,7 +693,7 @@ host. Ollama's placeholder API key deliberately bypasses this lookup."
    ;; Empty buffers
    (= (buffer-size) 0)
    ;; Very short lines, because they are probably errors
-   (< (- (line-end-position) (line-beginning-position)) 10)
+   (< (- (line-end-position) (line-beginning-position)) 6)
    ;; Blank lines
    (save-excursion
      (beginning-of-line)
