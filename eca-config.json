@@ -133,12 +133,20 @@
       "fetchModels": true,
       "models": {
         "qwen3-coder-30b-a3b-q3km:latest": {
+          "limit": { "context": 12288, "output": 8192 }
+        }
+      }
+    },
+    "local-ollama": {
+      "api": "openai-chat",
+      "url": "http://localhost:11434/v1",
+      "key": "ollama",
+      "fetchModels": true,
+      "models": {
+        "qwen3-coder-30b-a3b-q3km:latest": {
           "limit": { "context": 12288, "output": 8192 },
           "extraPayload": {
-            "options": {
-              "num_ctx": 12288,
-              "temperature": 0
-            }
+            "temperature": 0
           }
         }
       }
