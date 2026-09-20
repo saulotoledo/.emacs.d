@@ -1342,6 +1342,45 @@ uninstall__tools__ispell() {
 
 register_action "Tools" "Ispell" "Install Ispell" "-tools--ispell" "utils"
 
+D2_CLI_POSSIBLE_LOCAL_PATHS=(
+  "$HOME/.local/bin/d2"
+  "$HOME/go/bin/d2"
+)
+
+D2_CLI_PATH=""
+D2_CLI_IS_LOCAL=false
+
+is_installed__diagram__d2__cli() {
+  D2_CLI_PATH=""
+  D2_CLI_IS_LOCAL=false
+
+  for path in "${D2_CLI_POSSIBLE_LOCAL_PATHS[@]}"; do
+    if [ -f "$path" ]; then
+      D2_CLI_PATH="$path"
+      D2_CLI_IS_LOCAL=true
+    fi
+  done
+
+  [ -z "$D2_CLI_PATH" ] && D2_CLI_PATH=$(command -v d2 2>/dev/null)
+  [ -n "$D2_CLI_PATH" ]
+}
+
+install__diagram__d2__cli() {
+  curl -fsSL https://d2lang.com/install.sh | sh -s --
+}
+
+uninstall__diagram__d2__cli() {
+  is_installed__diagram__d2__cli || { log_skip "D2 CLI" "The D2 CLI is not installed"; return 0; }
+
+  if [ "$D2_CLI_IS_LOCAL" = true ]; then
+    run_task "Removing D2 CLI" "curl -fsSL https://d2lang.com/install.sh | sh -s -- --uninstall"
+  else
+    log_skip "D2 CLI" "The D2 CLI is system-installed package and will not be uninstalled automatically"
+  fi
+}
+
+register_action "Diagram" "D2" "Install D2 CLI" "-diagram--d2--cli" "standalone"
+
 is_installed__diagram__mermaid__mmdc() {
   [ -f "$TOOLS_DIR/node_modules/.bin/mmdc" ] || command -v mmdc >/dev/null 2>&1
 }

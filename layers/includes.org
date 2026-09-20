@@ -23,6 +23,7 @@
 #+INCLUDE: "completion/corfu/README.org"
 #+INCLUDE: "completion/ivy/README.org"
 #+INCLUDE: "completion/snippets/README.org"
+#+INCLUDE: "diagram/d2/README.org"
 #+INCLUDE: "diagram/mermaid/README.org"
 #+INCLUDE: "diagram/plantuml/README.org"
 #+INCLUDE: "diagram/uniline/README.org"

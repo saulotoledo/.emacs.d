@@ -1,0 +1,241 @@
+#+TITLE: D2 Layer
+#+CATEGORY: diagram
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+#+PROPERTY: header-args:sh :tangle setup.sh
+
+* Description
+Setup D2 for diagramming in Emacs.
+
+* Emacs Configuration
+** D2 Mode
+D2 (Declarative Diagramming) is a modern, open-source diagram scripting language
+that turns text descriptions into clean, professional diagrams. Designed for
+developers, architects, and technical writers, it emphasizes readability,
+automatic layout engines (such as TALA and ELK), and seamless integration with
+modern documentation workflows.
+
+Repo defaults are ~cfg-diagram/d2-layout~ = =elk= and ~cfg-diagram/d2-theme~ =
+=200= (Dark Mauve). ~cfg-diagram/d2-select-defaults~ (mode leader =C-c l= in
+~d2-mode~) picks both and writes matching ~setq~ lines to =local.el=. Those
+values win after init; if =local.el= has no such lines, the repo defaults apply.
+
+** Layout engines
+See [[https://d2lang.com/tour/layouts/][D2 layouts]]. The selector lists engines from =d2 layout= when the CLI is
+installed, otherwise dagre, elk, and tala.
+
+- *dagre* — D2 CLI default. Fast layered/hierarchical graphs (Graphviz
+  DOT-style). Weak on container size locks and ancestor-to-descendant edges.
+- *elk* — Also directed/layered; more mature than dagre. Repo default here.
+  Better container =width= / =height= than dagre.
+- *tala* — Architecture-oriented (bundled in recent D2). Strongest keyword
+  support (=near= to objects, =top= / =left=, per-container =direction=).
+
+** Themes
+Catalog: [[https://d2lang.com/tour/themes/][D2 themes]]. CLI: =d2 --theme ID= / =d2 themes=. Default =200= is Dark
+Mauve. The selector shows name, ID, light/dark, and color swatches.
+
+No D2 language server or Flycheck checker is registered, so ~d2-mode~ skips
+deferred LSP (same as Mermaid/PlantUML) and turns Flycheck off.
+
+Compile preview uses PNG (~d2-output-format~). D2 SVG often shows as XML or a
+blank image in Emacs.
+
+#+begin_src emacs-lisp
+(add-hook 'cfg-lsp/deferred-start-predicate-functions
+          (lambda ()
+            (not (derived-mode-p 'd2-mode))))
+
+(defun cfg-diagram--d2-setup ()
+  "Disable Flycheck in D2 buffers."
+  (flycheck-mode -1))
+
+(defvar cfg-diagram/d2-layout "elk"
+  "D2 layout engine passed as --layout.
+Override in local.el, or via `cfg-diagram/d2-select-defaults'.")
+
+(defvar cfg-diagram/d2-theme "200"
+  "D2 theme ID passed as --theme.
+Override in local.el, or via `cfg-diagram/d2-select-defaults'.")
+
+(defun cfg-diagram--d2-apply-flags ()
+  "Set `d2-flags' from `cfg-diagram/d2-layout' and `cfg-diagram/d2-theme'."
+  (setq d2-flags (list "--layout" cfg-diagram/d2-layout
+                       "--theme" cfg-diagram/d2-theme)))
+
+(defconst cfg-diagram--d2-themes
+  '((0 "Neutral Default" light ("#0D32B2" "#4A6FF3" "#EDF0FD"))
+    (1 "Neutral Grey" light ("#676C7E" "#CFD2DD" "#DEE1EB"))
+    (3 "Flagship Terrastruct" light ("#234CDA" "#5829DC" "#7FDBF8"))
+    (4 "Cool Classics" light ("#0F66B7" "#076F6F" "#C1A2F3"))
+    (5 "Mixed Berry Blue" light ("#0F66B7" "#7639C5" "#EA99C6"))
+    (6 "Grape Soda" light ("#7639C5" "#0F66B7" "#EA99C6"))
+    (7 "Aubergine" light ("#7639C5" "#0F66B7" "#92E3E3"))
+    (8 "Colorblind Clear" light ("#173688" "#048E63" "#FFDA90"))
+    (100 "Vanilla Nitro Cola" light ("#55452F" "#D35F0A" "#84A1EC"))
+    (101 "Orange Creamsicle" light ("#D35F0A" "#13A477" "#FEEC8C"))
+    (102 "Shirley Temple" light ("#9B1A48" "#D35F0A" "#FFE767"))
+    (103 "Earth Tones" light ("#55452F" "#D35F0A" "#FFE767"))
+    (104 "Everglade Green" light ("#048E63" "#D35F0A" "#C9B9A1"))
+    (105 "Buttered Toast" light ("#DF9C18" "#55452F" "#FABA8A"))
+    (300 "Terminal" light ("#0000E4" "#008566" "#F1C759"))
+    (301 "Terminal Grayscale" light ("#000410" "#6D7284" "#F5F6F9"))
+    (302 "Origami" light ("#A62543" "#0A4EA6" "#E07088"))
+    (303 "C4" light ("#08427B" "#0F5EAA" "#E1E1E1"))
+    (200 "Dark Mauve" dark ("#CBA6F7" "#F38BA8" "#45475A"))
+    (201 "Dark Flagship Terrastruct" dark ("#6B8AFB" "#8B5DEE" "#01799D")))
+  "D2 theme catalog: (ID NAME KIND SWATCH-HEXES).")
+
+(defun cfg-diagram--d2-layouts ()
+  "Return installed D2 layout engine names, or dagre/elk/tala."
+  (let ((program (executable-find "d2"))
+        layouts)
+    (when program
+      (with-temp-buffer
+        (when (zerop (call-process program nil t nil "layout"))
+          (goto-char (point-min))
+          (while (re-search-forward
+                  "^\\([a-z][a-z0-9_-]*\\)[[:space:]]+(" nil t)
+            (let ((name (match-string-no-properties 1)))
+              (unless (member name layouts)
+                (push name layouts)))))))
+    (or (nreverse layouts) '("dagre" "elk" "tala"))))
+
+(defun cfg-diagram--d2-theme-candidate (theme)
+  "Format THEME catalog entry for `completing-read'."
+  (pcase-let ((`(,id ,name ,kind ,colors) theme))
+    (let ((id-str (number-to-string id)))
+      (propertize
+       (concat
+        (mapconcat (lambda (hex)
+                     (propertize " " 'face (list :background hex)))
+                   colors "")
+        (format " %s (%s) [%s]" name id-str kind))
+       'cfg-diagram--d2-theme-id id-str))))
+
+(defun cfg-diagram--d2-theme-id-from-candidate (candidate)
+  "Extract theme ID string from completing-read CANDIDATE."
+  (or (get-text-property 0 'cfg-diagram--d2-theme-id candidate)
+      (and (string-match "(\\([0-9]+\\))" candidate)
+           (match-string 1 candidate))))
+
+(defun cfg-diagram--d2-theme-candidate-for-id (id)
+  "Return catalog candidate whose ID matches ID, or nil."
+  (let* ((id-num (if (stringp id) (string-to-number id) id))
+         (theme (assoc id-num cfg-diagram--d2-themes)))
+    (and theme (cfg-diagram--d2-theme-candidate theme))))
+
+(defun cfg-diagram--d2-upsert-setq (symbol value)
+  "Replace or append a full-line (setq SYMBOL VALUE) in the current buffer."
+  (let ((re (format "^[[:space:]]*(setq[[:space:]]+%s[[:space:]].*)[[:space:]]*$"
+                    (regexp-quote (symbol-name symbol))))
+        (line (format "(setq %s %S)" symbol value)))
+    (goto-char (point-min))
+    (if (re-search-forward re nil t)
+        (replace-match line)
+      (goto-char (point-max))
+      (unless (or (bobp) (eq (char-before) ?\n))
+        (insert "\n"))
+      (when (and (not (bobp))
+                 (save-excursion
+                   (forward-line -1)
+                   (not (looking-at-p "^[[:space:]]*$"))))
+        (insert "\n"))
+      (insert line "\n"))))
+
+(defun cfg-diagram--d2-persist-local ()
+  "Write layout/theme setq lines to local.el without rewriting other forms."
+  (let ((file (expand-file-name "local.el" user-emacs-directory)))
+    (unless (file-exists-p file)
+      (with-temp-file file
+        (insert ";;; -*- lexical-binding: t -*-\n"
+                ";;; local.el - Machine-specific settings (not version-controlled)\n\n")))
+    (with-temp-buffer
+      (insert-file-contents file)
+      (cfg-diagram--d2-upsert-setq 'cfg-diagram/d2-layout cfg-diagram/d2-layout)
+      (cfg-diagram--d2-upsert-setq 'cfg-diagram/d2-theme cfg-diagram/d2-theme)
+      (write-region (point-min) (point-max) file nil 'nomessage))))
+
+(defun cfg-diagram/d2-select-defaults ()
+  "Choose D2 layout and theme; persist to local.el and update `d2-flags'."
+  (interactive)
+  (let* ((layouts (cfg-diagram--d2-layouts))
+         (layout (completing-read "D2 layout: " layouts nil t nil nil
+                                  cfg-diagram/d2-layout))
+         (candidates (mapcar #'cfg-diagram--d2-theme-candidate
+                             cfg-diagram--d2-themes))
+         (current (cfg-diagram--d2-theme-candidate-for-id cfg-diagram/d2-theme))
+         (chosen (completing-read "D2 theme: " candidates nil t nil nil current))
+         (id (cfg-diagram--d2-theme-id-from-candidate chosen)))
+    (unless id
+      (user-error "D2: could not parse theme id from %s" chosen))
+    (setq cfg-diagram/d2-layout layout
+          cfg-diagram/d2-theme id)
+    (cfg-diagram--d2-apply-flags)
+    (cfg-diagram--d2-persist-local)
+    (message "D2 defaults: layout %s, theme %s" layout id)))
+
+(use-package d2-mode
+  :defer t
+  :custom
+  (d2-output-format ".png")
+  :init
+  (define-advice d2-compile
+      (:before (&rest _) setup)
+    (save-buffer)
+    (cfg-diagram--d2-apply-flags))
+  :hook
+  (d2-mode . cfg-diagram--d2-setup)
+  :config
+  (cfg-diagram--d2-apply-flags))
+#+end_src
+
+* Keybindings
+~cfg-diagram/d2-select-defaults~ prompts for layout then theme and saves them to
+=local.el=.
+
+#+begin_src emacs-lisp
+(cfg-keys/mode-leader-def d2-mode
+  "m l" #'cfg-diagram/d2-select-defaults)
+#+end_src
+
+* System Setup
+#+begin_src sh
+D2_CLI_POSSIBLE_LOCAL_PATHS=(
+  "$HOME/.local/bin/d2"
+  "$HOME/go/bin/d2"
+)
+
+D2_CLI_PATH=""
+D2_CLI_IS_LOCAL=false
+
+is_installed__diagram__d2__cli() {
+  D2_CLI_PATH=""
+  D2_CLI_IS_LOCAL=false
+
+  for path in "${D2_CLI_POSSIBLE_LOCAL_PATHS[@]}"; do
+    if [ -f "$path" ]; then
+      D2_CLI_PATH="$path"
+      D2_CLI_IS_LOCAL=true
+    fi
+  done
+
+  [ -z "$D2_CLI_PATH" ] && D2_CLI_PATH=$(command -v d2 2>/dev/null)
+  [ -n "$D2_CLI_PATH" ]
+}
+
+install__diagram__d2__cli() {
+  curl -fsSL https://d2lang.com/install.sh | sh -s --
+}
+
+uninstall__diagram__d2__cli() {
+  is_installed__diagram__d2__cli || { log_skip "D2 CLI" "The D2 CLI is not installed"; return 0; }
+
+  if [ "$D2_CLI_IS_LOCAL" = true ]; then
+    run_task "Removing D2 CLI" "curl -fsSL https://d2lang.com/install.sh | sh -s -- --uninstall"
+  else
+    log_skip "D2 CLI" "The D2 CLI is system-installed package and will not be uninstalled automatically"
+  fi
+}
+
+register_action "Diagram" "D2" "Install D2 CLI" "-diagram--d2--cli" "standalone"
+#+end_src
