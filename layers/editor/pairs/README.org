@@ -52,18 +52,25 @@ Falls through to `newline-and-indent' otherwise."
      (t
       (newline-and-indent)))))
 
+(defun cfg-editor--sp-overlay-list (value)
+  "Normalize smartparens overlay VALUE to a list of overlays."
+  (cond
+   ((null value) nil)
+   ((overlayp value) (list value))
+   ((and (consp value) (overlayp (cdr value)))
+    (list (car value) (cdr value)))
+   ((listp value) (seq-filter #'overlayp value))
+   (t nil)))
+
 (defun cfg-editor/sp-lower-overlay-priority (&rest _)
   "Lower smartparens overlay priority so it doesn't hide the region."
-  (when (boundp 'sp-show-pair-overlays)
-    (when (car sp-show-pair-overlays)
-      (overlay-put (car sp-show-pair-overlays) 'priority -10))
-    (when (cdr sp-show-pair-overlays)
-      (overlay-put (cdr sp-show-pair-overlays) 'priority -10)))
-  (when (boundp 'sp-show-pair-enc-overlays)
-    (when (car sp-show-pair-enc-overlays)
-      (overlay-put (car sp-show-pair-enc-overlays) 'priority -10))
-    (when (cdr sp-show-pair-enc-overlays)
-      (overlay-put (cdr sp-show-pair-enc-overlays) 'priority -10))))
+  (dolist (ov (append
+               (cfg-editor--sp-overlay-list
+                (and (boundp 'sp-show-pair-overlays) sp-show-pair-overlays))
+               (cfg-editor--sp-overlay-list
+                (and (boundp 'sp-show-pair-enc-overlays)
+                     sp-show-pair-enc-overlays))))
+    (overlay-put ov 'priority -10)))
 
 ;; Enable `smartparens-global-mode' in :config, not via `:hook (after-init ...)'.
 ;; With Elpaca the package often activates after after-init has already run, so
