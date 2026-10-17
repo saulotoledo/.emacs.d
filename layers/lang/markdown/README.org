@@ -13,6 +13,55 @@ Configure markdown-mode for Emacs.
   :hook (markdown-mode . (lambda () (setq fill-column 72))))
 #+end_src
 
+** Markdown modern
+A minor mode for Emacs that enhances the visual appearance of Markdown documents
+by replacing raw syntax markup (like bullets, checkboxes, and headings) with
+clean, modern, and minimalist visual elements.
+
+#+begin_src emacs-lisp
+(defun cfg-lang/markdown-modern-ensure-grammars (&rest _)
+  "Install missing markdown grammars."
+  (unless (seq-every-p #'treesit-language-available-p
+                       '(markdown markdown-inline))
+    (let ((inhibit-message t))
+      (markdown-modern-install-grammars))))
+
+(use-package markdown-modern
+  :ensure (markdown-modern :host github
+                           :repo "rjprins/markdown-modern"
+                           :files ("lisp/*.el"))
+  :mode ("\\.md\\'" . markdown-modern-mode)
+  :custom
+  (markdown-modern-variable-pitch nil)
+  (markdown-modern-heading-use-variable-pitch nil)
+  (markdown-modern-join-paragraph-lines nil)
+  :config
+  (advice-add 'markdown-modern-mode :before
+              #'cfg-lang/markdown-modern-ensure-grammars)
+
+  ;; Numbered and unnumbered table lines need the same gutter width.
+  (add-hook 'markdown-modern-mode-hook
+            (lambda ()
+              (dolist (face '(line-number line-number-current-line))
+                (face-remap-add-relative face 'fixed-pitch))))
+
+  ;; Accept spaces in GFM delimiter rows (e.g. "| :--- | :---: |").
+  (defun cfg-lang/markdown-modern-render-table (orig elem)
+    "Render ELEM with support for spaced table delimiters."
+    (let ((match (symbol-function 'string-match)))
+      (cl-letf (((symbol-function 'string-match)
+                 (lambda (regexp string &rest args)
+                   (apply match
+                          (if (equal regexp "^[ \t]*|[-:|]+|")
+                              "\\`[ \t]*|\\(?:[ \t]*:?-\\{3,\\}:?[ \t]*|\\)+[ \t]*\\'"
+                            regexp)
+                          string args))))
+        (funcall orig elem))))
+
+  (advice-add 'markdown-modern-render--table :around
+              #'cfg-lang/markdown-modern-render-table))
+#+end_src
+
 ** Grip mode
 Instant Github-flavored Markdown/Org preview using Grip (GitHub Readme Instant
 Preview), mdopen or go-grip.
