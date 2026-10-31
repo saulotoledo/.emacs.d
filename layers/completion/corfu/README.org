@@ -23,6 +23,7 @@ and additional completion backends via `cape`.
 (defvar copilot-mode)
 (defvar copilot--overlay)
 (defvar copilot--real-posn)
+(defvar mc--executing-command-for-fake-cursor)
 (declare-function lsp--workspace-server-id "lsp-mode")
 
 (defun cfg-completion/advice-add-once (symbol where function)
@@ -129,6 +130,7 @@ stale, causing Corfu's popup to open near the end of the line instead of at
 point. Temporarily hide only Copilot's display properties, measure the current
 underlying position, and restore the ghost text before Corfu creates its frame."
   (when (and (bound-and-true-p copilot-mode)
+             (not (bound-and-true-p mc--executing-command-for-fake-cursor))
              (overlayp copilot--overlay)
              (overlay-buffer copilot--overlay))
     (let ((overlay copilot--overlay)

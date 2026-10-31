@@ -184,10 +184,21 @@ of a file in Emacs. Optionally shows the next line number, making it clear where
 the file ends.
 
 #+begin_src emacs-lisp
+(defvar mc--executing-command-for-fake-cursor)
+
+(defun cfg-core/trailing-newline-skip-fake-cursors (orig-fun &rest args)
+  "Skip trailing-newline-indicator updates during fake-cursor execution.
+ORIG-FUN is the advised function and ARGS are its arguments."
+  (unless (bound-and-true-p mc--executing-command-for-fake-cursor)
+    (apply orig-fun args)))
+
 (use-package trailing-newline-indicator
   :init
   (global-trailing-newline-indicator-mode 1)
-  (setq trailing-newline-indicator-show-line-number t))
+  (setq trailing-newline-indicator-show-line-number t)
+  :config
+  (advice-add 'trailing-newline-indicator--update-indicator :around
+              #'cfg-core/trailing-newline-skip-fake-cursors))
 #+end_src
 
 ** Typography & Faces

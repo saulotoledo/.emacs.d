@@ -105,6 +105,14 @@ being excessive.
 #+begin_src emacs-lisp
 (defvar flycheck-annotate-other-lines-style)
 (defvar flycheck-annotate-current-line-style)
+(defvar mc--executing-command-for-fake-cursor)
+
+(defun cfg-lsp/flycheck-annotate-skip-fake-cursors (orig-fun &rest args)
+  "Skip Flycheck annotation rebuilds during fake-cursor execution.
+ORIG-FUN is the advised function and ARGS are its arguments."
+  (unless (bound-and-true-p mc--executing-command-for-fake-cursor)
+    (apply orig-fun args)))
+
 (defun cfg-lsp/toggle-flycheck-below-annotations ()
   "Toggle flycheck annotations between `eol` and `below`."
   (interactive)
@@ -142,6 +150,8 @@ being excessive.
   ;; Available only on Flycheck 38+:
   (when (fboundp 'global-flycheck-annotate-mode)
     (global-flycheck-annotate-mode 1)
+    (advice-add 'flycheck-annotate--post-command :around
+                #'cfg-lsp/flycheck-annotate-skip-fake-cursors)
 
     ;; Source-code highlight faces
     (set-face-attribute 'flycheck-error nil

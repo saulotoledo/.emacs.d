@@ -55,6 +55,8 @@ operation. Refresh the cursor after commands, but only for graphical Emacs
 sessions running under WSL.
 
 #+begin_src emacs-lisp
+(defvar mc--executing-command-for-fake-cursor)
+
 (defun cfg-core/wsl-p ()
   "Return non-nil when running under WSL."
   (or (getenv "WSL_INTEROP")
@@ -65,10 +67,12 @@ sessions running under WSL.
              (re-search-forward "microsoft\\|WSL" nil t)))))
 
 (defun cfg-core/wsl-refresh-cursor ()
-  "Refresh the WSLg display."
+  "Refresh the WSLg display after top-level interactive commands."
   (when (and (eq system-type 'gnu/linux)
              (cfg-core/wsl-p)
-             (display-graphic-p))
+             (display-graphic-p)
+             (not (bound-and-true-p mc--executing-command-for-fake-cursor))
+             (not executing-kbd-macro))
     (redisplay t)))
 
 (when (and (eq system-type 'gnu/linux)

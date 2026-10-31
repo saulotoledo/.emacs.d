@@ -69,6 +69,7 @@ a couple of convenient keybindings.
 (declare-function doom-modeline-def-segment "doom-modeline")
 (declare-function mc/load-lists "multiple-cursors-core")
 (declare-function mc/save-lists "multiple-cursors-core")
+(defvar mc/unsupported-minor-modes)
 (defvar cfg-editor/mc-cursor-count nil
   "Doom Modeline segment state for the multiple-cursors count.")
 (use-package multiple-cursors
@@ -78,6 +79,10 @@ a couple of convenient keybindings.
 
   ;; Eagerly require mc-core at start so we can load, inject and save directly
   (require 'multiple-cursors-core)
+  (dolist (mode '(corfu-mode
+                  copilot-mode
+                  minuet-auto-suggestion-mode))
+    (add-to-list 'mc/unsupported-minor-modes mode))
   (mc/load-lists)
   (dolist (cmd '(back-to-indentation
                  backward-char
