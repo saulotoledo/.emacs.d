@@ -1,0 +1,82 @@
+#+TITLE: Org Timegrid Layer
+#+CATEGORY: tools
+#+PROPERTY: header-args:emacs-lisp :tangle yes
+
+* Description
+Provides an editable SVG calendar for journal entries and GTD appointments. This
+layer follows the =org-agenda= layer in alphabetical loading order and uses its
+data directory and file discovery function.
+
+* Emacs Configuration
+The source files are discovered on each calendar refresh, including newly
+created daily journals under =~/.org-agenda/journal/=. Active timestamps with
+times appear as blocks; date-only active timestamps appear in the date rail.
+Moving or resizing a block edits its original Org entry and saves that file.
+
+New calendar headings are saved to =~/.org-agenda/calendar.org=. Existing
+journal capture commands continue writing to daily journal files. The capture
+file is always queried by Timegrid in addition to the discovered source files.
+
+The installed backend scans body timestamps but misses timestamps in heading
+titles, which the journal capture templates use. This compatibility advice adds
+those events while preserving their original source markers. It skips events
+already returned by the backend so an upstream fix does not duplicate them.
+
+#+begin_src emacs-lisp
+(defun cfg-tools--org-timegrid--heading-event (file seen timestamp)
+  "Build an active heading TIMESTAMP event in FILE unless already SEEN."
+  (let ((headline (org-element-lineage timestamp '(headline))))
+    (when (and (memq (org-element-property :type timestamp) '(active active-range))
+               (funcall org-timegrid-org-filter-function headline timestamp))
+      (let ((event (org-timegrid-org--event
+                    file headline timestamp 'timestamp
+                    (org-timegrid-org--timestamp-all-day-p timestamp))))
+        (unless (member (org-timegrid-event-id event) seen)
+          event)))))
+
+(defun cfg-tools/org-timegrid-include-heading-timestamps (events)
+  "Include active heading-title timestamps missing from backend EVENTS."
+  (let ((file (or buffer-file-name (buffer-name)))
+        (seen (mapcar #'org-timegrid-event-id events)))
+    (org-element-map (org-element-parse-buffer) 'headline
+      (lambda (headline)
+        (let ((extra
+               (org-element-map (org-element-property :title headline) 'timestamp
+                 (apply-partially #'cfg-tools--org-timegrid--heading-event
+                                  file seen))))
+          (when extra
+            (save-excursion
+              (goto-char (org-element-property :begin headline))
+              (when (org-timegrid-org--repeater-history-p)
+                (org-timegrid-org--history-events extra)))
+            (setq events
+                  (nconc events
+                         (org-timegrid-org--mark-latest-done
+                          extra (org-element-property :todo-keyword headline))))))))
+    events))
+
+(use-package org-timegrid
+  :ensure (:host github :repo "Gleek/org-timegrid")
+  :commands (org-timegrid-week)
+  :init
+  (setq org-timegrid-org-files #'cfg-tools--org-agenda--agenda-files
+        org-timegrid-org-capture-file
+        (expand-file-name "calendar.org" cfg-tools/org-agenda-directory)
+        org-timegrid-org-auto-save t)
+  :config
+  (require 'org-timegrid-org)
+  (advice-add 'org-timegrid-org--buffer-events :filter-return
+              #'cfg-tools/org-timegrid-include-heading-timestamps))
+#+end_src
+
+* Keybindings
+Use =C-c o t= to open the calendar. Press =g= in the calendar to reload its
+source files, or =RET= on a block to visit its source heading.
+
+#+begin_src emacs-lisp
+(cfg-keys/leader-def
+  "o t" '(org-timegrid-week :which-key "Timegrid calendar"))
+#+end_src
+
+* System Setup
+No system setup required.
