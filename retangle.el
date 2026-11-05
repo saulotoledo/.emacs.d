@@ -194,7 +194,7 @@ unresolved #+INCLUDE keywords, so this file is invisible on GitHub while
     (with-temp-file manifest
       (insert content)))
   ;; Always sync a visiting buffer so a stale copy cannot overwrite later.
-  (when-let ((buf (get-file-buffer manifest)))
+  (when-let* ((buf (get-file-buffer manifest)))
     (with-current-buffer buf
       (revert-buffer t t t)))
   manifest)
@@ -377,7 +377,7 @@ layers/README.org), and category PRIORITY files."
 (defun cfg-core/tangle-and-compile-init ()
   "After-save hook: retangle when saving init.org or a layer source."
   (unless cfg-core--retangling
-    (when-let ((file (buffer-file-name)))
+    (when-let* ((file (buffer-file-name)))
       (when (cfg-core/--retangle-source-p file)
         (cfg-core/retangle-init t)))))
 

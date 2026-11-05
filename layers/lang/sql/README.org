@@ -142,14 +142,14 @@ ARGS are passed through to ORIG-FUN."
       (dolist (name cfg-lang/sqlfluff-config-files)
         (let ((file (expand-file-name name directory)))
           (when (file-readable-p file)
-            (when-let ((configured (cfg-lang/sqlfluff--dialect-in-file file)))
+            (when-let* ((configured (cfg-lang/sqlfluff--dialect-in-file file)))
               (setq dialect configured))))))
     dialect))
 
 (declare-function flycheck-buffer "flycheck")
 (defun cfg-lang/sqlfluff--available-dialects ()
   "Return dialect names reported by the installed SQLFluff executable."
-  (when-let ((program (executable-find "sqlfluff")))
+  (when-let* ((program (executable-find "sqlfluff")))
     (with-temp-buffer
       (when (zerop (call-process program nil t nil "dialects"))
         (goto-char (point-min))

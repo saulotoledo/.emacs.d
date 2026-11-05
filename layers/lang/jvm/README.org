@@ -213,7 +213,7 @@ neither is available."
 Uses `cfg-jvm/java-stack-trace-project-packages' when non-nil; otherwise
 auto-detects from Maven/Gradle build files in the effective project root."
   (or cfg-lang/java-stack-trace-project-packages
-      (when-let ((root (cfg-lang/java-stack-trace--effective-root)))
+      (when-let* ((root (cfg-lang/java-stack-trace--effective-root)))
         (cfg-lang/java-stack-trace--auto-detect-packages root))))
 
 (defun cfg-lang/java-stack-trace--project-p (fqcn)

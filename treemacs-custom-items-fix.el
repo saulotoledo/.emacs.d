@@ -1,3 +1,4 @@
+;;; -*- lexical-binding: t; -*-
 ;;; This is a fix for https://github.com/Alexander-Miller/treemacs/issues/1016
 ;;; Based on a fix proposed in that link.
 ;;; Additional items found at elpa/treemacs-20250907.1320/treemacs-icons.el

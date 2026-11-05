@@ -60,7 +60,7 @@ files are not accidentally included.
 (defun cfg-tools--org-agenda--agenda-files ()
   "Return GTD files and all dated journal files."
   (append (mapcar #'cfg-tools--org-agenda--file cfg-tools--org-agenda--gtd-files)
-          (when-let ((journal-directory
+          (when-let* ((journal-directory
                       (file-name-as-directory
                        (expand-file-name "journal/"
                                          cfg-tools/org-agenda-directory))))

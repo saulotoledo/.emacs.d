@@ -1746,7 +1746,7 @@ Set to nil to skip cache deletion when staying on the same major version.")
 
 (defun cfg-lang/java--candidate-from-runtime (runtime)
   "Return the java binary path from RUNTIME plist, or nil if not executable."
-  (when-let ((home (plist-get runtime :path)))
+  (when-let* ((home (plist-get runtime :path)))
     (let ((bin (expand-file-name "bin/java" home)))
       (when (file-executable-p bin) bin))))
 

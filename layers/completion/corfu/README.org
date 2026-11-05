@@ -63,7 +63,7 @@ Each entry is `(MODE . PLIST)', where PLIST uses the same keys as
 (defun cfg-completion/corfu-active-server-id ()
   "Return the first active LSP server ID in the current buffer, if any."
   (when (boundp 'lsp--buffer-workspaces)
-    (when-let ((workspace (car lsp--buffer-workspaces)))
+    (when-let* ((workspace (car lsp--buffer-workspaces)))
       (when (fboundp 'lsp--workspace-server-id)
         (lsp--workspace-server-id workspace)))))
 
@@ -352,7 +352,7 @@ state, the context is considered stale and the refresh is ignored.
 Member-access contexts use Corfu's auto path with `.' preserved as the
 trigger so an empty prefix can open the popup without lowering the global
 prefix threshold. Other contexts use `completion-at-point'."
-  (when-let ((win (and (buffer-live-p buf)
+  (when-let* ((win (and (buffer-live-p buf)
                        (get-buffer-window buf t))))
     (with-selected-window win
       (with-current-buffer buf

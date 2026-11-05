@@ -196,7 +196,7 @@ MODE is a major-mode symbol and NODE-TYPES are Tree-sitter type strings."
 
 (defun cfg-editor--treesit-fold-format-overlay-text (orig-fn beg end)
   "Use an import label for the fold from BEG to END, or call ORIG-FN."
-  (if-let ((node-type (cfg-editor--treesit-fold-import-node-type beg end)))
+  (if-let* ((node-type (cfg-editor--treesit-fold-import-node-type beg end)))
       (format " %s..."
               (replace-regexp-in-string "_" " " node-type))
     (funcall orig-fn beg end)))

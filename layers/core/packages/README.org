@@ -81,7 +81,7 @@ activating the upgraded copy.
 
 (defun cfg-core/elpaca-unload-feature-before-activate (entry)
   "Unload ENTRY's feature if already loaded, then continue the Elpaca build."
-  (when-let ((feature (elpaca<-id entry)))
+  (when-let* ((feature (elpaca<-id entry)))
     (when (featurep feature)
       (unload-feature feature t)))
   (elpaca-continue entry))

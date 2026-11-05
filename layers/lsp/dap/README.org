@@ -371,7 +371,7 @@ Safe to call even when the session is completely unresponsive."
   ;; fires dap-session-changed-hook. Without this, Treemacs refresh runs
   ;; unconditionally even when Treemacs is not open, causing background noise.
   (dolist (buf '("*dap-ui-sessions*" "*dap-ui-locals*" "*dap-ui-expressions*"))
-    (when-let (b (get-buffer buf))
+    (when-let* ((b (get-buffer buf)))
       (ignore-errors (kill-buffer b))))
   ;; Now it is safe to clear sessions; the hooks will find the buffers dead.
   (ignore-errors (dap--set-sessions nil))

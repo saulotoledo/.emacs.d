@@ -292,7 +292,7 @@ exactly one direct child and that child is a directory."
   (defun cfg-navigation/dirvish-subtree-right ()
     "Expand the subtree or move to its first item when already open."
     (interactive)
-    (when-let ((selected-item (dired-get-filename nil t))
+    (when-let* ((selected-item (dired-get-filename nil t))
                ((file-directory-p selected-item)))
       (if (dirvish-subtree--expanded-p)
           (forward-line 1)
@@ -301,7 +301,7 @@ exactly one direct child and that child is a directory."
   (defun cfg-navigation/dirvish-subtree-expand-chain ()
     "Expand the single-directory chain rooted at the entry at point."
     (interactive)
-    (when-let ((selected-item (dired-get-filename nil t))
+    (when-let* ((selected-item (dired-get-filename nil t))
                ((file-directory-p selected-item)))
       (let ((was-expanded (dirvish-subtree--expanded-p))
             child-position)

@@ -512,7 +512,7 @@ The static config catalogue remains available as a fallback."
     (when (and (require 'eca nil t)
                (fboundp 'eca-session)
                (fboundp 'eca-api-request-sync))
-      (when-let ((session (ignore-errors (eca-session))))
+      (when-let* ((session (ignore-errors (eca-session))))
         (condition-case nil
             (let* ((result (eca-api-request-sync session
                                                   :method "providers/list"
@@ -542,7 +542,7 @@ The static config catalogue remains available as a fallback."
 
 (defun cfg-tools/minuet--env-var (provider-config)
     "Extract the environment variable name from ECA PROVIDER-CONFIG."
-    (when-let ((key (cfg-tools/minuet--json-get "key" provider-config)))
+    (when-let* ((key (cfg-tools/minuet--json-get "key" provider-config)))
       (when (string-match "\\`${env:\\([A-Z0-9_]+\\)}\\'" key)
         (match-string 1 key))))
 
@@ -555,7 +555,7 @@ The static config catalogue remains available as a fallback."
 
 (defun cfg-tools/minuet--provider-auth-host (provider provider-config)
     "Return PROVIDER's auth-source host from ECA PROVIDER-CONFIG."
-    (or (when-let ((url (cfg-tools/minuet--json-get "url" provider-config)))
+    (or (when-let* ((url (cfg-tools/minuet--json-get "url" provider-config)))
           (require 'url-parse)
           (url-host (url-generic-parse-url url)))
         (cdr (assoc-string provider
@@ -625,7 +625,7 @@ host. Ollama's placeholder API key deliberately bypasses this lookup."
            (options (symbol-value options-symbol)))
       (cfg-tools/minuet--ensure-provider-token spec config)
       (setq minuet-provider (plist-get spec :provider))
-      (when-let ((endpoint (plist-get spec :endpoint)))
+      (when-let* ((endpoint (plist-get spec :endpoint)))
         (setq options (plist-put options :end-point endpoint)))
       (setq options (plist-put options :api-key (plist-get spec :api-key))
             options (plist-put options :model (plist-get spec :model))
@@ -938,7 +938,7 @@ ARGS contains the advised function's arguments."
   "Rename the current chat file to a backup if it exists."
   (let ((session (eca-session)))
     (when (eca-process-running-p session)
-      (when-let ((buffer (eca-chat--get-last-buffer session)))
+      (when-let* ((buffer (eca-chat--get-last-buffer session)))
         (with-current-buffer buffer
           (message "ECA: Backing up chat file...")
           (let ((file (cfg-tools/eca-chat-get-file-name)))

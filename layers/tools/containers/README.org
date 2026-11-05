@@ -68,11 +68,11 @@ Falls back to VS Code settings if a shell is not found."
                   (customizations (gethash "customizations" config)))
         (or
          ;; 1. Check for Emacs-specific shell setting
-         (when-let ((emacs (gethash "emacs" customizations)))
+         (when-let* ((emacs (gethash "emacs" customizations)))
            (gethash "shell" emacs))
          ;; 2. Fallback to VS Code default profile
-         (when-let ((vscode (gethash "vscode" customizations)))
-           (when-let ((settings (gethash "settings" vscode)))
+         (when-let* ((vscode (gethash "vscode" customizations)))
+           (when-let* ((settings (gethash "settings" vscode)))
              (gethash "terminal.integrated.defaultProfile.linux" settings)))))
     (error nil)))
 

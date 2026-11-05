@@ -53,7 +53,7 @@ Nil means this language has no make debug overrides (skip injection).")
   "Return Makefile directory (preferred) or project root as build-config key."
   (or (locate-dominating-file default-directory "Makefile")
       (and (fboundp 'project-current)
-           (when-let ((proj (project-current nil)))
+           (when-let* ((proj (project-current nil)))
              (project-root proj)))
       default-directory))
 

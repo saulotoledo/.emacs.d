@@ -61,7 +61,7 @@ Each element of RULES is a NODE-TYPE to GROUP-NAME cons cell."
       (let ((group-name (cdr rule)))
         (unless (member group-name seen)
           (push group-name seen)
-          (when-let ((items (gethash group-name groups)))
+          (when-let* ((items (gethash group-name groups)))
             (push (cons group-name
                         (cfg-navigation--apply-sort (nreverse items)))
                   result)))))))

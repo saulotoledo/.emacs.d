@@ -44,7 +44,7 @@ flycheck/flycheck).
 
 (defun cfg-lsp/flycheck-config-file-p ()
   "Return non-nil when the current buffer belongs to `user-emacs-directory'."
-  (when-let ((file (or buffer-file-name default-directory)))
+  (when-let* ((file (or buffer-file-name default-directory)))
     (string-prefix-p (file-name-as-directory (expand-file-name user-emacs-directory))
                      (expand-file-name file))))
 
