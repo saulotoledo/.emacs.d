@@ -242,6 +242,22 @@ cluttering =init.el=, we redirect ~custom-file~ inside =early-init.el=.
 
 #+begin_src emacs-lisp :tangle early-init.el
 (setq custom-file (expand-file-name "custom.el" user-emacs-directory))
+
+;; Ignore missing lexical-binding cookies in Elpaca package files only.
+(defun cfg-core/suppress-elpaca-lexical-binding-warning (orig-fun type &rest args)
+  "Suppress lexical-binding warnings for files under Elpaca builds."
+  (if (and (eq (car-safe type) 'files)
+           (eq (cadr type) 'missing-lexbind-cookie)
+           (stringp (nth 2 type))
+           (string-prefix-p
+            (file-name-as-directory
+             (expand-file-name "elpaca/builds/" user-emacs-directory))
+            (expand-file-name (nth 2 type))))
+      nil
+    (apply orig-fun type args)))
+
+(advice-add 'display-warning :around
+            #'cfg-core/suppress-elpaca-lexical-binding-warning)
 #+end_src
 
 In =init.el=, we load ~custom.el~ along with a ~local.el~ file for
