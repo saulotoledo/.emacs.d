@@ -12,7 +12,7 @@ Provide cmake-ts-mode for CMakeLists.txt files.
   :ensure nil
   :mode ("CMakeLists\\.txt\\'" "\\.cmake\\'")
   :config
-  (setq cmake-ts-mode-indent-offset 2))
+  (setq cmake-ts-indent-offset 2))
 #+end_src
 
 * Keybindings

@@ -197,7 +197,8 @@ spaces use a high-contrast warning face.
        :weight bold
        :box (:line-width (3 . -1) :color "darkred")
        :underline (:style wave :color "yellow")))
-  "High-visibility face for Unicode homoglyphs and non-ASCII spaces.")
+  "High-visibility face for Unicode homoglyphs and non-ASCII spaces."
+  :group 'whitespace)
 
 (use-package whitespace
   :ensure nil ; built-in

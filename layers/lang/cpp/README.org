@@ -67,7 +67,7 @@ to place the cursor while typing interactively."
 (setq-default c-basic-offset 2)
 
 (defun cfg-lang/cpp-clang-format-fallback-style ()
-  "clang-format -style value when no project .clang-format exists.
+  "Return clang-format -style value when no project .clang-format exists.
 Always ends with IndentWidth: 2."
   (concat
    (pcase cfg-lang/cpp-format-style

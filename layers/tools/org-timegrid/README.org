@@ -23,6 +23,15 @@ those events while preserving their original source markers. It skips events
 already returned by the backend so an upstream fix does not duplicate them.
 
 #+begin_src emacs-lisp
+(declare-function org-element-lineage "org-element")
+(declare-function org-timegrid-event-id "org-timegrid-model")
+(declare-function org-timegrid-org--event "org-timegrid-org")
+(declare-function org-timegrid-org--history-events "org-timegrid-org")
+(declare-function org-timegrid-org--mark-latest-done "org-timegrid-org")
+(declare-function org-timegrid-org--repeater-history-p "org-timegrid-org")
+(declare-function org-timegrid-org--timestamp-all-day-p "org-timegrid-org")
+(defvar org-timegrid-org-filter-function)
+
 (defun cfg-tools--org-timegrid--heading-event (file seen timestamp)
   "Build an active heading TIMESTAMP event in FILE unless already SEEN."
   (let ((headline (org-element-lineage timestamp '(headline))))

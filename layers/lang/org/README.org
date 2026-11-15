@@ -105,8 +105,13 @@ conflicting with ~org-adapt-indentation~.
         org-list-indent-offset 2
         org-special-ctrl-a/e t
         org-insert-heading-respect-content t
-        org-edit-src-content-indentation 0
-        org-src-preserve-indentation nil))
+        org-src-preserve-indentation nil)
+  ;; Org renamed org-src-content-indentation -> org-edit-src-content-indentation
+  ;; in 9.0, then reversed it in 9.8. Dynamic `set' avoids byte-compiler obsolete warnings.
+  (set (if (boundp 'org-src-content-indentation)
+           'org-src-content-indentation
+         'org-edit-src-content-indentation)
+       0))
 
 ;; Use org-indent to visually indent content under headings and lists
 (declare-function org-indent-mode "org-indent")

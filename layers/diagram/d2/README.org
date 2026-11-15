@@ -57,6 +57,8 @@ Override in local.el, or via `cfg-diagram/d2-select-defaults'.")
   "D2 theme ID passed as --theme.
 Override in local.el, or via `cfg-diagram/d2-select-defaults'.")
 
+(defvar d2-flags)
+
 (defun cfg-diagram--d2-apply-flags ()
   "Set `d2-flags' from `cfg-diagram/d2-layout' and `cfg-diagram/d2-theme'."
   (setq d2-flags (list "--layout" cfg-diagram/d2-layout
@@ -113,7 +115,7 @@ Override in local.el, or via `cfg-diagram/d2-select-defaults'.")
        'cfg-diagram--d2-theme-id id-str))))
 
 (defun cfg-diagram--d2-theme-id-from-candidate (candidate)
-  "Extract theme ID string from completing-read CANDIDATE."
+  "Extract theme ID string from `completing-read' CANDIDATE."
   (or (get-text-property 0 'cfg-diagram--d2-theme-id candidate)
       (and (string-match "(\\([0-9]+\\))" candidate)
            (match-string 1 candidate))))

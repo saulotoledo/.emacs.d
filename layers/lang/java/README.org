@@ -189,7 +189,8 @@ apply to all language servers:
   (and buffer-file-name (string-match-p "\\.jar[!/:]" buffer-file-name)))
 
 (defun cfg-lang/java-inhibit-virtual-jar-auto-save (original &optional arg)
-  "Prevent auto-save from being enabled for JDTLS virtual JAR buffers."
+  "Prevent auto-save from being enabled for JDTLS virtual JAR buffers.
+Execute ORIGINAL with ARG unless the buffer is a virtual JAR."
   (unless (and (or (eq arg t) (and (numberp arg) (> arg 0)))
                (cfg-lang/java-virtual-jar-buffer-p))
     (funcall original arg)))

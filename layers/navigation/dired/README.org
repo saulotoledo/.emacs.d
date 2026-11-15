@@ -95,6 +95,10 @@ buffer, so explicitly refresh the Dirvish overlays here."
     (with-demoted-errors "Dirvish redisplay: %S"
       (dirvish--redisplay))))
 
+(defvar auto-revert-check-vc-info)
+(defvar auto-revert-verbose)
+(defvar global-auto-revert-non-file-buffers)
+
 (use-package dired
   :ensure nil ; Built-in
   :custom
