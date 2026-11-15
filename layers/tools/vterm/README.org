@@ -14,50 +14,53 @@ scrolling without the compromises found in pure Emacs Lisp shells.
 * Emacs Configuration
 ** Vterm Terminal Emulator
 #+begin_src emacs-lisp
+(declare-function ffap-file-at-point "ffap")
+(declare-function ffap-url-at-point "ffap")
+(declare-function vterm--mouse-set-point "vterm")
+(declare-function vterm-copy-mode "vterm")
 (declare-function vterm-send-key "vterm")
-(use-package vterm
-  :defer t
-  :preface
-  (defvar cfg-tools/vterms nil)
-  (defun cfg-tools/vterm-kill-with-no-query-around (orig &rest args)
-    "Do not ask about killing vterm buffers.
-It uses advice-add instead of defadvice."
-    (let ((buf (apply orig args)))
-      (when (and (bufferp buf) (get-buffer-process buf))
-        (set-process-query-on-exit-flag (get-buffer-process buf) nil))
-      buf))
+(declare-function vterm-send-next-key "vterm")
+(defvar vterm-copy-mode)
+(defvar cfg-tools/vterms nil)
 
-  (defun cfg-tools/toggle-vterm (&optional n)
-    (interactive)
-    (setq cfg-tools/vterms (seq-filter 'buffer-live-p cfg-tools/vterms))
-    (let ((default-directory (or (vc-root-dir) default-directory)))
-      (cond ((numberp n) (push (vterm n) cfg-tools/vterms))
-            ((null cfg-tools/vterms) (push (vterm 1) cfg-tools/vterms))
-            ((seq-contains-p cfg-tools/vterms (current-buffer))
-             (switch-to-buffer (car (seq-difference (buffer-list) cfg-tools/vterms))))
-            (t (switch-to-buffer (car (seq-intersection (buffer-list) cfg-tools/vterms)))))))
+(defun cfg-tools/vterm-kill-with-no-query-around (orig-fun &rest args)
+  "Do not ask about killing vterm buffers.
+It uses `advice-add' instead of defadvice.
+ORIG-FUN is the advised function and ARGS are its arguments."
+  (let ((buf (apply orig-fun args)))
+    (when (and (bufferp buf) (get-buffer-process buf))
+      (set-process-query-on-exit-flag (get-buffer-process buf) nil))
+    buf))
 
-  (declare-function vterm-send-next-key "vterm")
-  (defun cfg-tools/vterm-send-next-key ()
-    "Prompt for a key sequence and send it to the vterm terminal."
-    (interactive)
-    (when (derived-mode-p 'vterm-mode)
-      (message "The next key will be sent to vterm")
-      (vterm-send-next-key)))
+(defun cfg-tools/toggle-vterm (&optional n)
+  "Toggle between a `vterm' buffer and the previous non-vterm buffer.
+Creates a new `vterm' rooted at `vc-root-dir' (or `default-directory')
+if none exist or if numeric argument N is provided."
+  (interactive)
+  (setq cfg-tools/vterms (seq-filter 'buffer-live-p cfg-tools/vterms))
+  (let ((default-directory (or (vc-root-dir) default-directory)))
+    (cond ((numberp n) (push (vterm n) cfg-tools/vterms))
+          ((null cfg-tools/vterms) (push (vterm 1) cfg-tools/vterms))
+          ((seq-contains-p cfg-tools/vterms (current-buffer))
+           (switch-to-buffer (car (seq-difference (buffer-list) cfg-tools/vterms))))
+          (t (switch-to-buffer (car (seq-intersection (buffer-list) cfg-tools/vterms)))))))
 
-  (defun my/vterm-send-current-key ()
-    "Send the key sequence that invoked this command directly to vterm."
-    (interactive)
-    (vterm-send-key (key-description (this-command-keys))))
+(defun cfg-tools/vterm-send-next-key ()
+  "Prompt for a key sequence and send it to the vterm terminal."
+  (interactive)
+  (when (derived-mode-p 'vterm-mode)
+    (message "The next key will be sent to vterm")
+    (vterm-send-next-key)))
 
-  (defun my/vterm-setup-key-remaps ()
-    "Remap mwim commands to send native keys in vterm buffers."
-    (local-set-key [remap mwim-beginning-of-code-or-line] #'my/vterm-send-current-key)
-    (local-set-key [remap mwim-end-of-code-or-line]       #'my/vterm-send-current-key))
+(defun cfg-tools/vterm-send-current-key ()
+  "Send the key sequence that invoked this command directly to vterm."
+  (interactive)
+  (vterm-send-key (key-description (this-command-keys))))
 
-  :config
-  (setq vterm-max-scrollback 10000)
-  (advice-add 'vterm :around #'cfg-tools/vterm-kill-with-no-query-around))
+(defun cfg-tools/vterm-setup-key-remaps ()
+  "Remap mwim commands to send native keys in vterm buffers."
+  (local-set-key [remap mwim-beginning-of-code-or-line] #'cfg-tools/vterm-send-current-key)
+  (local-set-key [remap mwim-end-of-code-or-line]       #'cfg-tools/vterm-send-current-key))
 
 (defun cfg-tools/terminal-disable-editor-modes ()
   "Disable editor-only modes in a terminal buffer."
@@ -74,14 +77,69 @@ It uses advice-add instead of defadvice."
   ;; this terminal without changing keybindings in other buffers.
   (setq-local override-global-mode nil))
 
+(defun cfg-tools/vterm-mouse-open-at-point (event)
+  "Open URL or file at mouse EVENT in `vterm-mode', or pass click to `vterm'."
+  (interactive "e")
+  (require 'ffap)
+  (let* ((posn (event-start event))
+         (win (posn-window posn))
+         (pt (posn-point posn))
+         (target-type nil)
+         (target nil))
+    (when (and (windowp win) (integerp pt))
+      (with-selected-window win
+        (save-excursion
+          (goto-char pt)
+          (cond
+           ((setq target (ffap-url-at-point))
+            (setq target-type 'url))
+           ((setq target (ffap-file-at-point))
+            (setq target-type 'file))))))
+    (pcase target-type
+      ('url
+       (browse-url target))
+      ('file
+       (find-file-other-window target))
+      (_
+       ;; Not a link: fall back to standard vterm click handling
+       (if (fboundp 'vterm--mouse-set-point)
+           (vterm--mouse-set-point event)
+         (mouse-set-point event))))))
+
+(defun cfg-tools/vterm-copy-mode-open-at-point ()
+  "Open the URL or file path under point."
+  (interactive)
+  (let* ((url (ffap-url-at-point))
+         (file (and (not url) (ffap-file-at-point))))
+    (cond
+     (url
+      (browse-url url))
+     (file
+      (find-file-other-window file))
+     (t
+      (message "No URL or valid file path found at point")))))
+
+(defun cfg-tools/vterm-copy-mode-mouse-open (event)
+  "Move point to the mouse click EVENT position and open the link at point."
+  (interactive "e")
+  (mouse-set-point event)
+  (cfg-tools/vterm-copy-mode-open-at-point))
+
+(use-package vterm
+  :defer t
+  :config
+  (setq vterm-max-scrollback 10000)
+  (advice-add 'vterm :around #'cfg-tools/vterm-kill-with-no-query-around))
+
 (dolist (hook '(shell-mode-hook term-mode-hook vterm-mode-hook))
   (add-hook hook #'cfg-tools/terminal-disable-editor-modes t))
 
+(add-hook 'vterm-copy-mode-hook #'goto-address-mode)
 (add-hook 'vterm-mode-hook
           (lambda ()
             (setq-local global-hl-line-mode nil)
             (set-frame-font "JetBrainsMono Nerd Font" nil t) ; Nerd Font that supporting glyphs
-            (my/vterm-setup-key-remaps)))
+            (cfg-tools/vterm-setup-key-remaps)))
 #+end_src
 
 * Keybindings
@@ -99,6 +157,9 @@ It uses advice-add instead of defadvice."
 (define-key cfg-keys-map (kbd "M-9") (lambda () (interactive) (cfg-tools/toggle-vterm 9)))
 
 (with-eval-after-load 'vterm
+  (define-key vterm-copy-mode-map (kbd "C-c C-o") #'cfg-tools/vterm-copy-mode-open-at-point)
+  (define-key vterm-copy-mode-map [mouse-1] #'cfg-tools/vterm-copy-mode-mouse-open)
+  (define-key vterm-mode-map [mouse-1] #'cfg-tools/vterm-mouse-open-at-point)
   (define-key vterm-mode-map (kbd "C-c C-q") #'cfg-tools/vterm-send-next-key)
   (with-eval-after-load 'which-key
     (which-key-add-keymap-based-replacements vterm-mode-map
