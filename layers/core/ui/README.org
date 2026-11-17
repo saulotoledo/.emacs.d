@@ -152,7 +152,9 @@ frames and terminal-emulator buffers inside GUI Emacs do not run this recovery.
 (defun cfg-core/tty-resize-fix (&rest _args)
   "Robustly fix terminal/frame resize artifacts in tty Emacs."
   (interactive)
-  (when (not (display-graphic-p))
+  (when (and (not (display-graphic-p))
+             (not (active-minibuffer-window))
+             (not (derived-mode-p 'vterm-mode 'term-mode 'shell-mode 'eshell-mode)))
     (let ((dap-active (and (fboundp 'dap--cur-session) (dap--cur-session))))
       (unless dap-active
         (ignore-errors

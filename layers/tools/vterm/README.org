@@ -125,11 +125,18 @@ if none exist or if numeric argument N is provided."
   (mouse-set-point event)
   (cfg-tools/vterm-copy-mode-open-at-point))
 
+(defun cfg-tools/vterm-skip-resize-during-minibuffer (orig-fun &rest args)
+  "Skip vterm pty resize while minibuffer is active to avoid redraw storms."
+  (unless (active-minibuffer-window)
+    (apply orig-fun args)))
+
 (use-package vterm
   :defer t
   :config
   (setq vterm-max-scrollback 10000)
-  (advice-add 'vterm :around #'cfg-tools/vterm-kill-with-no-query-around))
+  (advice-add 'vterm :around #'cfg-tools/vterm-kill-with-no-query-around)
+  (advice-add 'vterm--window-adjust-process-window-size
+              :around #'cfg-tools/vterm-skip-resize-during-minibuffer))
 
 (dolist (hook '(shell-mode-hook term-mode-hook vterm-mode-hook))
   (add-hook hook #'cfg-tools/terminal-disable-editor-modes t))
@@ -138,6 +145,8 @@ if none exist or if numeric argument N is provided."
 (add-hook 'vterm-mode-hook
           (lambda ()
             (setq-local global-hl-line-mode nil)
+            (setq-local scroll-margin 0)
+            (setq-local hscroll-margin 0)
             (set-frame-font "JetBrainsMono Nerd Font" nil t) ; Nerd Font that supporting glyphs
             (cfg-tools/vterm-setup-key-remaps)))
 #+end_src
