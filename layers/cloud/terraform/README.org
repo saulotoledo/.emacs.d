@@ -14,6 +14,7 @@ managing Infrastructure as Code (IaC).
 #+begin_src emacs-lisp
 (use-package terraform-mode
   :defer t
+  :mode ("\\.tfvars\\.example\\'" . terraform-mode)
   :custom
   (terraform-command (if (executable-find "tofu") "tofu" "terraform"))
   :hook ((terraform-mode . lsp-deferred)
@@ -21,19 +22,20 @@ managing Infrastructure as Code (IaC).
 #+end_src
 
 ** LSP language ID
-~terraform-mode~ handles both ~*.tf~ and ~*.tfvars~, but terraform-ls expects
-different language IDs: ~terraform~ for config files and ~terraform-vars~ for
-variable files. Without the mapping below, every assignment in ~*.tfvars~ is
-validated as a module attribute and reported as "Unexpected attribute".
+~terraform-mode~ handles ~*.tf~, ~*.tfvars~, and ~*.tfvars.example~ (from config
+above), but terraform-ls expects different language IDs: ~terraform~ for config
+files and ~terraform-vars~ for variable files. Without the mapping below, every
+assignment in variable files is validated as a module attribute and reported as
+"Unexpected attribute".
 
 #+begin_src emacs-lisp
 (with-eval-after-load 'lsp-mode
   ;; Must precede (terraform-mode . "terraform") in lsp-language-id-configuration.
   ;; add-to-list inserts at front, so filename regex wins for *.tfvars buffers.
-  (add-to-list 'lsp-language-id-configuration '("\\.tfvars\\'" . "terraform-vars"))
+  (add-to-list 'lsp-language-id-configuration '("\\.tfvars\\(\\.example\\)?\\'" . "terraform-vars"))
 
   (when (boundp 'cfg-lsp/server-file-extensions)
-    (add-to-list 'cfg-lsp/server-file-extensions '(tfmls . ("tf" "tfvars")))))
+    (add-to-list 'cfg-lsp/server-file-extensions '(tfmls . ("tf" "tfvars" "tfvars.example")))))
 #+end_src
 
 ** Format on save
