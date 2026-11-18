@@ -126,9 +126,41 @@ if none exist or if numeric argument N is provided."
   (cfg-tools/vterm-copy-mode-open-at-point))
 
 (defun cfg-tools/vterm-skip-resize-during-minibuffer (orig-fun &rest args)
-  "Skip vterm pty resize while minibuffer is active to avoid redraw storms."
+  "Skip vterm pty resize while minibuffer is active to avoid redraw storms.
+ORIG-FUN is the advised function and ARGS are its arguments."
   (unless (active-minibuffer-window)
     (apply orig-fun args)))
+
+(defun cfg-tools/vterm-snap-windows-to-bottom (windows)
+  "Snap `vterm' WINDOWS to the bottom without incremental scrolling."
+  (unless (or (bound-and-true-p vterm-copy-mode)
+              (active-minibuffer-window))
+    (let ((win-list (if (listp windows) windows (list windows)))
+          (scroll-conservatively 0)
+          (scroll-margin 0))
+      (dolist (win win-list)
+        (when (window-live-p win)
+          (with-selected-window win
+            (save-excursion
+              (goto-char (point-max))
+              (recenter -1))))))))
+
+(defun cfg-tools/vterm-snap-to-bottom-after-resize (_process windows)
+  "Snap `vterm' WINDOWS to the bottom after a pty resize."
+  (cfg-tools/vterm-snap-windows-to-bottom windows))
+
+(defun cfg-tools/vterm-snap-to-bottom-after-redraw (buffer)
+  "Snap unselected `vterm' windows for BUFFER to the bottom after redraw."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (derived-mode-p 'vterm-mode)
+        (let ((swin (selected-window))
+              (unselected nil))
+          (dolist (win (get-buffer-window-list buffer nil t))
+            (unless (eq win swin)
+              (push win unselected)))
+          (when unselected
+            (cfg-tools/vterm-snap-windows-to-bottom unselected)))))))
 
 (use-package vterm
   :defer t
@@ -136,7 +168,11 @@ if none exist or if numeric argument N is provided."
   (setq vterm-max-scrollback 10000)
   (advice-add 'vterm :around #'cfg-tools/vterm-kill-with-no-query-around)
   (advice-add 'vterm--window-adjust-process-window-size
-              :around #'cfg-tools/vterm-skip-resize-during-minibuffer))
+              :around #'cfg-tools/vterm-skip-resize-during-minibuffer)
+  (advice-add 'vterm--window-adjust-process-window-size
+              :after #'cfg-tools/vterm-snap-to-bottom-after-resize)
+  (advice-add 'vterm--delayed-redraw
+              :after #'cfg-tools/vterm-snap-to-bottom-after-redraw))
 
 (dolist (hook '(shell-mode-hook term-mode-hook vterm-mode-hook))
   (add-hook hook #'cfg-tools/terminal-disable-editor-modes t))
@@ -147,6 +183,9 @@ if none exist or if numeric argument N is provided."
             (setq-local global-hl-line-mode nil)
             (setq-local scroll-margin 0)
             (setq-local hscroll-margin 0)
+            (setq-local auto-window-vscroll nil)
+            (setq-local bidi-paragraph-direction 'left-to-right)
+            (setq-local bidi-inhibit-bpa t)
             (set-frame-font "JetBrainsMono Nerd Font" nil t) ; Nerd Font that supporting glyphs
             (cfg-tools/vterm-setup-key-remaps)))
 #+end_src
