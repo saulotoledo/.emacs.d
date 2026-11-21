@@ -36,6 +36,14 @@ assignment in variable files is validated as a module attribute and reported as
 
   (when (boundp 'cfg-lsp/server-file-extensions)
     (add-to-list 'cfg-lsp/server-file-extensions '(tfmls . ("tf" "tfvars" "tfvars.example")))))
+
+;; `hcl-mode' derives from `prog-mode', so `cfg-lsp/defer-maybe' would otherwise
+;; start `lsp-deferred' in generic `.hcl' buffers where no LSP client applies.
+;; Keep `terraform-mode' (which derives from `hcl-mode') enabled.
+(add-hook 'cfg-lsp/deferred-start-predicate-functions
+          (lambda ()
+            (or (derived-mode-p 'terraform-mode)
+                (not (derived-mode-p 'hcl-mode)))))
 #+end_src
 
 ** Format on save
