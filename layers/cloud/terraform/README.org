@@ -14,7 +14,8 @@ managing Infrastructure as Code (IaC).
 #+begin_src emacs-lisp
 (use-package terraform-mode
   :defer t
-  :mode ("\\.tfvars\\.example\\'" . terraform-mode)
+  :mode (("\\.tfvars\\.example\\'" . terraform-mode)
+         ("\\.tftest\\.hcl\\'" . terraform-mode))
   :custom
   (terraform-command (if (executable-find "tofu") "tofu" "terraform"))
   :hook ((terraform-mode . lsp-deferred)
@@ -22,20 +23,22 @@ managing Infrastructure as Code (IaC).
 #+end_src
 
 ** LSP language ID
-~terraform-mode~ handles ~*.tf~, ~*.tfvars~, and ~*.tfvars.example~ (from config
-above), but terraform-ls expects different language IDs: ~terraform~ for config
-files and ~terraform-vars~ for variable files. Without the mapping below, every
-assignment in variable files is validated as a module attribute and reported as
-"Unexpected attribute".
+~terraform-mode~ handles ~*.tf~, ~*.tfvars~, ~*.tfvars.example~, and
+~*.tftest.hcl~ (from config above), but terraform-ls expects different language
+IDs: ~terraform~ for config files, ~terraform-vars~ for variable files, and
+~terraform-test~ for test files. Without the mapping below, assignments in
+variable files are validated as module attributes ("Unexpected attribute") and
+test files are not validated against the test schema.
 
 #+begin_src emacs-lisp
 (with-eval-after-load 'lsp-mode
   ;; Must precede (terraform-mode . "terraform") in lsp-language-id-configuration.
-  ;; add-to-list inserts at front, so filename regex wins for *.tfvars buffers.
+  ;; add-to-list inserts at front, so filename regex wins over major-mode fallback.
   (add-to-list 'lsp-language-id-configuration '("\\.tfvars\\(\\.example\\)?\\'" . "terraform-vars"))
+  (add-to-list 'lsp-language-id-configuration '("\\.tftest\\.hcl\\'" . "terraform-test"))
 
   (when (boundp 'cfg-lsp/server-file-extensions)
-    (add-to-list 'cfg-lsp/server-file-extensions '(tfmls . ("tf" "tfvars" "tfvars.example")))))
+    (add-to-list 'cfg-lsp/server-file-extensions '(tfmls . ("tf" "tfvars" "tfvars.example" "tftest.hcl")))))
 
 ;; `hcl-mode' derives from `prog-mode', so `cfg-lsp/defer-maybe' would otherwise
 ;; start `lsp-deferred' in generic `.hcl' buffers where no LSP client applies.
@@ -62,13 +65,19 @@ here:
   silently when ~tofu~ is missing.
 - ~terraform-mode~ derives from ~hcl-mode~, so Apheleia can also try ~hclfmt~.
 
-Disable Apheleia for Terraform so save uses only the path above.
+Disable Apheleia for Terraform so save uses only the path above. For generic
+~hcl-mode~, Apheleia defaults to ~hclfmt~; fall back to ~tofu~ or ~terraform~
+when ~hclfmt~ is not installed.
 
 #+begin_src emacs-lisp
 (defvar apheleia-mode-alist)
 
 (with-eval-after-load 'apheleia
-  (setf (alist-get 'terraform-mode apheleia-mode-alist) nil))
+  (setf (alist-get 'terraform-mode apheleia-mode-alist) nil)
+  (setf (alist-get 'hcl-mode apheleia-mode-alist)
+        (cond ((executable-find "hclfmt") 'hclfmt)
+              ((executable-find "tofu") 'opentofu)
+              ((executable-find "terraform") 'terraform))))
 #+end_src
 
 * Keybindings
