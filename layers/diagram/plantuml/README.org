@@ -70,6 +70,27 @@ ARGS contains the advised function's arguments."
   (flycheck-plantuml-setup))
 #+end_src
 
+** Org Babel
+Enable executing and rendering =plantuml= source blocks in Org mode via
+built-in ~ob-plantuml~ using the local =plantuml.jar=.
+
+#+begin_src emacs-lisp
+(defvar org-babel-load-languages)
+(declare-function org-babel-do-load-languages "ob")
+
+(use-package ob-plantuml
+  :ensure nil
+  :after ob
+  :custom
+  (org-plantuml-exec-mode 'jar)
+  (org-plantuml-jar-path
+   (expand-file-name "plantuml/plantuml.jar" user-emacs-directory))
+  :config
+  (add-to-list 'org-babel-load-languages '(plantuml . t))
+  (org-babel-do-load-languages 'org-babel-load-languages
+                               org-babel-load-languages))
+#+end_src
+
 * Keybindings
 Registers keybindings for previewing and editing diagrams.
 
