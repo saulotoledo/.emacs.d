@@ -174,8 +174,7 @@ already positioned immediately to the right."
                    (and (with-current-buffer (window-buffer)
                           (derived-mode-p 'dired-mode))
                         (with-current-buffer buffer
-                          (or buffer-file-name
-                              (derived-mode-p 'dired-mode)))))
+                          buffer-file-name)))
                  (cfg-navigation/display-buffer-right-of-dired))))
 
 ;; Register dired commands that should use literal text entry (not matched candidates)
