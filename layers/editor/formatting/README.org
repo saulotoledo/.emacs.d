@@ -59,6 +59,7 @@ The package setup:
   (apheleia-global-mode +1)
 
   (declare-function cfg-editor/apheleia-inhibit-remote-if-no-tool nil)
+  (declare-function cfg-editor--apheleia-apply-elisp-indent-declarations nil)
 
   ;; Smarter TRAMP support: Only inhibit if the required formatter is missing on the remote.
   ;; This prevents hangs while allowing formatting if the remote has the tool installed.
@@ -71,6 +72,36 @@ The package setup:
         (not (executable-find (or (and (stringp cmd) cmd) "") t)))))
 
   (add-to-list 'apheleia-inhibit-functions #'cfg-editor/apheleia-inhibit-remote-if-no-tool)
+
+  (defun cfg-editor--apheleia-apply-elisp-indent-declarations (&rest args)
+    "Apply buffer `(declare (indent ...))' specs before Lisp indentation.
+ARGS is the keyword plist passed to `apheleia-indent-lisp-buffer'."
+    (when-let* ((buf (plist-get args :buffer))
+                ((buffer-live-p buf)))
+      (with-current-buffer buf
+        (when (derived-mode-p 'emacs-lisp-mode)
+          (save-excursion
+            (save-restriction
+              (widen)
+              (goto-char (point-min))
+              (while (re-search-forward "([ \t\n]*declare\\_>" nil t)
+                (let* ((decl (match-beginning 0))
+                       (ppss (syntax-ppss decl))
+                       (parent (nth 1 ppss)))
+                  (when (and parent (not (or (nth 3 ppss) (nth 4 ppss))))
+                    (save-excursion
+                      (ignore-errors
+                        (goto-char decl)
+                        (when-let* ((clause (assq 'indent (cdr-safe (read (current-buffer))))))
+                          (goto-char (1+ parent))
+                          (let ((head (read (current-buffer)))
+                                (name (read (current-buffer))))
+                            (when (and (symbolp head) (symbolp name)
+                                       (string-match-p "\\`\\(?:cl-\\)?def" (symbol-name head)))
+                              (put name 'lisp-indent-function (cadr clause))))))))))))))))
+
+  (advice-add 'apheleia-indent-lisp-buffer :before
+              #'cfg-editor--apheleia-apply-elisp-indent-declarations)
 
   (setf (alist-get 'prettier-local apheleia-formatters)
         `(,(expand-file-name "nodejs_tools/node_modules/.bin/prettier"
