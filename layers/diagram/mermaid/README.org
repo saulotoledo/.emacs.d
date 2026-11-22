@@ -58,6 +58,28 @@ diagrams), we also setup ~mermaid-mode~ for such cases.
   (mermaid-ts-mode . cfg-diagram--mermaid-setup))
 #+end_src
 
+** Org Babel
+Enable executing and rendering =mermaid= source blocks in Org mode via
+~ob-mermaid~ using the local =mmdc= CLI.
+
+#+begin_src emacs-lisp
+(defvar org-babel-load-languages)
+(defvar org-src-lang-modes)
+(declare-function org-babel-do-load-languages "ob")
+
+(use-package ob-mermaid
+  :after ob
+  :custom
+  (ob-mermaid-cli-path
+   (expand-file-name "nodejs_tools/node_modules/.bin/mmdc"
+                     user-emacs-directory))
+  :config
+  (add-to-list 'org-src-lang-modes '("mermaid" . mermaid-ts))
+  (add-to-list 'org-babel-load-languages '(mermaid . t))
+  (org-babel-do-load-languages 'org-babel-load-languages
+                               org-babel-load-languages))
+#+end_src
+
 * Keybindings
 The following keybindings are registered by default in ~mermaid-mode~, but not
 in ~mermaid-ts-mode~ because the latter lacks integration with the =mmdc=
