@@ -52,11 +52,14 @@ export by default.
   :config
   (setq org-export-use-babel nil
         org-confirm-babel-evaluate nil)
+  (dolist (lang '((emacs-lisp . t)
+                  (python . t)
+                  (clojure . t)))
+    (add-to-list 'org-babel-load-languages lang))
   (org-babel-do-load-languages
    'org-babel-load-languages
-   '((emacs-lisp . t)
-     (python . t)
-     (clojure . t))))
+   org-babel-load-languages)
+  (add-hook 'org-babel-after-execute-hook #'org-redisplay-inline-images))
 #+end_src
 
 Default to use whatever interpreter is set by ~python-shell-interpreter~.
