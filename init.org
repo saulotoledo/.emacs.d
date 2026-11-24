@@ -219,6 +219,10 @@ steps occur:
 
 ;; Disable package.el; Elpaca manages packages instead
 (setq package-enable-at-startup nil)
+
+;; Performance tuning: read-process-output-max limits how much data Emacs reads from an external process in a single
+;; chunk; increasing it allows Emacs to consume large outputs from subprocesses (LSP, vterm, etc.) with less overhead
+(setq read-process-output-max (* 4 1024 1024))
 #+end_src
 
 *** Benchmark & Startup Diagnostic Timer

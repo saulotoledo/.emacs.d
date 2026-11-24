@@ -162,11 +162,25 @@ ORIG-FUN is the advised function and ARGS are its arguments."
           (when unselected
             (cfg-tools/vterm-snap-windows-to-bottom unselected)))))))
 
+(defun cfg-tools--vterm-copy-mode-setup ()
+  "Activate visual and navigation modes useful only during the copy mode."
+  (let ((state (if vterm-copy-mode 1 -1)))
+    (hl-line-mode state)
+    (goto-address-mode state)))
+
+(defun cfg-tools--vterm-adaptive-read-buffering-around (orig-fun &rest args)
+  "Ensure `process-adaptive-read-buffering' is active for `vterm' process creation.
+ORIG-FUN is the advised function and ARGS are its arguments."
+  (let ((process-adaptive-read-buffering t))
+    (apply orig-fun args)))
+
 (use-package vterm
   :defer t
   :config
-  (setq vterm-max-scrollback 10000)
+  (setq vterm-timer-delay 0.08
+        vterm-max-scrollback 10000)
   (advice-add 'vterm :around #'cfg-tools/vterm-kill-with-no-query-around)
+  (advice-add 'vterm-mode :around #'cfg-tools--vterm-adaptive-read-buffering-around)
   (advice-add 'vterm--window-adjust-process-window-size
               :around #'cfg-tools/vterm-skip-resize-during-minibuffer)
   (advice-add 'vterm--window-adjust-process-window-size
@@ -177,15 +191,42 @@ ORIG-FUN is the advised function and ARGS are its arguments."
 (dolist (hook '(shell-mode-hook term-mode-hook vterm-mode-hook))
   (add-hook hook #'cfg-tools/terminal-disable-editor-modes t))
 
-(add-hook 'vterm-copy-mode-hook #'goto-address-mode)
+(add-hook 'vterm-copy-mode-hook #'cfg-tools--vterm-copy-mode-setup)
 (add-hook 'vterm-mode-hook
           (lambda ()
-            (setq-local global-hl-line-mode nil)
-            (setq-local scroll-margin 0)
-            (setq-local hscroll-margin 0)
-            (setq-local auto-window-vscroll nil)
-            (setq-local bidi-paragraph-direction 'left-to-right)
-            (setq-local bidi-inhibit-bpa t)
+            (let ((modes-to-disable '(;; Unnecessary rendering
+                                      colorful-mode
+                                      display-fill-column-indicator-mode
+                                      trailing-newline-indicator-mode
+                                      treesit-fold-indicators-mode
+                                      visual-line-mode
+                                      whitespace-mode
+
+                                      ;; Editing and history
+                                      apheleia-mode
+                                      auto-revert-mode
+                                      cloak-mode
+                                      corfu-mode
+                                      eldoc-mode
+                                      electric-indent-local-mode
+                                      flycheck-mode
+                                      show-paren-local-mode
+                                      undo-tree-mode
+                                      yas-minor-mode)))
+              (dolist (mode modes-to-disable)
+                (when (fboundp mode)
+                  (funcall mode -1))))
+            ;; Modes
+            (setq-local global-hl-line-mode nil
+                        line-number-mode nil
+                        column-number-mode nil
+                        delete-selection-mode nil)
+            ;; Other configs
+            (setq-local scroll-margin 0
+                        hscroll-margin 0
+                        auto-window-vscroll nil
+                        bidi-paragraph-direction 'left-to-right
+                        bidi-inhibit-bpa t)
             (set-frame-font "JetBrainsMono Nerd Font" nil t) ; Nerd Font that supporting glyphs
             (cfg-tools/vterm-setup-key-remaps)))
 #+end_src

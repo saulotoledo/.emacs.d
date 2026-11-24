@@ -654,11 +654,6 @@ which need to complete synchronously to apply their edits.")
   ;; Strategy: Disable the default `eslint` client (which hardcodes local paths)
   ;; and register a specialized `eslint-remote` client that uses the global server.
 
-  ;; Performance tuning: read-process-output-max limits how much data Emacs reads from an external process in a single
-  ;; chunk; increasing it allows Emacs to consume large outputs (e.g. from LSP servers) more efficiently and with less
-  ;; overhead.
-  (setq read-process-output-max (* 4 1024 1024))
-
   ;; Slightly (but insignificantly) more costly, but it prevents Emacs from triggering lsp--on-rename-file ->
   ;; workspace/willRenameFiles, which eventually freezes Emacs when backup (filename~) files are written by Emacs:
   (setq backup-by-copying t)
