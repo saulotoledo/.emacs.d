@@ -46,6 +46,7 @@ export by default.
 
 #+begin_src emacs-lisp
 ;; Working with Code Blocks in Org
+(declare-function org-link-preview-refresh "ol")
 (use-package ob
   :ensure nil
   :after org
@@ -59,7 +60,7 @@ export by default.
   (org-babel-do-load-languages
    'org-babel-load-languages
    org-babel-load-languages)
-  (add-hook 'org-babel-after-execute-hook #'org-redisplay-inline-images))
+  (add-hook 'org-babel-after-execute-hook #'org-link-preview-refresh))
 #+end_src
 
 Default to use whatever interpreter is set by ~python-shell-interpreter~.

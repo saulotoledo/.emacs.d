@@ -27,7 +27,8 @@ clean, modern, and minimalist visual elements.
       (markdown-modern-install-grammars))))
 
 (defun cfg-lang/markdown-modern-mermaid-mmdc-fallback (orig diagram-code)
-  "Fall back to local `mmdc' when `markdown-modern-mermaid-render' returns nil."
+ "Fall back to local `mmdc' when `markdown-modern-mermaid-render' returns nil.
+ORIG is the original function called with DIAGRAM-CODE."
   (or (funcall orig diagram-code)
       (let ((mmdc (expand-file-name "nodejs_tools/node_modules/.bin/mmdc"
                                     user-emacs-directory)))
