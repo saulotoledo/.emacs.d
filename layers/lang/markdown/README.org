@@ -26,6 +26,22 @@ clean, modern, and minimalist visual elements.
     (let ((inhibit-message t))
       (markdown-modern-install-grammars))))
 
+(defun cfg-lang/markdown-modern-mermaid-mmdc-fallback (orig diagram-code)
+  "Fall back to local `mmdc' when `markdown-modern-mermaid-render' returns nil."
+  (or (funcall orig diagram-code)
+      (let ((mmdc (expand-file-name "nodejs_tools/node_modules/.bin/mmdc"
+                                    user-emacs-directory)))
+        (when (file-executable-p mmdc)
+          (with-temp-buffer
+            (insert "%%{init: {\"htmlLabels\": false, \"flowchart\": {\"htmlLabels\": false}}}%%\n"
+                    diagram-code)
+            (when (zerop (call-process-region
+                          (point-min) (point-max) mmdc t '(t nil) nil
+                          "-i" "-" "-o" "-" "-e" "svg" "-q" "-b" "transparent"
+                          "-t" (if (eq (frame-parameter nil 'background-mode) 'dark)
+                                   "dark" "default")))
+              (buffer-string)))))))
+
 (use-package markdown-modern
   :ensure (markdown-modern :host github
                            :repo "rjprins/markdown-modern"
@@ -60,6 +76,8 @@ clean, modern, and minimalist visual elements.
 
   (advice-add 'markdown-modern-render--table :around
               #'cfg-lang/markdown-modern-render-table))
+  (advice-add 'markdown-modern-mermaid-render :around
+              #'cfg-lang/markdown-modern-mermaid-mmdc-fallback)
 #+end_src
 
 ** Grip mode
